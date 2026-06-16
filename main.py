@@ -36,17 +36,6 @@ CONCURRENCY = 30
 
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-# 讀取金鑰: api_keys 是一個變數,不要加引號
-api_keys = userdata.get('GEMINI_KEY')
-genai.configure(api_key=api_keys)
-
-# 初始化時就定義好它是誰
-ai_persona = "你是一個intj的雙魚座工程師,叫作小夫。請稱呼使用者為『BOSS』。"
-model = genai.GenerativeModel(
-model_name='gemini-3.1-flash-lite-preview',
-system_instruction=ai_persona
-)
-
 # =========================
 # 🧠 快取（1分鐘）
 # =========================
