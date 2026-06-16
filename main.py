@@ -359,5 +359,17 @@ async def analyze(ctx, code):
 async def on_ready():
     print(f"✅ 已登入：{bot.user}")
 
-nest_asyncio.apply()
-bot.run(TOKEN)
+
+# ─── 3. 用同一個事件循環啟動 ───
+async def main():
+
+    config = uvicorn.Config(app, host="0.0.0.0", port=10000, log_level="info")
+    server = uvicorn.Server(config)
+
+    await asyncio.gather(
+        server.serve(),
+        bot.start(TOKEN)
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
