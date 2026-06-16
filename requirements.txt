@@ -1,0 +1,11 @@
+discord
+commands
+yfinance
+asyncio
+time
+nest_asyncio
+requests
+pandas
+ThreadPoolExecutor
+google.generativeai
+userdata
