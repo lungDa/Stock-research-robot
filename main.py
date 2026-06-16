@@ -14,7 +14,7 @@ from google.colab import userdata
 # =========================
 # 🔑 設定
 # =========================
-TOKEN = userdata.get(DISCODE_TOKEN)
+TOKEN = userdata.get("DISCODE_TOKEN")
 MAX_WORKERS = 10
 CONCURRENCY = 30
 
