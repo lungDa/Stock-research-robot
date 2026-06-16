@@ -8,7 +8,6 @@ import requests
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 import google.generativeai as genai
-from google.colab import userdata
 import sys
 import random
 import os
