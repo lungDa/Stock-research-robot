@@ -20,7 +20,7 @@ app = FastAPI()
 # 瀏覽器用的 GET 請求
 @app.get("/")
 async def home_get():
-    return {"status": "🤖 誰是臥底機器人 24 暢通運作中！"}
+    return {"status": "🤖 股票駐守機器人 24 暢通運作中！"}
 
 # 專門給 UptimeRobot 用的 HEAD 請求（完全不帶 request 參數，避免底層解析出錯）
 @app.head("/")
