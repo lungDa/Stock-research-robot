@@ -306,10 +306,11 @@ async def scan_fast(ctx):
             result = await coro
 
             if result:
-                mention_list.append(result["code"])
+                mention_list.append(f"{get_stock_name(result['code'])} ({result['code']})")
 
                 embed = discord.Embed(
-                    title=f"🔥 強力推薦購買｜{result['code']}",
+                    name = get_stock_name(result["code"])
+                    title=f"🔥 強力推薦購買｜{name} ({result['code']})",
                     color=result["color"],
                 )
                 embed.add_field(name="價格", value=f"{result['price']:.1f}")
@@ -336,16 +337,25 @@ async def scan_fast(ctx):
 # 📛 取得中文名稱
 # =========================
 def get_stock_name(code):
-    code = code.replace(".TW", "")
 
-    # 方法1：TWSE API
+    code = str(code).replace(".TW", "")
+
+    load_stock_names()
+
+    if code in STOCK_NAME_CACHE:
+        return STOCK_NAME_CACHE[code]
+
     try:
-        url = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
-        data = requests.get(url, timeout=5).json()
+        info = yf.Ticker(f"{code}.TW").info
 
-        for d in data:
-            if d.get("公司代號") == code:
-                return d.get("公司簡稱") or "未知名稱"
+        return (
+            info.get("shortName")
+            or info.get("longName")
+            or "未知名稱"
+        )
+
+    except:
+        return "未知名稱"
 
     except Exception as e:
         print(f"TWSE 查中文名稱失敗：{e}")
