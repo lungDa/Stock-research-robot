@@ -3,43 +3,49 @@ from discord.ext import commands
 import yfinance as yf
 import asyncio
 import time
-import nest_asyncio
 import requests
-import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 import google.generativeai as genai
 import sys
 import random
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 import uvicorn
 
 # ─── 1. 建立 FastAPI 網頁伺服器 ───
 app = FastAPI()
 
-# 瀏覽器用的 GET 請求
+
 @app.get("/")
 async def home_get():
-    return {"status": "🤖 股票駐守機器人 24 暢通運作中！"}
+    return {"status": "🤖 股票駐守機器人 24H 暢通運作中！"}
 
-# 專門給 UptimeRobot 用的 HEAD 請求（完全不帶 request 參數，避免底層解析出錯）
+
 @app.head("/")
 async def home_head():
-    return None  # HEAD 請求依照 HTTP 規範本來就不需要回傳內容，給個空值即可
+    # HEAD 請求不需要回傳內容
+    return Response(status_code=200)
+
 
 # =========================
 # 🔑 設定
 # =========================
-TOKEN = os.getenv("DISCODE_TOKEN")
+# Render / Railway / Replit 等平台請設定環境變數：DISCORD_TOKEN
+TOKEN = os.getenv("DISCORD_TOKEN")
+
 MAX_WORKERS = 10
 CONCURRENCY = 30
+PORT = int(os.getenv("PORT", "10000"))
 
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
 
 # =========================
 # 🧠 快取（1分鐘）
 # =========================
 CACHE = {"data": None, "time": 0}
+
 
 # =========================
 # 🤖 Bot
@@ -48,6 +54,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+
 # =========================
 # 📌 台股清單
 # =========================
@@ -55,9 +62,11 @@ def get_all_tw_stocks():
     try:
         url = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
         data = requests.get(url, timeout=10).json()
-        return [d["公司代號"] for d in data if d["公司代號"].isdigit()]
-    except:
+        return [d["公司代號"] for d in data if d.get("公司代號", "").isdigit()]
+    except Exception as e:
+        print(f"取得台股清單失敗：{e}")
         return ["2330", "2317", "2454", "2303", "2412"]
+
 
 # =========================
 # 🚀 批次抓資料
@@ -70,8 +79,10 @@ def fetch_batch_data(codes):
         period="3mo",
         group_by="ticker",
         threads=True,
-        progress=False
+        progress=False,
+        auto_adjust=False,
     )
+
 
 # =========================
 # ⚡ 快取控制
@@ -83,11 +94,10 @@ def get_cached_data(codes):
         return CACHE["data"]
 
     data = fetch_batch_data(codes)
-
     CACHE["data"] = data
     CACHE["time"] = now
-
     return data
+
 
 # =========================
 # ⚡ 粗篩
@@ -97,7 +107,7 @@ def fast_filter(data):
 
     try:
         codes = data.columns.levels[0]
-    except:
+    except Exception:
         return []
 
     for code in codes:
@@ -111,14 +121,64 @@ def fast_filter(data):
             ma5 = close.tail(5).mean()
             ma20 = close.tail(20).mean()
 
-            # 👉 嚴格版（多加趨勢確認）
+            # 嚴格版：價格站上 MA5，MA5 站上 MA20，且 MA5 高於 MA20 至少 1%
             if close.iloc[-1] > ma5 > ma20 and ma5 > ma20 * 1.01:
-                candidates.append(code.replace(".TW", ""))
+                candidates.append(str(code).replace(".TW", ""))
 
-        except:
+        except Exception:
             continue
 
     return candidates
+
+
+# =========================
+# 📊 單檔資料工具
+# =========================
+def get_price(stock):
+    try:
+        hist = stock.history(period="5d", auto_adjust=False)
+        if hist.empty:
+            return None
+        return float(hist["Close"].dropna().iloc[-1])
+    except Exception as e:
+        print(f"get_price error: {e}")
+        return None
+
+
+def get_eps(stock):
+    try:
+        info = stock.info
+        return float(info.get("trailingEps") or 0)
+    except Exception as e:
+        print(f"get_eps error: {e}")
+        return 0.0
+
+
+def get_roe(stock):
+    try:
+        info = stock.info
+        return float(info.get("returnOnEquity") or 0) * 100
+    except Exception as e:
+        print(f"get_roe error: {e}")
+        return 0.0
+
+
+def get_yield(stock, price):
+    try:
+        if not price:
+            return 0.0
+
+        div = stock.dividends
+        if div.empty:
+            return 0.0
+
+        # 取最近 365 天現金股利總和
+        recent_div = div[div.index >= div.index.max() - timedelta(days=365)]
+        return float(recent_div.sum() / price * 100)
+    except Exception as e:
+        print(f"get_yield error: {e}")
+        return 0.0
+
 
 # =========================
 # 🧠 精算
@@ -127,39 +187,31 @@ def analyze_stock(code):
     try:
         stock = yf.Ticker(f"{code}.TW")
 
-        hist = stock.history(period="3mo")
+        hist = stock.history(period="3mo", auto_adjust=False)
         if hist.empty:
             return None
 
-        price = float(hist["Close"].iloc[-1])
+        close = hist["Close"].dropna()
+        if len(close) < 20:
+            return None
 
-        ma5 = hist["Close"].tail(5).mean()
-        ma20 = hist["Close"].tail(20).mean()
+        price = float(close.iloc[-1])
+        ma5 = close.tail(5).mean()
+        ma20 = close.tail(20).mean()
 
-        info = stock.info
-
-        eps = info.get("trailingEps") or 0
-        roe = (info.get("returnOnEquity") or 0) * 100
-
-        div = stock.dividends
-        yld = (div.last("365D").sum() / price * 100) if price else 0
+        eps = get_eps(stock)
+        roe = get_roe(stock)
+        yld = get_yield(stock, price)
 
         # =========================
         # 🎯 嚴格條件整合
         # =========================
-        if (
-            price > ma5 > ma20 and
-            roe >= 20 and
-            eps >= 3 and
-            yld >= 5
-        ):
+        if price > ma5 > ma20 and roe >= 20 and eps >= 3 and yld >= 5:
             level = "強力推薦購買"
             color = discord.Color.green()
-
         elif roe >= 15 and eps >= 2:
             level = "買"
             color = discord.Color.blue()
-
         else:
             level = "觀望"
             color = discord.Color.red()
@@ -171,32 +223,32 @@ def analyze_stock(code):
             "roe": roe,
             "yield": yld,
             "level": level,
-            "color": color
+            "color": color,
         }
 
     except Exception as e:
         print(f"error {code}: {e}")
         return None
+
+
 # =========================
-# 機器人回應 測試 指令
+# 機器人回應測試指令
 # =========================
 @bot.command()
-
 async def HIHI(ctx):
+    await ctx.send("今天的龍大真帥，一定是很棒的一天!!")
 
-  await ctx.send('今天的龍大真帥,一定是很棒的一天!!')
 
 # =========================
 # 🚀 scan_fast
 # =========================
 @bot.command()
 async def scan_fast(ctx):
-
     stocks = get_all_tw_stocks()
     msg = await ctx.send("🚀 掃描啟動...靜待5分鐘")
 
     # 批次資料
-    batch_data = get_cached_data(stocks)
+    batch_data = await asyncio.to_thread(get_cached_data, stocks)
 
     # 粗篩
     candidates = fast_filter(batch_data)
@@ -205,6 +257,10 @@ async def scan_fast(ctx):
     completed = 0
 
     await msg.edit(content=f"⚡ 粗篩完成：{total} 檔")
+
+    if total == 0:
+        await ctx.send("⚠️ 粗篩沒有符合條件的股票")
+        return
 
     semaphore = asyncio.Semaphore(CONCURRENCY)
     mention_list = []
@@ -215,9 +271,10 @@ async def scan_fast(ctx):
     async def progress():
         while completed < total:
             percent = (completed / total) * 100 if total else 100
-            await msg.edit(
-                content=f"🚀 掃描中 {completed}/{total}（{percent:.1f}%）"
-            )
+            try:
+                await msg.edit(content=f"🚀 掃描中 {completed}/{total}（{percent:.1f}%）")
+            except Exception as e:
+                print(f"進度訊息更新失敗：{e}")
             await asyncio.sleep(5)
 
     progress_task = asyncio.create_task(progress())
@@ -231,7 +288,8 @@ async def scan_fast(ctx):
         async with semaphore:
             try:
                 data = await asyncio.to_thread(analyze_stock, code)
-            except:
+            except Exception as e:
+                print(f"worker error {code}: {e}")
                 data = None
 
             completed += 1
@@ -243,36 +301,36 @@ async def scan_fast(ctx):
 
     tasks = [worker(code) for code in candidates]
 
-    for coro in asyncio.as_completed(tasks):
-        result = await coro
+    try:
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
 
-        if result:
-            mention_list.append(result["code"])
+            if result:
+                mention_list.append(result["code"])
 
-            embed = discord.Embed(
-                title=f"🔥 強力推薦購買｜{result['code']}",
-                color=result["color"]
-            )
+                embed = discord.Embed(
+                    title=f"🔥 強力推薦購買｜{result['code']}",
+                    color=result["color"],
+                )
+                embed.add_field(name="價格", value=f"{result['price']:.1f}")
+                embed.add_field(name="EPS", value=f"{result['eps']:.2f}")
+                embed.add_field(name="ROE", value=f"{result['roe']:.1f}%")
+                embed.add_field(name="殖利率", value=f"{result['yield']:.2f}%")
 
-            embed.add_field(name="價格", value=f"{result['price']:.1f}")
-            embed.add_field(name="EPS", value=f"{result['eps']:.2f}")
-            embed.add_field(name="ROE", value=f"{result['roe']:.1f}%")
-            embed.add_field(name="殖利率", value=f"{result['yield']:.2f}%")
-
-            await ctx.send(embed=embed)
-
-    progress_task.cancel()
+                await ctx.send(embed=embed)
+    finally:
+        progress_task.cancel()
 
     # =========================
     # 結果
     # =========================
     if mention_list:
         await ctx.send(
-            f"🔥 強力推薦購買\n<@{ctx.author.id}>\n" +
-            "\n".join(mention_list[:20])
+            f"🔥 強力推薦購買\n<@{ctx.author.id}>\n" + "\n".join(mention_list[:20])
         )
     else:
         await ctx.send("⚠️ 無強力推薦購買")
+
 
 # =========================
 # 📛 取得中文名稱
@@ -280,24 +338,24 @@ async def scan_fast(ctx):
 def get_stock_name(code):
     code = code.replace(".TW", "")
 
-    # 方法1：TWSE API（最穩）
+    # 方法1：TWSE API
     try:
         url = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
         data = requests.get(url, timeout=5).json()
 
         for d in data:
-            if d["公司代號"] == code:
-                return d["公司簡稱"]
+            if d.get("公司代號") == code:
+                return d.get("公司簡稱") or "未知名稱"
 
-    except:
-        pass
+    except Exception as e:
+        print(f"TWSE 查中文名稱失敗：{e}")
 
     # 方法2：yfinance fallback
     try:
         info = yf.Ticker(code + ".TW").info
-        return info.get("shortName") or info.get("longName")
-    except:
-        pass
+        return info.get("shortName") or info.get("longName") or "未知名稱"
+    except Exception as e:
+        print(f"yfinance 查中文名稱失敗：{e}")
 
     return "未知名稱"
 
@@ -307,23 +365,24 @@ def get_stock_name(code):
 # =========================
 @bot.command()
 async def analyze(ctx, code):
+    code = code.replace(".TW", "").strip()
 
-    code = code.replace(".TW", "")
+    if not code.isdigit():
+        await ctx.send("❌ 股票代號格式錯誤，例如：!analyze 2330")
+        return
+
     full_code = code + ".TW"
-
     stock = yf.Ticker(full_code)
 
-    price = get_price(stock)
+    price = await asyncio.to_thread(get_price, stock)
     if not price:
         await ctx.send("❌ 抓不到資料")
         return
 
-    eps = get_eps(stock)
-    roe = get_roe(stock)
-    yld = get_yield(stock, price)
-
-    # 👉 新增：中文名稱
-    name = get_stock_name(code)
+    eps = await asyncio.to_thread(get_eps, stock)
+    roe = await asyncio.to_thread(get_roe, stock)
+    yld = await asyncio.to_thread(get_yield, stock, price)
+    name = await asyncio.to_thread(get_stock_name, code)
 
     await ctx.send(
         f"📊 {name}（{full_code}）\n"
@@ -332,6 +391,7 @@ async def analyze(ctx, code):
         f"ROE {roe:.1f}%\n"
         f"殖利率 {yld:.2f}%"
     )
+
 
 # =========================
 # ▶️ 啟動
@@ -343,14 +403,19 @@ async def on_ready():
 
 # ─── 3. 用同一個事件循環啟動 ───
 async def main():
+    if not TOKEN:
+        raise RuntimeError(
+            "找不到 DISCORD_TOKEN。請到部署平台的環境變數設定 DISCORD_TOKEN。"
+        )
 
-    config = uvicorn.Config(app, host="0.0.0.0", port=10000, log_level="info")
+    config = uvicorn.Config(app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
 
     await asyncio.gather(
         server.serve(),
-        bot.start(TOKEN)
+        bot.start(TOKEN),
     )
+
 
 if __name__ == "__main__":
     asyncio.run(main())
