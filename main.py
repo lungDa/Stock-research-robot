@@ -299,30 +299,31 @@ async def scan_fast(ctx):
 
             return None
 
-    tasks = [worker(code) for code in candidates]
+        tasks = [worker(code) for code in candidates]
 
     try:
-           for coro in asyncio.as_completed(tasks):
+        for coro in asyncio.as_completed(tasks):
             result = await coro
-        
+
             if result:
-        
                 name = get_stock_name(result["code"])
-        
+
                 mention_list.append(
                     f"{name} ({result['code']})"
                 )
-        
+
                 embed = discord.Embed(
-                    title=f"🔥 強力推薦購買｜{name}",
+                    title=f"🔥 強力推薦購買｜{name} ({result['code']})",
                     color=result["color"]
                 )
+
                 embed.add_field(name="價格", value=f"{result['price']:.1f}")
                 embed.add_field(name="EPS", value=f"{result['eps']:.2f}")
                 embed.add_field(name="ROE", value=f"{result['roe']:.1f}%")
                 embed.add_field(name="殖利率", value=f"{result['yield']:.2f}%")
-    
+
                 await ctx.send(embed=embed)
+
     finally:
         progress_task.cancel()
 
