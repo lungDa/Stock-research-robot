@@ -186,13 +186,6 @@ async def HIHI(ctx):
 
   await ctx.send('今天的龍大真帥,一定是很棒的一天!!')
 
-@bot.command()
-async def say(ctx):
-    chat = model.start_chat(history=[])
-    while True:
-      response = chat.send_message("請你在心中默想一個故事,讓我來玩海龜湯")
-      await ctx.send(f"小夫:{response.text}")
-
 # =========================
 # 🚀 scan_fast
 # =========================
