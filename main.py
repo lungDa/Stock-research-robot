@@ -359,11 +359,9 @@ def get_stock_name(code):
             or "未知名稱"
         )
 
-    except:
-        return "未知名稱"
-
     except Exception as e:
-        print(f"TWSE 查中文名稱失敗：{e}")
+        print(f"yfinance 查中文名稱失敗：{e}")
+        return "未知名稱"
 
     # 方法2：yfinance fallback
     try:
