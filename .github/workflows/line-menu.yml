@@ -1,0 +1,25 @@
+name: Publish LINE assistant menu
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-menu
+  cancel-in-progress: false
+jobs:
+  menu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install menu publisher dependencies
+        timeout-minutes: 2
+        run: pip install --disable-pip-version-check 'requests>=2.32,<3' 'python-dotenv>=1,<2'
+      - name: Publish default menu (no push messages)
+        timeout-minutes: 1
+        run: python -m jobs.setup_line_menu
