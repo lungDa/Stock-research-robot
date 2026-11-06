@@ -15,8 +15,12 @@ async def lifespan(app):
     settings.users  # 設定錯誤在啟動時顯示
     yield
 app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
+from app.api.line_login import router as login_router
+app.include_router(login_router)
+from app.api.public import router as public_router
+app.include_router(public_router)
 # 單一程序限制同時向行情商發出請求；免費部署維持一個 worker。
-quote_lock=asyncio.Semaphore(1)
+from app.api.limits import quote_lock
 class Symbol(BaseModel): symbol:str=Field(max_length=25)
 class Notice(BaseModel): enabled:bool
 @app.get('/health')
@@ -63,7 +67,8 @@ async def webhook(request:Request):
         if event.get('type')!='message' or event.get('message',{}).get('type')!='text': continue
         if event.get('source',{}).get('type')!='user': continue
         user=event['source'].get('userId')
-        if user not in settings.users.values(): continue
+        from app.services.accounts import is_member
+        if not is_member(user): continue
         event_id=event.get('webhookEventId')
         if not event_id: continue
         key='event:'+event_id
@@ -73,7 +78,10 @@ async def webhook(request:Request):
             if state.get('status')=='done': continue
             if time.time()-state.get('at',0)<60: failed=True; continue
         try:
-            try: text=await asyncio.to_thread(commands.handle,user,event['message']['text'])
+            try:
+                from app.services.accounts import can_use_personal
+                if not can_use_personal(user):text='請先到股海燈塔網頁完成初始密碼修改，再使用個人功能。'
+                else:text=await asyncio.to_thread(commands.handle,user,event['message']['text'])
             except ValueError as e: text=str(e)
             await asyncio.to_thread(line.reply,event['replyToken'],text)
             put(key,{'status':'done','at':time.time()})
@@ -116,3 +124,11 @@ async def limited_body(request,limit):
         if size>limit:raise HTTPException(413,'內容超過大小限制')
         chunks.append(chunk)
     return b''.join(chunks)
+
+@app.middleware('http')
+async def private_response_headers(request,call_next):
+    response=await call_next(request)
+    if request.url.path.startswith('/auth'):
+        response.headers['Cache-Control']='no-store'
+        response.headers['Referrer-Policy']='no-referrer'
+    return response

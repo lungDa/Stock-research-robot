@@ -3,6 +3,7 @@ import logging,time,uuid
 from datetime import datetime,timezone
 import requests
 from app.config import settings
+from app.services.accounts import can_use_personal
 from app.db import init_db,get,put,claim
 from app.channels.line import quota,push
 from app.services.watchlist import subscribed,watches
@@ -29,7 +30,7 @@ def run():
     init_db();deadline=time.monotonic()+40; now=time.time();day=local_now().date().isoformat()
     remaining=None
     for user in subscribed():
-        if user not in settings.users.values():continue
+        if not can_use_personal(user):continue
         c=settings_for(user);revision=config_hash(c)
         for symbol in watches(user)[:30]:
             if time.monotonic()>deadline-20:return

@@ -8,6 +8,7 @@ from app.providers.universe import load
 from app.services.research import research
 from app.services.watchlist import watches
 from app.config import settings
+from app.services.accounts import member_users
 from app.services.freshness import local_now
 from app.providers.taiwan_official import history_months
 log=logging.getLogger(__name__)
@@ -21,7 +22,7 @@ def run(limit=30, seconds=120):
     universe=[s for s in load() if s.endswith(('.TW','.TWO'))]
     if not universe: raise RuntimeError('沒有可用台股母體')
     cursor=get('scan:cursor',{'cursor':0})['cursor']%len(universe)
-    tracked=list(dict.fromkeys(s for u in settings.users.values() for s in watches(u) if s.endswith(('.TW','.TWO'))))
+    tracked=list(dict.fromkeys(s for u in member_users() for s in watches(u) if s.endswith(('.TW','.TWO'))))
     tcursor=get('scan:tracked_cursor',{'cursor':0})['cursor']%max(1,len(tracked))
     # 追蹤最多佔一半批次，避免親友清單太長造成市場輪掃停滯。
     selected=[tracked[(tcursor+i)%len(tracked)] for i in range(min(len(tracked),limit//2))]
