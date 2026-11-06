@@ -2,7 +2,7 @@ name: Daily scan and digest
 on:
   workflow_dispatch:
   schedule:
-    # UTC 06:17 = 台灣14:17；美股採前一交易日資料，每日一份合併摘要。
+    # UTC 06:17 = 台灣14:17；本階段為台股小批次合併摘要。
     - cron: '17 6 * * 1-5'
 permissions:
   contents: read
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
@@ -23,12 +23,18 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-      - run: pip install -r requirements.txt
+          cache-dependency-path: requirements-worker.txt
+      - name: Install worker dependencies
+        timeout-minutes: 4
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
       - name: Refresh market universe
+        timeout-minutes: 1
         run: python -m jobs.refresh_universe
       - name: Scan tracked symbols and rotating market batch
-        run: python -m jobs.scan --limit 200 --seconds 900
+        timeout-minutes: 3
+        run: python -m jobs.scan --limit 30 --seconds 120
       - name: Send opted-in digest
+        timeout-minutes: 1
         run: python -m jobs.notify
