@@ -13,9 +13,17 @@ def research(symbol,refresh=False):
         cached=None
     ttl=1800 if cached and cached.get('price_basis')=='未還原收盤價' else (300 if cached and cached.get('data_status')=='partial' else 3600)
     evening_refresh=bool(cached and symbol.endswith(('.TW','.TWO')) and needs_evening_refresh(cached['cached_at'],cached.get('date')))
-    if cached and not refresh and not evening_refresh and time.time()-cached['cached_at']<ttl: return cached
+    if cached and not refresh and not evening_refresh and time.time()-cached['cached_at']<ttl:
+        if symbol.endswith(('.TW','.TWO')):
+            from app.providers.fundamentals import attach
+            cached=enrich(attach(cached)); put('quote:'+symbol,cached)
+        return cached
     try:
-        data=enrich(fetch(symbol))
+        data=fetch(symbol)
+        if symbol.endswith(('.TW','.TWO')):
+            from app.providers.fundamentals import attach
+            data=attach(data)
+        data=enrich(data)
     except Exception:
         # 保留原行情日期與快取時間，不把舊資料偽裝成新報價。
         if cached and time.time()-cached['cached_at']<=72*3600:
@@ -27,4 +35,10 @@ def research(symbol,refresh=False):
     put('quote:'+symbol,data)
     return data
 
-def cached_quote(symbol): return get('quote:'+normalize(symbol))
+def cached_quote(symbol):
+    symbol=normalize(symbol)
+    data=get('quote:'+symbol)
+    if data and symbol.endswith(('.TW','.TWO')):
+        from app.providers.fundamentals import attach
+        data=enrich(attach(data))
+    return data

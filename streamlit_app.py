@@ -48,6 +48,13 @@ with query:
             st.line_chart(pd.DataFrame(d['history']).set_index('date'))
         else:
             st.info('目前僅有單日收盤價，歷史圖表待官方資料補齊。')
+        with st.expander('分類與基本面來源 / 期間'):
+            labels={'kind':'商品分類','fund_type':'基金類型','eps':'財報累計EPS（元）','pe':'官方本益比','official_yield':'官方公告殖利率（%）','reported_roe':'報表ROE（小數；僅展示）'}
+            details=d.get('fundamental_details',{})
+            if details:
+                st.dataframe([{'項目':labels.get(k,k),'值':str(v['value']),'期間':v.get('period','未提供'),'出表日期':v['as_of'],'說明':v.get('basis',''),'來源':v['source']} for k,v in details.items()],hide_index=True)
+            else: st.info('基本面共用快取尚未載入，待排程分批更新。')
+            st.caption('財報EPS為年初至本季累計，未換算年化或TTM；官方殖利率與期間不明ROE僅供檢視。年度總費用率及完整近一年已發配息尚未接入。')
         cols=st.columns(2)
         for col,mode,title in zip(cols,['income','swing'],['存股條件','波段條件']):
             with col:
