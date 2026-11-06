@@ -64,11 +64,11 @@ async def webhook(request:Request):
     except (ValueError,AttributeError): raise HTTPException(400,'invalid JSON')
     failed=False
     for event in events:
-        if event.get('type')!='message' or event.get('message',{}).get('type')!='text': continue
+        is_follow=event.get('type')=='follow'
+        if not is_follow and (event.get('type')!='message' or event.get('message',{}).get('type')!='text'): continue
         if event.get('source',{}).get('type')!='user': continue
         user=event['source'].get('userId')
-        from app.services.accounts import is_member
-        if not is_member(user): continue
+        if not user:continue
         event_id=event.get('webhookEventId')
         if not event_id: continue
         key='event:'+event_id
@@ -78,11 +78,7 @@ async def webhook(request:Request):
             if state.get('status')=='done': continue
             if time.time()-state.get('at',0)<60: failed=True; continue
         try:
-            try:
-                from app.services.accounts import can_use_personal
-                if not can_use_personal(user):text='請先到股海燈塔網頁完成初始密碼修改，再使用個人功能。'
-                else:text=await asyncio.to_thread(commands.handle,user,event['message']['text'])
-            except ValueError as e: text=str(e)
+            text=await asyncio.to_thread(commands.respond,user,'開始使用' if is_follow else event['message']['text'])
             await asyncio.to_thread(line.reply,event['replyToken'],text)
             put(key,{'status':'done','at':time.time()})
         except Exception:
@@ -132,3 +128,14 @@ async def private_response_headers(request,call_next):
         response.headers['Cache-Control']='no-store'
         response.headers['Referrer-Policy']='no-referrer'
     return response
+
+@app.get('/assistant/preferences')
+def assistant_preferences(user=Depends(current_user)):
+    from app.services.assistant import preferences
+    return preferences(user)
+
+@app.put('/assistant/preferences')
+async def assistant_preferences_update(request:Request,user=Depends(current_user)):
+    from app.services.assistant import save
+    try:return save(user,json.loads(await limited_body(request,2048)))
+    except (ValueError,TypeError):raise HTTPException(400,'助理設定格式錯誤')

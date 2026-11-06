@@ -10,6 +10,8 @@ from app.services.watchlist import subscribed,watches
 from app.services.research import cached_quote
 from app.services.multifactor import settings_for,rated,config_hash
 from app.services.freshness import local_now
+from app.services.assistant import display_symbol
+from app.services.proactive import nudge
 log=logging.getLogger(__name__)
 RANK={'資料不足':-1,'觀望':0,'買':1,'強力買':2}
 
@@ -20,7 +22,7 @@ def slot(user,day,cap):
 
 def message(d,previous):
     r=d['rating']; missing=[x['label'] for x in r['checks'] if x['passed'] is None]
-    return (f"股海燈塔｜{d['name']}（{d['symbol']}）\n"
+    return (f"股海燈塔｜{d['name']}（{display_symbol(d['symbol'])}）\n"
         f"{previous or '首次符合'} → {r['grade']}"+('（資料缺漏，非財務惡化判定）' if r['grade']=='資料不足' else '')+f"\n行情日 {d['date']}｜{d['currency']} {d['price']:.2f}\n"
         f"規則分數 {r['score'] if r['score'] is not None else '無'}｜完整度 {r['coverage']}%\n"
         +('缺資料：'+'、'.join(missing[:3])+'\n' if missing else '')
@@ -76,6 +78,8 @@ def run():
                     pending['blocked']=True
                     put(key,{**state,'pending':pending})
                 log.warning('單檔通知未確認，保留狀態；不新增重複訊息')
+
+        remaining=nudge(user,day,now,remaining,c['daily_cap'],slot,push,deadline,local_now())
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.INFO);run()

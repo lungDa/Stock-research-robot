@@ -54,7 +54,7 @@ def test_independent_messages_daily_limit_and_no_unsubscribed(monkeypatch):
     calls=[];monkeypatch.setattr(notify,'push',lambda *a:calls.append(a))
     notify.run();notify.run()
     assert len(calls)==3 and all(x[0]=='Ualice' for x in calls)
-    assert all(sum(s in x[1] for s in ['2330.TW','2412.TW','2308.TW','2317.TW'])==1 for x in calls)
+    assert all(sum(s in x[1] for s in ['2330','2412','2308','2317'])==1 for x in calls)
 
 def test_downgrade_and_rule_change_baseline(monkeypatch):
     from app.services.multifactor import DEFAULT,config_hash

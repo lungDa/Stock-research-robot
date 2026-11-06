@@ -204,6 +204,21 @@ with strategy_tab:
                         st.success('已儲存；請重新分析股票，排程通知也會使用新設定。')
                 except (ValueError,TypeError,KeyError) as exc:st.error('請填完整規則；'+str(exc))
         st.divider()
+        st.subheader('LINE主動助理')
+        if 'assistant_config' not in st.session_state:
+            loaded=api('GET','/assistant/preferences')
+            if isinstance(loaded,dict) and 'daily_brief' in loaded:st.session_state.assistant_config=loaded
+        prefs=st.session_state.get('assistant_config')
+        if prefs:
+            with st.form('assistant_preferences'):
+                brief=st.checkbox('沒有單檔訊號時，盤後補一則追蹤摘要',value=prefs['daily_brief'])
+                empty=st.checkbox('清單空白時引導建立追蹤（最多7天一次）',value=prefs['empty_reminder'])
+                saved=st.form_submit_button('儲存LINE助理設定')
+            if saved:
+                result=api('PUT','/assistant/preferences',json={'daily_brief':brief,'empty_reminder':empty})
+                if result:st.session_state.assistant_config=result;st.success('已儲存LINE助理設定。')
+        st.caption('需已開啟LINE通知。平日18:17後檢查，實際推播時間依排程及來源；與升降級訊號共用每日上限，沒有完整資料不給假買入建議。')
+        st.divider()
         st.subheader('匯入個人年度歷史資料')
         st.info('目前官方快取以最新季度為主，未自動補齊5～10年資料。此處匯入的是你提供的年度數據，不代表已經官方驗證；只影響你的分級。')
         columns='year,eps,roe_pct,cash_yield_pct,cash_dividend_per_share,operating_cash_flow,capital_expenditure,cash_dividends_paid,revenue,source_url\n'

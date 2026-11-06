@@ -14,7 +14,9 @@ def send(endpoint,payload,retry_key=None):
     if retry_key and r.status_code==409: return  # LINE 已接受相同 retry key
     r.raise_for_status()
 
-def reply(token,text): send('reply',{'replyToken':token,'messages':[{'type':'text','text':text[:4900]}]})
+def reply(token,text):
+    message={'type':'text','text':text[:4900]} if isinstance(text,str) else text
+    send('reply',{'replyToken':token,'messages':[message]})
 def push(user,text,key): send('push',{'to':user,'messages':[{'type':'text','text':text[:4900]}]},key)
 def quota():
     headers={'Authorization':'Bearer '+settings.line_token}
