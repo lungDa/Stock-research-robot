@@ -2,8 +2,8 @@ name: Daily scan and digest
 on:
   workflow_dispatch:
   schedule:
-    # UTC 06:17 = 台灣14:17；本階段為台股小批次合併摘要。
-    - cron: '17 6 * * 1-5'
+    # UTC 10:17 = 台灣18:17；官方資料尚未公布時保留實際行情日期。
+    - cron: '17 10 * * 1-5'
 permissions:
   contents: read
 concurrency:
@@ -32,6 +32,9 @@ jobs:
       - name: Refresh market universe
         timeout-minutes: 1
         run: python -m jobs.refresh_universe
+      - name: Refresh shared fundamentals (two bounded feeds)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_fundamentals
       - name: Scan tracked symbols and rotating market batch
         timeout-minutes: 3
         run: python -m jobs.scan --limit 30 --seconds 120
