@@ -6,6 +6,7 @@ from app.config import settings
 from app.db import init_db,get,put,claim
 from app.channels.line import quota,push
 from app.services.watchlist import subscribed,watches
+from app.services.freshness import format_updated_at,quote_note
 log=logging.getLogger(__name__)
 def run():
     deadline=time.monotonic()+40
@@ -32,10 +33,11 @@ def run():
         if state is not None: put(key,{'status':'reserved','retry_key':retry_key})
         remaining-=1
         lines=[f'股海燈塔 {day}',f"掃描涵蓋 {report.get('fresh_count',0)}/{report.get('universe_size',0)} 檔（本次批次，非全市場）",'存股：'+('、'.join(report.get('income',[])[:3]) or '無符合'),
-               '波段：'+('、'.join(report.get('swing',[])[:3]) or '無符合'),'你的追蹤：']
+               '波段：'+('、'.join(report.get('swing',[])[:3]) or '無符合'),f"實際行情日：{'、'.join(sorted(report.get('data_dates',[]))) or '請依各標的日期'}",
+               f"今日行情 {report.get('today_count',0)} 檔；更新 {format_updated_at(report.get('updated_at'))}",'你的追蹤：']
         for symbol in watches(user):
             d=get('quote:'+symbol)
-            lines.append(f"{symbol}｜{d['price']:.2f}｜{d['date']}" if d else symbol+'｜尚無資料')
+            lines.append(f"{symbol}｜{d['price']:.2f}｜行情日 {d['date']}"+('（非今日行情）' if d['date']!=day else '') if d else symbol+'｜尚無資料')
         lines.append('個股與ETF規則不同；詳情請開網頁。')
         try:
             push(user,'\n'.join(lines),retry_key)

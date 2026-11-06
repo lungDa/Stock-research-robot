@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 from app.db import get, put
+from app.services.freshness import needs_evening_refresh
 
 log = logging.getLogger(__name__)
 _lock = Lock()
@@ -70,7 +71,11 @@ def _request(url, params=None):
 def cached(key, ttl, loader):
     key = 'official:' + key
     record = get(key)
-    if record and time.time() - record['at'] < ttl:
+    evening_refresh = False
+    if record and key.startswith('official:snapshot:'):
+        dates = [v.get('date','') for v in record['data'].values() if isinstance(v,dict) and 'date' in v]
+        evening_refresh = needs_evening_refresh(record['at'], max(dates,default=''))
+    if record and not evening_refresh and time.time() - record['at'] < ttl:
         return record['data']
     failure = get(key + ':failure', {})
     if time.time() < failure.get('until', 0):

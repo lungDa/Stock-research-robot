@@ -8,6 +8,7 @@ from app.providers.universe import load
 from app.services.research import research
 from app.services.watchlist import watches
 from app.config import settings
+from app.services.freshness import local_now
 from app.providers.taiwan_official import history_months
 log=logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def run(limit=30, seconds=120):
     batch=[universe[(cursor+i)%len(universe)] for i in range(min(market_count,len(universe)))]
     symbols=list(dict.fromkeys(selected+batch))[:limit]
     report={'updated_at':datetime.now(timezone.utc).isoformat(),'universe_size':len(universe),
+            'target_date':local_now().date().isoformat(),'today_count':0,'data_dates':[],
             'attempted':0,'failed':[],'income':[],'swing':[],'fresh_count':0,'cursor':cursor,
             'scope':'本次台股小批次結果；最多30檔，不代表全市場；美股暫不主動下載',
             'universe_partial':get('universe:scope',{}).get('partial',True),'budget_seconds':seconds}
@@ -50,6 +52,8 @@ def run(limit=30, seconds=120):
         d=get('quote:'+symbol) if success else None
         if d and time.time()-d['cached_at']<36*3600:
             report['fresh_count']+=1
+            if d.get('date') == report['target_date']: report['today_count']+=1
+            if d.get('date') and d['date'] not in report['data_dates']: report['data_dates'].append(d['date'])
             for mode in ('income','swing'):
                 if d.get(mode,{}).get('matched'):
                     report[mode].append(f"{d['symbol']} {d['name']}｜{d['date']}")

@@ -1,6 +1,7 @@
 """只透過 API 存取使用者資料；個人金鑰只保存在目前 session。"""
 import os,requests,pandas as pd
 import streamlit as st
+from app.services.freshness import format_updated_at,quote_note
 st.set_page_config(page_title='股海燈塔',page_icon='🌊',layout='wide')
 st.title('🌊 股海燈塔')
 st.caption('台美股・ETF｜存股與波段規則篩選')
@@ -39,8 +40,9 @@ with query:
     if d:
         for warning in d.get('warnings', []): st.warning(warning)
         st.subheader(f"{d['name']} · {d['symbol']}")
+        st.info(quote_note(d))
         st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
-        st.caption(f"行情日 {d['date']}｜更新 {d['updated_at']}｜來源 {d['source']}｜種類 {d['kind']}")
+        st.caption(f"行情日 {d['date']}｜更新 {format_updated_at(d.get('updated_at'))}｜來源 {d['source']}｜種類 {d['kind']}")
         st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
         if len(d['history']) > 1:
             st.line_chart(pd.DataFrame(d['history']).set_index('date'))

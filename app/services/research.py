@@ -4,6 +4,7 @@ from datetime import datetime,timezone
 from app.db import get,put
 from app.providers.market import normalize,fetch
 from app.services.analysis import enrich
+from app.services.freshness import needs_evening_refresh
 
 def research(symbol,refresh=False):
     symbol=normalize(symbol)
@@ -11,7 +12,8 @@ def research(symbol,refresh=False):
     if symbol.endswith(('.TW','.TWO')) and cached and cached.get('price_basis')!='未還原收盤價':
         cached=None
     ttl=1800 if cached and cached.get('price_basis')=='未還原收盤價' else (300 if cached and cached.get('data_status')=='partial' else 3600)
-    if cached and not refresh and time.time()-cached['cached_at']<ttl: return cached
+    evening_refresh=bool(cached and symbol.endswith(('.TW','.TWO')) and needs_evening_refresh(cached['cached_at'],cached.get('date')))
+    if cached and not refresh and not evening_refresh and time.time()-cached['cached_at']<ttl: return cached
     try:
         data=enrich(fetch(symbol))
     except Exception:
