@@ -4,7 +4,7 @@ on:
   schedule:
     # UTC 06:17 = 台灣14:17；美股採前一交易日資料，每日一份合併摘要。
     - cron: '17 6 * * 1-5'
-permissions:q
+permissions:
   contents: read
 concurrency:
   group: lighthouse-scan
