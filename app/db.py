@@ -35,3 +35,10 @@ def claim(key,value):
         with Session.begin() as s: s.add(Document(key=key,payload=json.dumps(value)))
         return True
     except IntegrityError: return False
+
+def get_many(keys):
+    from sqlalchemy import select
+    keys=list(dict.fromkeys(keys))
+    if len(keys)>80:raise ValueError('最多80個快取鍵')
+    with Session() as s:
+        return {r.key:json.loads(r.payload) for r in s.scalars(select(Document).where(Document.key.in_(keys)))}

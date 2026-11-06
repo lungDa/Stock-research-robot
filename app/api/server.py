@@ -39,12 +39,19 @@ def notifications(body:Notice,user=Depends(current_user)):
 @app.get('/quote/{symbol}')
 async def quote(symbol:str,user=Depends(current_user)):
     try:
-        async with quote_lock: return await asyncio.to_thread(research,symbol)
+        async with quote_lock:
+            data=await asyncio.to_thread(research,symbol)
+            from app.services.multifactor import rated
+            return await asyncio.to_thread(rated,data,user)
     except ValueError as e: raise HTTPException(400,str(e))
     except Exception:
         log.exception('quote failed'); raise HTTPException(503,'行情暫不可用，請稍後再試')
 @app.get('/scan')
-def scan(user=Depends(current_user)): return get('scan:latest',{})
+def scan(user=Depends(current_user)):
+    from app.services.multifactor import rated_many
+    report=get('scan:latest',{})
+    if report:report['ratings']=rated_many(report.get('candidates',[])[:30],user)
+    return report
 @app.post('/line/webhook')
 async def webhook(request:Request):
     body=await request.body()
@@ -75,3 +82,37 @@ async def webhook(request:Request):
             put(key,{'status':'retry','at':0}); failed=True
     if failed: raise HTTPException(503,'retry later')
     return {'ok':True}
+
+@app.get('/strategy')
+def strategy(user=Depends(current_user)):
+    from app.services.multifactor import settings_for
+    return settings_for(user)
+
+@app.put('/strategy')
+async def update_strategy(request:Request,user=Depends(current_user)):
+    from app.services.multifactor import save_settings
+    body=await limited_body(request,32768)
+    try:return save_settings(user,json.loads(body))
+    except (ValueError,TypeError,KeyError):raise HTTPException(400,'設定格式或門檻錯誤')
+
+@app.post('/annual/{symbol}')
+async def import_annual(symbol:str,request:Request,user=Depends(current_user)):
+    from app.services.annual_data import import_csv
+    body=await limited_body(request,131072)
+    try:return import_csv(user,symbol,body.decode('utf-8-sig'))
+    except (ValueError,UnicodeDecodeError) as exc:raise HTTPException(400,str(exc))
+
+@app.get('/ratings')
+def ratings(user=Depends(current_user)):
+    from app.services.multifactor import rated_many
+    from app.db import get_many
+    data=get_many(['quote:'+s for s in watches(user)[:30]])
+    return rated_many(list(data.values()),user)
+
+async def limited_body(request,limit):
+    chunks=[];size=0
+    async for chunk in request.stream():
+        size+=len(chunk)
+        if size>limit:raise HTTPException(413,'內容超過大小限制')
+        chunks.append(chunk)
+    return b''.join(chunks)

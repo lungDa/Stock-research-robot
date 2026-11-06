@@ -30,7 +30,7 @@ def run(limit=30, seconds=120):
     symbols=list(dict.fromkeys(selected+batch))[:limit]
     report={'updated_at':datetime.now(timezone.utc).isoformat(),'universe_size':len(universe),
             'target_date':local_now().date().isoformat(),'today_count':0,'data_dates':[],
-            'attempted':0,'failed':[],'income':[],'swing':[],'fresh_count':0,'cursor':cursor,
+            'candidates':[],'attempted':0,'failed':[],'income':[],'swing':[],'fresh_count':0,'cursor':cursor,
             'scope':'本次台股小批次結果；最多30檔，不代表全市場；美股暫不主動下載',
             'universe_partial':get('universe:scope',{}).get('partial',True),'budget_seconds':seconds}
     if report['universe_partial']: report['scope']+='；來源母體可能僅部分涵蓋'
@@ -52,6 +52,8 @@ def run(limit=30, seconds=120):
         d=get('quote:'+symbol) if success else None
         if d and time.time()-d['cached_at']<36*3600:
             report['fresh_count']+=1
+            fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','data_status','cached_at')
+            report['candidates'].append({k:d.get(k) for k in fields})
             if d.get('date') == report['target_date']: report['today_count']+=1
             if d.get('date') and d['date'] not in report['data_dates']: report['data_dates'].append(d['date'])
             for mode in ('income','swing'):
@@ -74,7 +76,7 @@ def run(limit=30, seconds=120):
         put('scan:last_failure',report)
         raise RuntimeError('本次沒有成功取得行情，保留舊報告並停止本次通知')
     put('scan:latest',report)
-    print({k:v for k,v in report.items() if k not in ('income','swing')})
+    print({k:v for k,v in report.items() if k not in ('income','swing','candidates')})
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.INFO)
