@@ -1,5 +1,5 @@
 """每天每人一份；先預留額度，LINE retry key 防止不確定回應造成重複發送。"""
-import logging,uuid
+import logging,uuid,time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.config import settings
@@ -8,6 +8,7 @@ from app.channels.line import quota,push
 from app.services.watchlist import subscribed,watches
 log=logging.getLogger(__name__)
 def run():
+    deadline=time.monotonic()+40
     init_db()
     report=get('scan:latest',{})
     if not report: raise RuntimeError('尚無掃描結果，不送空報告')
@@ -17,6 +18,9 @@ def run():
     day=datetime.now(ZoneInfo('Asia/Taipei')).date().isoformat()
     remaining=quota()
     for user in subscribed():
+        if time.monotonic()>deadline-8:
+            log.warning("通知達時間預算，剩餘名單保留待下次執行")
+            break
         if user not in settings.users.values(): continue
         key=f'notification:{day}:{user}'
         state=get(key)
@@ -27,7 +31,7 @@ def run():
         if state is None and not claim(key,{'status':'reserved','retry_key':retry_key}): continue
         if state is not None: put(key,{'status':'reserved','retry_key':retry_key})
         remaining-=1
-        lines=[f'股海燈塔 {day}',f"掃描涵蓋 {report.get('fresh_count',0)}/{report.get('universe_size',0)} 檔（36小時內更新）",'存股：'+('、'.join(report.get('income',[])[:3]) or '無符合'),
+        lines=[f'股海燈塔 {day}',f"掃描涵蓋 {report.get('fresh_count',0)}/{report.get('universe_size',0)} 檔（本次批次，非全市場）",'存股：'+('、'.join(report.get('income',[])[:3]) or '無符合'),
                '波段：'+('、'.join(report.get('swing',[])[:3]) or '無符合'),'你的追蹤：']
         for symbol in watches(user):
             d=get('quote:'+symbol)
@@ -38,7 +42,7 @@ def run():
             put(key,{'status':'sent','retry_key':retry_key})
         except Exception:
             # 自動重試只允許同一天且沿用相同 key；額度保守計算。
-            log.exception('notification failed')
+            log.warning('通知暫未完成，已保留同一retry key待重試')
             put(key,{'status':'retry','retry_key':retry_key})
 if __name__=='__main__':
     logging.basicConfig(level=logging.INFO);run()

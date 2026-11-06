@@ -19,8 +19,16 @@ log = logging.getLogger(__name__)
 _lock = Lock()
 _last_request = {}
 # 全市場輪掃只讀既有月快取；個股與自選追蹤才允許回補。
-history_months = ContextVar("taiwan_history_months", default=4)
+history_months = ContextVar("taiwan_history_months", default=1)
 ALLOWED_HOSTS = {'openapi.twse.com.tw', 'www.twse.com.tw', 'isin.twse.com.tw', 'www.tpex.org.tw'}
+
+
+_warning_until = {}
+def warn_once(key, message):
+    now = time.monotonic()
+    if now >= _warning_until.get(key, 0):
+        log.warning('%s（同類警告5分鐘內不重複）', message)
+        _warning_until[key] = now + 300
 
 
 def numeric(value):
@@ -46,31 +54,17 @@ def trading_date(value):
 
 
 def _request(url, params=None):
+    from app.providers.bounded_http import fetch_json
     host = urlparse(url).hostname
     if host not in ALLOWED_HOSTS:
         raise ValueError('非允許的官方來源')
-    # 單一程序同host間隔至少3秒；沒有代理輪換或驗證繞過。
     with _lock:
         delay = 3 - (time.monotonic() - _last_request.get(host, -10))
-        if delay > 0:
-            time.sleep(delay)
+        if delay > 0: time.sleep(delay)
         _last_request[host] = time.monotonic()
-    started = time.monotonic()
-    with requests.get(url, params=params, timeout=(4, 10), stream=True, allow_redirects=False) as response:
-        response.raise_for_status()
-        if response.status_code != 200:
-            raise RuntimeError('官方來源未回傳資料')
-        chunks = []
-        size = 0
-        for chunk in response.iter_content(65536):
-            size += len(chunk)
-            if size > 8_000_000 or time.monotonic() - started > 18:
-                raise RuntimeError('官方回應超過大小或時間預算')
-            chunks.append(chunk)
-        raw = b''.join(chunks)
-        if 'isin.twse.com.tw' == host:
-            return raw.decode('big5', errors='replace')
-        return json.loads(raw.decode('utf-8-sig'))
+    is_snapshot = 'STOCK_DAY_ALL' in url or 'daily_close_quotes' in url
+    return fetch_json(url, params, max_bytes=1048576 if is_snapshot else 131072,
+                      seconds=6, array=is_snapshot)
 
 
 def cached(key, ttl, loader):
@@ -102,7 +96,9 @@ def snapshot(market):
     url = ('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL' if market == 'TW'
            else 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
     def load():
-        rows = _request(url)
+        payload = _request(url)
+        complete = payload.get('complete', True) if isinstance(payload, dict) else True
+        rows = payload.get('records', []) if isinstance(payload, dict) else payload
         if not isinstance(rows, list) or not rows:
             raise ValueError('官方每日行情格式異常或為空')
         out = {}
@@ -119,29 +115,17 @@ def snapshot(market):
                          'name': _pick(row, 'Name', 'CompanyName', 'SecuritiesCompanyName', '名稱', '證券名稱') or code}
         if not out:
             raise ValueError('官方每日行情沒有可解析的日期與收盤價')
+        out['_meta'] = {'complete': complete}
         return out
     return cached('snapshot:' + market, 3600, load)
 
 
 def catalog(market):
-    def load():
-        text = _request('https://isin.twse.com.tw/isin/C_public.jsp', {'strMode': '2' if market == 'TW' else '4'})
-        result = {}
-        for table in pd.read_html(StringIO(text), header=0):
-            for _, row in table.iterrows():
-                cells = [str(v).strip() for v in row.values]
-                if len(cells) < 6:
-                    continue
-                m = re.match(r'^(\d{4,6}[A-Z]?)[\s\u3000]+(.+)$', cells[0])
-                if not m:
-                    continue
-                cfi = cells[5]
-                kind = 'ETF' if cfi.startswith('CE') else ('STOCK' if cfi.startswith('ES') else 'UNKNOWN')
-                result[m[1]] = {'name': m[2], 'kind': kind}
-        if not result:
-            raise ValueError('官方證券分類表解析為空')
-        return result
-    return cached('catalog:' + market, 86400, load)
+    # 商品分類屬後續完善項目；掃描不再下載龐大的ISIN HTML。
+    record = get('official:catalog:' + market)
+    if record:
+        return record['data']
+    return {}
 
 
 def parse_month(payload, market):
@@ -228,7 +212,7 @@ def build_result(symbol, rows, meta, warnings):
 
 
 def fetch(symbol):
-    """先取官方快照，再有限回補4個月；歷史失敗仍可顯示快照。"""
+    """先取官方快照，最多新補1個月、讀取最近4個月快取；歷史失敗仍可顯示快照。"""
     if not re.fullmatch(r'\d{4,6}[A-Z]?\.(TW|TWO)', symbol):
         raise ValueError('台股代號格式錯誤；上櫃請加.TWO')
     code, market = symbol.rsplit('.', 1)
@@ -238,31 +222,39 @@ def fetch(symbol):
                 '此來源尚未整合EPS、ROE、ETF費用及近一年實際配息；存股缺項不會判定符合。']
     current = None
     try:
-        current = snapshot(market).get(code)
+        quotes = snapshot(market)
+        current = quotes.get(code)
+        if not quotes.get('_meta', {}).get('complete', True):
+            warnings.append('官方市場快照僅取得預算內的部分紀錄，不代表完整市場；仍以各筆實際日期為準。')
     except Exception:
-        log.warning('官方快照暫不可用：%s', market, exc_info=True)
+        warn_once('snapshot:'+market, '官方快照暫不可用，使用可用快取或歷史資料')
         warnings.append('最新官方快照暫不可用；若歷史資料成功，將顯示其實際日期。')
     meta = {'name': current['name'] if current else code, 'kind': 'UNKNOWN'}
     try:
         meta.update(catalog(market).get(code, {}))
+        if meta.get('kind') == 'UNKNOWN':
+            warnings.append('商品分類尚未載入，目前顯示UNKNOWN。')
     except Exception:
-        log.warning('官方商品分類暫不可用', exc_info=True)
+        warn_once('catalog:'+market, '商品分類暫不可用，使用UNKNOWN')
         warnings.append('官方商品分類暫不可用，種類顯示UNKNOWN；不以代號猜測ETF。')
     rows = []
     first = today.replace(day=1)
+    downloads_left = min(1, max(0, history_months.get()))
     for _ in range(4):
-        if time.monotonic() - started > 65:
+        if time.monotonic() - started > 12:
             warnings.append('歷史回補已達本次時間預算，先顯示已取得資料。')
             break
         try:
-            if history_months.get() == 0:
-                record = get(f'official:month:{market}:{code}:{first:%Y%m}')
-                if record:
-                    rows.extend(record['data'])
-            else:
+            record = get(f'official:month:{market}:{code}:{first:%Y%m}')
+            ttl = 3600 if first.year == today.year and first.month == today.month else 7*86400
+            if record and (time.time()-record['at'] < ttl or downloads_left == 0):
+                rows.extend(record['data'])
+            elif downloads_left > 0:
+                downloads_left -= 1
                 rows.extend(month(code, market, first, today))
+
         except Exception:
-            log.warning('官方歷史月份取得失敗：%s %s', symbol, first, exc_info=True)
+            warn_once('month:'+market, '官方月份暫不可用，停止本次回補')
             warnings.append('部分歷史月份暫不可用，已停止回補；不足的條件顯示缺資料。')
             break
         first = (pd.Timestamp(first) - pd.offsets.MonthBegin(1)).date()

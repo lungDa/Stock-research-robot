@@ -1,39 +1,58 @@
-"""從證交所 ISIN 與 Nasdaq Trader 更新上市/上櫃股票、ETF 母體。"""
-from io import StringIO
+"""小流量台股母體；不下載ISIN巨型HTML或Nasdaq整包名單。"""
+import csv
+import re
+import time
 from pathlib import Path
-import csv,re,requests,pandas as pd
+from app.db import init_db, get, put
+from app.providers.taiwan_official import snapshot
+
 
 def build():
-    rows=[]
-    for mode,suffix in [('2','.TW'),('4','.TWO')]:
-        before=len(rows)
-        response=requests.get('https://isin.twse.com.tw/isin/C_public.jsp',params={'strMode':mode},timeout=30)
-        response.raise_for_status(); response.encoding='big5'
-        tables=pd.read_html(StringIO(response.text),header=0)
-        for _,r in tables[0].iterrows():
-            cells=[str(x).strip() for x in r.values]
-            # ISIN 表第六欄為 CFI code；股票 ES、ETF CE。
-            if len(cells)<6 or not cells[5].startswith(('ES','CE')): continue
-            match=re.match(r'^(\d{4,6}[A-Z]?)[\s\u3000]+(.+)$',cells[0])
-            if match: rows.append({'symbol':match[1]+suffix,'name':match[2]})
-        if len(rows)==before: raise RuntimeError(f'台股來源{mode}解析為空，保留舊母體')
-    for filename,symbol_column,name_column in [('nasdaqlisted.txt','Symbol','Security Name'),('otherlisted.txt','ACT Symbol','Security Name')]:
-        before=len(rows)
-        r=requests.get('https://www.nasdaqtrader.com/dynamic/SymDir/'+filename,timeout=30);r.raise_for_status()
-        for item in csv.DictReader(StringIO(r.text),delimiter='|'):
-            symbol=item.get(symbol_column,'')
-            name=item.get(name_column,'')
-            if item.get('Test Issue')!='N' or not symbol: continue
-            # 排除可辨識的權證、單位與特別股；最終商品分類仍由行情資料確認。
-            if any(x in name.lower() for x in ['warrant',' unit','preferred','depositary shares']): continue
-            if not re.fullmatch(r'[A-Z]+(?:[.$][A-Z])?',symbol): continue
-            rows.append({'symbol':symbol.replace('.','-').replace('$','-'),'name':name})
-        if len(rows)==before: raise RuntimeError(f'{filename}解析為空，保留舊母體')
-    if not rows: raise RuntimeError('取得空母體，保留舊檔')
-    out=Path('data/universe.csv'); temp=out.with_suffix('.tmp')
+    init_db()
+    rows = []
+    partial = False
+    for market in ('TW', 'TWO'):
+        key = 'universe:small:' + market
+        prior = get(key)
+        ttl = 7 * 86400 if prior and prior.get('complete') else 3600
+        if prior and time.time() - prior['at'] < ttl:
+            part = prior
+        else:
+            try:
+                quotes = snapshot(market)
+                items = []
+                for code, quote in quotes.items():
+                    # 普通股票與00開頭基金候選；商品正式分類保留至分類模組。
+                    if re.fullmatch(r'\d{4}', code) or re.fullmatch(r'00\d{3,4}[A-Z]?', code):
+                        items.append({'symbol': code+'.'+market, 'name': quote['name']})
+                if not items: raise RuntimeError('沒有可用台股候選')
+                complete = quotes.get('_meta', {}).get('complete', True)
+                # 新回應只有一部分時，保留較完整的舊清單，不把缺漏標的刪掉。
+                if prior and prior.get('complete') and not complete:
+                    part = prior
+                else:
+                    part = {'at':time.time(), 'rows':items, 'complete':complete}
+                    put(key, part)
+            except Exception as exc:
+                if prior:
+                    part = prior
+                    print(f'{market}母體更新暫不可用，使用舊清單：{type(exc).__name__}')
+                else:
+                    print(f'{market}母體暫不可用，本次不涵蓋該市場：{type(exc).__name__}')
+                    partial = True
+                    continue
+        rows.extend(part['rows'])
+        partial |= not part.get('complete', False)
+    if not rows:
+        raise RuntimeError('兩個市場都沒有可用母體；停止掃描，不冒用示範清單')
+    rows = list({row['symbol']:row for row in rows}.values())
+    out = Path('data/universe.csv'); out.parent.mkdir(parents=True, exist_ok=True)
+    temp = out.with_suffix('.tmp')
     with temp.open('w',encoding='utf-8',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=['symbol','name']);writer.writeheader()
-        writer.writerows({r['symbol']:r for r in rows}.values())
+        writer=csv.DictWriter(f,fieldnames=['symbol','name']);writer.writeheader();writer.writerows(rows)
     temp.replace(out)
-    print(f'母體已更新：{len(rows)} 筆（可能含重複；寫入時已去重）')
-if __name__=='__main__': build()
+    put('universe:scope', {'partial':partial, 'count':len(rows), 'market':'TW/TWO',
+                          'updated_at':time.time()})
+    print(f'台股候選母體{len(rows)}檔；部分涵蓋={partial}；美股本階段不主動掃描')
+
+if __name__ == '__main__': build()

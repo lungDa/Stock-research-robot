@@ -4,14 +4,14 @@ from app.services.watchlist import toggle
 
 def test_scan_continues_after_stock_failure(monkeypatch):
     import jobs.scan as scan
-    monkeypatch.setattr(scan,'load',lambda:['AAPL','MSFT'])
+    monkeypatch.setattr(scan,'load',lambda:['2330.TW','2412.TW'])
     def fake(symbol,refresh):
-        if symbol=='AAPL': raise RuntimeError('bad stock')
-        put('quote:MSFT',{'cached_at':__import__('time').time(),'symbol':'MSFT','name':'Microsoft','date':'2026-11-06','income':{'matched':False},'swing':{'matched':True}})
+        if symbol=='2330.TW': raise RuntimeError('bad stock')
+        put('quote:2412.TW',{'cached_at':__import__('time').time(),'symbol':'2412.TW','name':'Microsoft','date':'2026-11-06','income':{'matched':False},'swing':{'matched':True}})
     monkeypatch.setattr(scan,'research',fake)
     scan.run(2,60)
     result=get('scan:latest')
-    assert result['failed']==['AAPL'] and result['fresh_count']==1
+    assert result['failed']==['2330.TW'] and result['fresh_count']==1
     assert len(result['swing'])==1
 
 def test_digest_once_and_opt_in(monkeypatch):

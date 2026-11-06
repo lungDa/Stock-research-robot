@@ -12,7 +12,7 @@ if 'token' not in st.session_state:
         ok=st.form_submit_button('登入')
     if ok:
         try:
-            r=requests.get(base+'/me',headers={'Authorization':'Bearer '+token},timeout=90);r.raise_for_status()
+            r=requests.get(base+'/me',headers={'Authorization':'Bearer '+token},timeout=45);r.raise_for_status()
             st.session_state.token=token;st.rerun()
         except requests.RequestException: st.error('登入失敗：請確認金鑰或等候後端啟動後重試。')
     st.stop()
@@ -20,7 +20,7 @@ if st.sidebar.button('登出'):
     del st.session_state.token;st.rerun()
 def api(method,path,**kwargs):
     try:
-        r=requests.request(method,base+path,headers={'Authorization':'Bearer '+st.session_state.token},timeout=150,**kwargs)
+        r=requests.request(method,base+path,headers={'Authorization':'Bearer '+st.session_state.token},timeout=45,**kwargs)
         if r.status_code>=400:
             try: detail=r.json().get('detail','請稍後重試')
             except ValueError: detail='請稍後重試'
@@ -71,7 +71,7 @@ with screen:
     report=api('GET','/scan')
     if report:
         st.caption(f"更新 {report.get('updated_at')}｜{report.get('scope')}")
-        st.metric('36小時內成功更新 / 母體',f"{report.get('fresh_count',0)} / {report.get('universe_size',0)}")
+        st.metric('本次有效資料 / 母體' if 'budget_seconds' in report else '36小時內成功更新 / 母體',f"{report.get('fresh_count',0)} / {report.get('universe_size',0)}")
         st.write(f"本次嘗試 {report.get('attempted',0)} 檔；失敗 {len(report.get('failed',[]))} 檔")
         mode=st.radio('篩選模式',['income','swing'],format_func=lambda x:'存股' if x=='income' else '波段',horizontal=True)
         st.dataframe(pd.DataFrame({'符合條件標的':report.get(mode,[])}),use_container_width=True)
