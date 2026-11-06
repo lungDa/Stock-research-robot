@@ -78,6 +78,9 @@ def _history(symbol):
 
 def fetch(symbol):
     symbol=normalize(symbol)
+    if symbol.endswith(('.TW', '.TWO')):
+        from app.providers.taiwan_official import fetch as fetch_official
+        return fetch_official(symbol)
     ticker,hist=_history(symbol)
     # 技術分析採還原收盤價，避免拆股/除息直接扭曲均線。
     close=hist['Adj Close'] if 'Adj Close' in hist else hist['Close']

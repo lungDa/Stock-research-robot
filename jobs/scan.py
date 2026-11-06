@@ -6,6 +6,7 @@ from app.providers.universe import load
 from app.services.research import research
 from app.services.watchlist import watches
 from app.config import settings
+from app.providers.taiwan_official import history_months
 log=logging.getLogger(__name__)
 def run(limit=200,seconds=900):
     init_db(); started=time.monotonic()
@@ -20,9 +21,12 @@ def run(limit=200,seconds=900):
     failures=[]; processed=[]
     for symbol in symbols:
         if time.monotonic()-started>seconds: break
+        token=history_months.set(4 if symbol in tracked else 0)
         try: research(symbol,refresh=True)
         except Exception:
             log.exception('scan item failed: %s',symbol);failures.append(symbol)
+        finally:
+            history_months.reset(token)
         processed.append(symbol)
     # 只前進到實際嘗試過的批次位置，不跳過時間預算外的項目。
     attempted=set(processed)

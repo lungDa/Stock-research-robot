@@ -2,8 +2,8 @@
 def evaluate(data,mode):
     checks={}
     if mode=='swing':
-        checks={'站上20日均線':data['adjusted_close']>data['ma20'],
-                '20日均線高於60日':data['ma20']>data['ma60'],
+        checks={'站上20日均線':None if data.get('ma20') is None else data['adjusted_close']>data['ma20'],
+                '20日均線高於60日':None if data.get('ma20') is None or data.get('ma60') is None else data['ma20']>data['ma60'],
                 '成交量達20日均量':None if data['volume_ratio'] is None else data['volume_ratio']>=1}
     elif mode=='income':
         if data['kind']=='ETF':

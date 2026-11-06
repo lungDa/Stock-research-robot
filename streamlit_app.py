@@ -41,7 +41,11 @@ with query:
         st.subheader(f"{d['name']} · {d['symbol']}")
         st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {d['updated_at']}｜來源 {d['source']}｜種類 {d['kind']}")
-        st.line_chart(pd.DataFrame(d['history']).set_index('date'))
+        st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
+        if len(d['history']) > 1:
+            st.line_chart(pd.DataFrame(d['history']).set_index('date'))
+        else:
+            st.info('目前僅有單日收盤價，歷史圖表待官方資料補齊。')
         cols=st.columns(2)
         for col,mode,title in zip(cols,['income','swing'],['存股條件','波段條件']):
             with col:

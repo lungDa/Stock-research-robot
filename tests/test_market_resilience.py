@@ -22,19 +22,19 @@ def ticker(monkeypatch):
     return t
 
 def test_info_rate_limit_keeps_history_and_does_not_retry_it(ticker):
-    d=enrich(market.fetch('2330'))
+    d=enrich(market.fetch('AAPL'))
     assert ticker.history_calls==1 and ticker.info_calls==1
     assert d['price']==169 and len(d['history'])==70
     assert d['data_status']=='partial' and d['warnings']
     assert d['eps'] is None and not d['income']['matched']
 
 def test_info_cooldown_shared_across_symbols(ticker):
-    market.fetch('2330');market.fetch('AAPL')
+    market.fetch('AAPL');market.fetch('MSFT')
     assert ticker.history_calls==2 and ticker.info_calls==1
 
 def test_history_limit_stops_immediate_retries(ticker,monkeypatch):
     fail=Mock(side_effect=YFRateLimitError());monkeypatch.setattr(ticker,'history',fail)
-    with pytest.raises(RuntimeError):market.fetch('2330')
+    with pytest.raises(RuntimeError):market.fetch('AAPL')
     with pytest.raises(RuntimeError):market.fetch('AAPL')
     assert fail.call_count==1
 

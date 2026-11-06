@@ -14,7 +14,7 @@ def build():
             cells=[str(x).strip() for x in r.values]
             # ISIN 表第六欄為 CFI code；股票 ES、ETF CE。
             if len(cells)<6 or not cells[5].startswith(('ES','CE')): continue
-            match=re.match(r'^(\d{4,6})[\s\u3000]+(.+)$',cells[0])
+            match=re.match(r'^(\d{4,6}[A-Z]?)[\s\u3000]+(.+)$',cells[0])
             if match: rows.append({'symbol':match[1]+suffix,'name':match[2]})
         if len(rows)==before: raise RuntimeError(f'台股來源{mode}解析為空，保留舊母體')
     for filename,symbol_column,name_column in [('nasdaqlisted.txt','Symbol','Security Name'),('otherlisted.txt','ACT Symbol','Security Name')]:

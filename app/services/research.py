@@ -8,7 +8,9 @@ from app.services.analysis import enrich
 def research(symbol,refresh=False):
     symbol=normalize(symbol)
     cached=get('quote:'+symbol)
-    ttl=300 if cached and cached.get('data_status')=='partial' else 3600
+    if symbol.endswith(('.TW','.TWO')) and cached and cached.get('price_basis')!='未還原收盤價':
+        cached=None
+    ttl=1800 if cached and cached.get('price_basis')=='未還原收盤價' else (300 if cached and cached.get('data_status')=='partial' else 3600)
     if cached and not refresh and time.time()-cached['cached_at']<ttl: return cached
     try:
         data=enrich(fetch(symbol))

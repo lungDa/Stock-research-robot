@@ -25,3 +25,11 @@ def test_empty_source_preserves_original(monkeypatch,tmp_path):
     setup_sources(monkeypatch,empty=True)
     with pytest.raises(RuntimeError): job.build()
     assert file.read_text()=='original'
+
+
+def test_taiwan_alphanumeric_etf_in_universe(monkeypatch,tmp_path):
+    monkeypatch.chdir(tmp_path);Path('data').mkdir()
+    setup_sources(monkeypatch)
+    monkeypatch.setattr(job.pd,'read_html',lambda *a,**k:[pd.DataFrame([['00679B　元大美債20年','ISIN','date','market','industry','CEOGEU']])])
+    job.build()
+    assert '00679B.TWO' in Path('data/universe.csv').read_text()
