@@ -37,6 +37,7 @@ with query:
         with st.spinner('取得資料中…'): st.session_state.result=api('GET','/quote/'+symbol.strip())
     d=st.session_state.get('result')
     if d:
+        for warning in d.get('warnings', []): st.warning(warning)
         st.subheader(f"{d['name']} · {d['symbol']}")
         st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {d['updated_at']}｜來源 {d['source']}｜種類 {d['kind']}")
