@@ -103,14 +103,27 @@ with query:
             if details:
                 st.dataframe([{'項目':labels.get(k,k),'值':str(v['value']),'期間':v.get('period','未提供'),'出表日期':v['as_of'],'說明':v.get('basis',''),'來源':v['source']} for k,v in details.items()],hide_index=True)
             else: st.info('基本面共用快取尚未載入，待排程分批更新。')
-            st.caption('財報EPS為年初至本季累計，未換算年化或TTM；官方殖利率與期間不明ROE僅供檢視。年度總費用率及完整近一年已發配息尚未接入。')
+            st.caption('此區為官方快照：財報EPS為年初至本季累計，未換算年化或TTM；官方殖利率與期間不明ROE僅供檢視。歷年資料見下方；ETF年度總費用率仍可能缺資料。')
+            if d.get('fund_profile'):st.caption(d['fund_profile'].get('note',''))
         rating=d.get('rating')
         if rating:
             st.subheader('多因子分級：'+rating['grade'])
             st.write(f"有效資料分數：{rating['score']}｜資料完整度：{rating['coverage']}%")
             if d.get('annual_sources'):
-                with st.expander('年度資料來源（人工匯入未經自動驗證）'):
+                with st.expander('歷年基本面與來源（人工匯入另行標示）'):
                     st.dataframe(d['annual_sources'],hide_index=True)
+                    annual=d.get('annual_rows',{})
+                    if annual:
+                        labels={'eps':'年度EPS','roe_pct':'ROE（%）','cash_yield_pct':'年度現金殖利率（%）',
+                            'cash_dividend_per_share':'年度已到發放日現金股利／股',
+                            'operating_cash_flow':'營業現金流','capital_expenditure':'資本支出',
+                            'cash_dividends_paid':'現金股利支出','revenue':'年度營收','currency':'幣別'}
+                        st.dataframe([{'年度':y,**{label:r.get(key) for key,label in labels.items()}}
+                            for y,r in sorted(annual.items(),reverse=True)],hide_index=True)
+                    state=d.get('annual_refresh',{})
+                    if state.get('updated_at'):st.caption('共用年度資料更新：'+format_updated_at(state['updated_at']))
+                    for note in state.get('notes',[]):st.caption(note)
+                    st.caption('五年殖利率口徑：各年已到發放日的現金股利／該年未還原年底收盤價，再取平均；美股EPS門檻以USD／股計，台股以TWD／股計。缺少欄位留白，不視為零。')
             st.caption('缺資料模式為封鎖時，部分分數再高也不代表取得買入級別。')
             st.dataframe([{'因子':x['label'],'期間（年）':x['years'],'實際值':x['value'],'門檻':str(x['op'])+' '+str(x['threshold']),'結果':'缺資料' if x['passed'] is None else ('符合' if x['passed'] else '未符合'),'必要':x['required'],'權重':x['weight']} for x in rating['checks']],hide_index=True)
         cols=st.columns(2)

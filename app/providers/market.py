@@ -97,6 +97,7 @@ def fetch(symbol):
         'pe':number(info.get('trailingPE')),'debt_to_equity':number(info.get('debtToEquity')),
         'expense_ratio':number(info.get('annualReportExpenseRatio')),
         'yield':dividend_yield(hist.loc[hist['Dividends']>0,'Dividends'],price) if 'Dividends' in hist else None,
+        'yield_basis':'trailing_paid_365d' if 'Dividends' in hist and (pd.Timestamp.now(tz='UTC')-pd.to_datetime(hist.index[0],utc=True)).days>=360 else None,
         'history':[{'date':str(i.date()),'close':float(v)} for i,v in hist.Close.items()],
         'source':'Yahoo Finance / yfinance', 'warnings':warnings,
         'data_status':'partial' if warnings else 'available'}

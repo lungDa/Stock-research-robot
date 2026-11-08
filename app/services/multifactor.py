@@ -3,7 +3,7 @@ import copy,hashlib,json,math
 from datetime import date
 from app.services.freshness import local_now
 
-METRICS={'eps_latest':'最近完整年度EPS（元）','eps_avg':'多年平均年度EPS（元）',
+METRICS={'eps_latest':'最近完整年度EPS（報表幣別／股）','eps_avg':'多年平均年度EPS（報表幣別／股）',
  'yield_avg':'多年平均年度現金殖利率（%）','dividend_streak':'連續配發現金股利年數',
  'roe_avg':'多年平均年度ROE（%）','fcf_positive':'期間每年自由現金流為正',
  'fcf_coverage':'期間最低自由現金流／現金股利總額','revenue_cagr':'年度營收CAGR（%）',
@@ -67,7 +67,9 @@ def annual_rows(user,symbol,documents=None):
         if eps.get('period','').endswith('Q4'):
             official[eps['period'][:4]]={'eps':eps['value'],'source_url':eps['source'],'provenance':'official_Q4'}
     private=read('annual:'+user+':'+symbol,{})
-    rows=copy.deepcopy(official)
+    shared=read('annual:shared:'+symbol,{})
+    rows=copy.deepcopy(shared.get('rows',{}))
+    for year,row in official.items():rows.setdefault(year,{}).update(row)
     for year,row in private.items():rows.setdefault(year,{}).update(row)
     return rows
 
@@ -80,7 +82,10 @@ def value_for(data,rows,metric,years,today):
             vals=[r.get(key) for r in selected]
             return vals if all(type(v) in (int,float) and math.isfinite(v) for v in vals) else None
         if metric=='dividend_streak':
-            vals=series('cash_dividend_per_share')
+            # A directly reported paid common-dividend total also proves a year
+            # paid dividends. A declared dividend never qualifies as paid.
+            vals=[r.get('cash_dividend_per_share',r.get('cash_dividends_paid')) for r in selected]
+            if not all(type(v) in (int,float) and math.isfinite(v) for v in vals):vals=None
             return None if vals is None else sum(1 for _ in _positive_prefix(vals))
         key={'eps_latest':'eps','eps_avg':'eps','yield_avg':'cash_yield_pct','roe_avg':'roe_pct','revenue_cagr':'revenue'}.get(metric)
         if key:
@@ -144,14 +149,42 @@ def evaluate(data,c,rows=None,today=None):
         'checks':checks,'config_hash':config_hash(c),'reason':'規則分級，非報酬預測；缺資料不補零'}
 
 def rated(data,user,config=None,documents=None):
+    from app.db import get
+    shared=(get('annual:shared:'+data['symbol'],{}) if documents is None else documents.get('annual:shared:'+data['symbol'],{}))
+    profile=shared.get('fund_profile',{})
+    data=copy.deepcopy(data)
+    if data.get('kind')=='ETF' and profile:
+        today=local_now().date()
+        asof=date.fromisoformat(profile['as_of'])
+        total=profile.get('cash_paid_365d_per_share');price=data.get('price')
+        if 0<=(today-asof).days<=7 and total is not None and price and price>0:
+            data['yield']=total/price*100
+            data['yield_basis']='trailing_paid_365d'
+            data['fund_profile']=profile
+            data['warnings']=[w for w in data.get('warnings',[]) if not w.startswith('基本面尚缺：')]
+            if data.get('expense_ratio_basis')!='annual_total_expense':
+                data['warnings'].append('ETF年度總費用率仍缺可核對來源；不以其他費用欄位替代。')
     rows=annual_rows(user,data['symbol'],documents)
     return {**data,'rating':evaluate(data,config or settings_for(user),rows),
-            'annual_sources':[{'year':year,'source':r.get('source_url',''),'provenance':r.get('provenance','unknown')} for year,r in sorted(rows.items(),reverse=True)]}
+            'annual_rows':rows,
+            'annual_refresh':_annual_state(data['symbol'],documents),
+            'annual_sources':[{'year':year,'source':r.get('source_url',''),'provenance':r.get('provenance','unknown'),
+                'currency':r.get('currency',data.get('currency','未知')),'period_end':r.get('period_end',''),
+                'notes':'；'.join(r.get('notes',[]))} for year,r in sorted(rows.items(),reverse=True)]}
+
+def _annual_state(symbol,documents):
+    from app.db import get
+    read=get if documents is None else lambda k,d=None:documents.get(k,d)
+    shared=read('annual:shared:'+symbol,{})
+    return {k:shared[k] for k in ('updated_at','status','notes') if k in shared}
 
 def rated_many(items,user):
     from app.db import get_many
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
+    keys+=['annual:shared:'+d['symbol'] for d in items]
     keys+=['fundamentals:index:TW','fundamentals:index:TWO']
-    documents=get_many(keys)
+    # 30 candidates + private/shared rows exceed the database's 80-key bound.
+    documents={}
+    for offset in range(0,len(keys),80):documents.update(get_many(keys[offset:offset+80]))
     c=documents.get('strategy:'+user,copy.deepcopy(DEFAULT))
     return [rated(d,user,c,documents) for d in items]
