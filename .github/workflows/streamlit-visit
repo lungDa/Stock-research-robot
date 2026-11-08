@@ -1,0 +1,32 @@
+name: Check Render and Streamlit (best effort)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 */4 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-streamlit-visit
+  cancel-in-progress: false
+jobs:
+  visit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      RENDER_HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install browser controller
+        timeout-minutes: 1
+        run: pip install --disable-pip-version-check 'playwright>=1.56,<2'
+      - name: Check Render health
+        timeout-minutes: 2
+        run: python scripts/check_render_health.py
+      - name: Visit public app and request wake-up if shown
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        run: python scripts/visit_streamlit.py
