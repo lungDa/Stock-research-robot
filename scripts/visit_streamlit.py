@@ -8,6 +8,27 @@ def checked_url(value):
         raise ValueError('Set repository variable PUBLIC_APP_URL to the HTTPS Streamlit homepage, without query parameters')
     return value.strip()
 
+def visible_in_frames(page,role,pattern):
+    """Community Cloud embeds the live app in an iframe, not the outer page."""
+    for frame in page.frames:
+        if frame.parent_frame is not None:
+            owner=frame.frame_element()
+            if not owner.is_visible():
+                continue
+        matches=frame.get_by_role(role,name=re.compile(pattern,re.I))
+        for index in range(matches.count()):
+            candidate=matches.nth(index)
+            if candidate.is_visible():
+                return candidate
+    return None
+
+def diagnose(page):
+    # Fixed labels/counts only: never print page text, cookies, or query tokens.
+    print(f'Diagnostic: inspected {len(page.frames)} frame(s); app heading not confirmed.')
+    for index,frame in enumerate(page.frames):
+        headings=frame.get_by_role('heading',name=re.compile('股海燈塔'))
+        print(f'Diagnostic: frame {index}, matching headings={headings.count()}')
+
 def visit(url):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -19,19 +40,20 @@ def visit(url):
             page.goto(url,wait_until='domcontentloaded',timeout=30000)
             clicked=False
             while time.monotonic()<deadline:
-                heading=page.get_by_role('heading',name=re.compile('股海燈塔'))
-                if heading.count() and heading.first.is_visible():
+                heading=visible_in_frames(page,'heading','股海燈塔')
+                if heading is not None:
                     # Allow the public Streamlit session to finish connecting.
                     page.wait_for_timeout(8000)
-                    if heading.count() and heading.first.is_visible():
+                    if visible_in_frames(page,'heading','股海燈塔') is not None:
                         print('Confirmed public app heading rendered. This is not a continuous-availability guarantee.')
                         return
-                wake=page.get_by_role('button',name=re.compile(r'Yes, get this app back up',re.I))
-                if not clicked and wake.count() and wake.first.is_visible():
-                    wake.first.click();clicked=True
+                wake=visible_in_frames(page,'button',r'Yes, get this app back up')
+                if not clicked and wake is not None:
+                    wake.click();clicked=True
                     print('Requested wake-up using the public sleeping-page button.')
                 page.wait_for_timeout(1000)
-            raise RuntimeError('Could not confirm app rendered within budget; manual wake-up may be required')
+            diagnose(page)
+            raise RuntimeError('Could not confirm app rendered within budget; inspect frame diagnostics')
         finally:browser.close()
 
 if __name__=='__main__':visit(checked_url(os.getenv('PUBLIC_APP_URL','')))
