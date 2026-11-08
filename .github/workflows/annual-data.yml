@@ -1,0 +1,32 @@
+name: Refresh free annual data
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # Share the daily worker's group: do not race its checkpoints.
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  annual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install worker dependencies
+        timeout-minutes: 4
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh bounded annual batch (no LINE messages)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_annual
