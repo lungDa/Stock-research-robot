@@ -25,6 +25,7 @@ def format_updated_at(value):
 
 
 def quote_note(data, now=None):
+    if data.get('data_status')=='fundamentals_only':return '僅年度財報；尚無可用行情日期。'
     now = (now or local_now()).astimezone(TAIPEI)
     day = str(data.get('date', ''))
     if not data.get('symbol','').endswith(('.TW','.TWO')):

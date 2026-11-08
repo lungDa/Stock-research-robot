@@ -90,7 +90,8 @@ with query:
         for warning in d.get('warnings', []): st.warning(warning)
         st.subheader(f"{d['name']} · {d['symbol']}")
         st.info(quote_note(d))
-        st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
+        if d.get('price') is None:st.info('目前僅有年度財報，尚無可用行情；下方仍可查看基本面。')
+        else:st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {format_updated_at(d.get('updated_at'))}｜來源 {d['source']}｜種類 {d['kind']}")
         st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
         if len(d['history']) > 1:

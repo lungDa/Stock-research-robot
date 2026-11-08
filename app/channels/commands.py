@@ -57,6 +57,8 @@ def login_help():
 
 def format_quote(d):
     r=d.get('rating',{})
+    if d.get('price') is None:
+        return f"{d['name']}（{assistant.display_symbol(d['symbol'])}）\n行情暫不可用；已保留年度財報。\n分級 {r.get('grade','資料不足')}｜完整度 {r.get('coverage',0)}%\n請到網站查看年度基本面；價格與動能缺資料。"
     return (f"{d['name']}（{assistant.display_symbol(d['symbol'])}）\n行情日 {d['date']}｜{d['currency']} {d['price']:.2f}\n"
         f"更新時間 {format_updated_at(d.get('updated_at'))}\n{quote_note(d)}\n"
         f"分級 {r.get('grade','尚未評估')}｜資料完整度 {r.get('coverage',0)}%\n"
