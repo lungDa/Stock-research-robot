@@ -8,6 +8,8 @@
 
 PDF逾時修正：完整更新後執行 **Replenish data and clean expired records**。舊版已記錄的暫時性逾時，會有一次套用新策略的機會；拒絕與格式錯誤的冷卻不略過。來源仍可能逾時，本版不保證所有欄位齊全。
 
+近四季EPS更新：完整更新後，執行一次 **Replenish data and clean expired records**，讓損益表補抓最近兩年的EPS；完成後重新分析2330。新版以`eps_schema`記錄遷移，不需清空資料庫。來源有四個連續完整季度時可計算；來源缺季、限流或未更新時仍待補，不能保證首次查詢即齊。
+
 ## 1. 套用檔案
 
 將 ZIP 解壓縮後，開啟 `Stock-research-robot-main` 資料夾，將裡面的內容覆蓋至原專案同名路徑。不要再在 GitHub 專案內多包一層同名資料夾。

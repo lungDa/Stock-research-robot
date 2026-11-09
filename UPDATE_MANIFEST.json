@@ -1,27 +1,36 @@
 {
-  "release": "EPS PDF timeout and retry policy",
-  "baseline_library_version": 4,
-  "baseline_zip_sha256": "3222f95668a07f929d3a1a58d992c6c7e83f43485f38058bc349561179ea65e0",
+  "release": "Disclosed four-quarter basic EPS sum",
+  "baseline_library_version": 5,
+  "baseline_zip_sha256": "8ef8e7117217d2d86014c8da25189500204693831be7408b0c33184a3cafe75f",
   "changed_files_since_previous": [
-    ".github/workflows/diagnose-stock-sources.yml",
     "README.md",
     "UPDATE_MANIFEST.json",
     "UPGRADE_GUIDE.md",
     "VALIDATION.md",
-    "app/providers/twse_eps.py",
-    "jobs/refresh_eps.py",
-    "streamlit_app.py"
+    "app/providers/trailing.py",
+    "app/services/data_quality.py",
+    "app/services/multifactor.py",
+    "app/services/trailing_metrics.py",
+    "jobs/refresh_annual.py",
+    "streamlit_app.py",
+    "tests/test_pipeline_gaps.py",
+    "tests/test_tw_supplement.py"
   ],
   "added_files_since_previous": [
-    "EPS_TIMEOUT_FIX.md",
-    "tests/test_eps_timeout_policy.py"
+    "QUARTERLY_EPS_UPDATE.md",
+    "tests/test_quarterly_eps_sum.py"
   ],
   "removed_files_since_previous": [],
   "validation": {
-    "local_pytest": "331 passed; 1 upstream warning",
+    "local_pytest": "354 passed; 1 upstream warning",
     "compileall": "passed",
-    "new_timeout_policy_live": "not verified",
-    "MOPS_company_metadata_contract": "unresolved",
-    "all_2330_fields_complete": "not established"
-  }
+    "quarter_sum_live_2330": "not verified",
+    "all_fields_complete": "not established"
+  },
+  "notes": [
+    "User approved four-quarter EPS sum for simple income check",
+    "Separate metadata and labels; not verified same-share-basis TTM",
+    "Annual EPS rules unchanged; cash-dividend total gap remains",
+    "Refill recently discarded EPS using existing FinMind credentials"
+  ]
 }

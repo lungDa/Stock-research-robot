@@ -171,15 +171,17 @@ with query:
         if d.get('kind')=='STOCK':
             st.subheader('近一年基本面（TTM／近365天）')
             trailing=d.get('trailing_details',{})
-            names={'eps_ttm':'EPS（TTM／報表幣別每股）','roe_ttm_pct':'ROE（TTM／%）','paid_yield_pct':'近365天已到發放日配息率（%）'}
+            eps_key='eps_four_quarter_sum' if d['symbol'].endswith(('.TW','.TWO')) and d.get('eps_basis')!='verified_or_reported_ttm' else 'eps_ttm'
+            names={eps_key:'EPS（近四季合計／元每股）' if eps_key=='eps_four_quarter_sum' else 'EPS（TTM／報表幣別每股）','roe_ttm_pct':'ROE（TTM／%）','paid_yield_pct':'近365天已到發放日配息率（%）'}
             st.dataframe([{'項目':label,'數值':trailing.get(key,{}).get('value'),
                 '起日':trailing.get(key,{}).get('period_start',''),'迄日':trailing.get(key,{}).get('period_end',''),
                 '股價日':trailing.get(key,{}).get('price_date',''),'來源':trailing.get(key,{}).get('source',''),
                 '口徑':trailing.get(key,{}).get('basis','缺少可核對的近一年資料')} for key,label in names.items()],hide_index=True)
             st.caption('TTM財報期間與配息365天區間可能不同；多年平均EPS／ROE等個人選股規則仍使用年度資料，不以TTM替代。')
+            if eps_key=='eps_four_quarter_sum':st.caption('EPS採近四個完整季度的原公布基本EPS合計；未統一追溯調整股數基準，與財報揭露的TTM EPS可能不同。')
             evidence={names[key]:value.get('calculation') for key,value in trailing.items() if key in names and value.get('calculation')}
             if evidence:
-                with st.expander('核對TTM EPS／ROE的計算依據'):
+                with st.expander('核對近一年EPS／ROE的計算依據'):
                     st.json(evidence)
         with st.expander('分類與基本面來源 / 期間'):
             labels={'kind':'商品分類','fund_type':'基金類型','eps':'財報累計EPS（元）','pe':'官方本益比','official_yield':'官方公告殖利率（%）','reported_roe':'報表ROE（小數；僅展示）'}
@@ -229,7 +231,7 @@ with query:
             fields=quality.get('current_fields',[])+quality.get('rule_fields',[])
             st.dataframe([{'項目':x['label'],'狀態':labels.get(x['state'],x['state']),
                 '缺漏年度':'、'.join(map(str,x.get('missing_years',[]))),'說明':x['reason']} for x in fields],hide_index=True)
-            st.caption('已安排下載不代表來源一定涵蓋；TTM EPS需核對股數基準，年度EPS不替代。')
+            st.caption('近一年EPS可使用完整近四季基本EPS合計，標示各季與來源；已核對TTM另保留其口徑。年度EPS仍獨立使用。')
         cols=st.columns(2)
         for col,mode,title in zip(cols,['income','swing'],['近一年簡易檢核','波段條件']):
             with col:
@@ -239,6 +241,7 @@ with query:
                 from app.services.freshness import market_usable
                 unavailable='行情待更新，暫停判定' if not market_usable(d) else '待補期間／來源資料'
                 st.table([{'條件':k,'結果':unavailable if v is None else ('符合' if v else '未符合')} for k,v in d[mode]['checks'].items()])
+                if mode=='income' and d.get('eps_basis')=='four_quarter_sum':st.caption('「EPS為正」使用上方所列近四季EPS合計。')
         st.caption('近一年配息率為歷史現金配息／目前價格；不是未來收益承諾。ETF 配息不等同總報酬。')
         if personal and st.button('加入我的追蹤'): 
             if api('POST','/watchlist',json={'symbol':d['symbol']}): st.success('已加入')

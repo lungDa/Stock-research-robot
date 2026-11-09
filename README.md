@@ -1,5 +1,7 @@
 # 股海燈塔：台股個股財務補強（嚴格核對）
 
+本次依確認調整近一年EPS：可採近四個完整季度的基本EPS合計，與嚴格TTM分欄標示；詳見 [QUARTERLY_EPS_UPDATE.md](QUARTERLY_EPS_UPDATE.md)。舊版曾丟棄EPS欄位，部署後需執行一次資料續補。
+
 EPS PDF逾時修正見 [EPS_TIMEOUT_FIX.md](EPS_TIMEOUT_FIX.md)：放寬原2秒連線／讀取設定；短暫連線失敗改用漸進冷卻，保留舊成功資料。
 
 2330正式環境故障追查與修正請先讀 [TW_RUNTIME_RECOVERY.md](TW_RUNTIME_RECOVERY.md)。本地測試不代表正式網站全欄齊全。
