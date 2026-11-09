@@ -35,6 +35,9 @@ jobs:
       - name: Refresh market universe
         timeout-minutes: 1
         run: python -m jobs.refresh_universe
+      - name: Refresh Taiwan backup daily prices (two symbols maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_prices
       - name: Refresh shared fundamentals (two bounded feeds)
         timeout-minutes: 1
         run: python -m jobs.refresh_fundamentals

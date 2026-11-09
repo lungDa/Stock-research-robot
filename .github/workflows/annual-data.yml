@@ -30,6 +30,9 @@ jobs:
       - name: Refresh official annual EPS and ROE (TWSE and TPEx)
         timeout-minutes: 1
         run: python -m jobs.refresh_tw_financials
+      - name: Refresh Taiwan backup daily prices (two symbols maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_prices
       - name: Refresh verified full-year EPS (one TWSE profile)
         timeout-minutes: 1
         run: python -m jobs.refresh_eps
