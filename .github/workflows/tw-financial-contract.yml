@@ -1,0 +1,30 @@
+name: Verify Taiwan annual EPS and ROE source
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: '台股個股代號，例如 6488.TWO 或 2412.TW'
+        required: true
+        default: '6488.TWO'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-official-contract
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERIFY_SYMBOL: ${{ inputs.symbol }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Four bounded read-only official-source requests
+        timeout-minutes: 1
+        run: python -m scripts.check_tw_financial_contract --symbol "$VERIFY_SYMBOL"

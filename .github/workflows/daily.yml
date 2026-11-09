@@ -38,6 +38,9 @@ jobs:
       - name: Refresh shared fundamentals (two bounded feeds)
         timeout-minutes: 1
         run: python -m jobs.refresh_fundamentals
+      - name: Refresh official annual EPS and ROE (TWSE and TPEx)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_financials
       - name: Refresh verified full-year EPS (one TWSE profile)
         timeout-minutes: 1
         run: python -m jobs.refresh_eps

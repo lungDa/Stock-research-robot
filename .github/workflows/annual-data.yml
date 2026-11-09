@@ -27,6 +27,9 @@ jobs:
         run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh official annual EPS and ROE (TWSE and TPEx)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_financials
       - name: Refresh verified full-year EPS (one TWSE profile)
         timeout-minutes: 1
         run: python -m jobs.refresh_eps
