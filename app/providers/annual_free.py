@@ -2,13 +2,29 @@
 Never infer missing distributions, combine quarterly EPS, or substitute investing
 cash flow for capital expenditure. Shared data never overwrites private imports.
 """
-import math
+import math, re, unicodedata
 from datetime import date, timedelta
 
 FINMIND = 'https://api.finmindtrade.com/api/v4/data'
 SEC = 'https://data.sec.gov/api/xbrl/companyconcept/'
 TW_DATASETS = ('TaiwanStockFinancialStatements', 'TaiwanStockBalanceSheet',
                'TaiwanStockCashFlowsStatement', 'TaiwanStockDividend', 'TaiwanStockPrice')
+TW_CASH_SCHEMA = 2
+
+def paid_dividend_label(label):
+    label=re.sub(r'\s+','',unicodedata.normalize('NFKC',str(label)))
+    # Exact cash-flow totals only; do not include non-controlling dividends,
+    # declared policies, payable balances, or interest/dividend combined lines.
+    return label in {'支付之股利','發放現金股利','支付股利','支付現金股利',
+        '支付之現金股利','現金股利之支付','發放股利','分配股利','發放現金股利數'}
+
+def paid_dividend_total(records,code,end):
+    matches=[finite(r.get('value')) for r in records if str(r.get('stock_id'))==code
+        and r.get('date')==end and paid_dividend_label(r.get('origin_name',''))]
+    if not matches or any(v is None for v in matches):return None
+    # Same line may appear twice. Conflicting totals are not added together.
+    values={abs(v) for v in matches}
+    return values.pop() if len(values)==1 else None
 # Separate concepts keep each request small; aliases rotate independently.
 SEC_CONCEPTS = {
  'eps': ('EarningsPerShareDiluted', 'USD/shares'),
@@ -96,11 +112,10 @@ def taiwan_rows(symbol, feeds, today):
                     val = -val
                 row(y)[field] = val
         # Only an explicitly named paid cash-flow line, never policy × shares.
-        for tag in ('支付之股利','發放現金股利'):
-            matched = [r for r in feeds.get(TW_DATASETS[2],[]) if r.get('date')==end
-                       and str(r.get('stock_id'))==code and r.get('origin_name')==tag]
-            if len(matched)==1 and finite(matched[0].get('value')) is not None:
-                row(y)['cash_dividends_paid'] = abs(float(matched[0]['value']))
+        paid=paid_dividend_total(feeds.get(TW_DATASETS[2],[]),code,end)
+        if paid is not None:
+            row(y)['cash_dividends_paid']=paid
+            row(y)['cash_dividends_paid_basis']='calendar_year_paid_cash_flow; TWD'
     seen = {}; payments = {}
     for r in feeds.get(TW_DATASETS[3],[]):
         d = valid_day(r.get('CashDividendPaymentDate'))

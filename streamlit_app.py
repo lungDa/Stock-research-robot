@@ -233,8 +233,44 @@ with strategy_tab:
                 if result:st.session_state.assistant_config=result;st.success('已儲存LINE助理設定。')
         st.caption('需已開啟LINE通知。平日18:17後檢查，實際推播時間依排程及來源；與升降級訊號共用每日上限，沒有完整資料不給假買入建議。')
         st.divider()
+        st.subheader('補登台股年度 EPS 與現金股利支出')
+        st.link_button('開啟公開資訊觀測站查核年報','https://mops.twse.com.tw/')
+        st.caption('請核對官方完整年度合併財報：EPS填全年基本EPS，不填第四季單季值或TTM；股利支出填現金流量表的全年支付總額。')
+        st.caption('EPS以TWD／股計。股利支出會依下方單位換算為元，與自動下載的現金流保持一致。補登只影響你的分級；不會覆蓋共用資料。')
+        from app.services.freshness import local_now
+        with st.form('annual_supplement_form'):
+            supplement_symbol=st.text_input('補登台股代號','2330',key='supplement_symbol')
+            unit_label=st.selectbox('這次填寫的現金股利支出單位',['元','千元','百萬元'])
+            last_year=local_now().year-1
+            edited=st.data_editor(pd.DataFrame([{'year':y,'eps':None,'cash_dividends_paid':None,'source_url':''}
+                for y in range(last_year,last_year-10,-1)]),hide_index=True,disabled=['year'],
+                column_config={'year':st.column_config.NumberColumn('年度',format='%d'),
+                'eps':st.column_config.NumberColumn('全年基本EPS（TWD／股）'),
+                'cash_dividends_paid':st.column_config.NumberColumn('全年支付現金股利總額',min_value=0.0),
+                'source_url':st.column_config.TextColumn('該年度官方年報／財報HTTPS網址')},key='annual_supplement_grid')
+            checked=st.checkbox('我已核對公司、完整年度與合併範圍；股利支出是支付總額，並已選對單位')
+            save_supplement=st.form_submit_button('儲存有填寫的年度（保留其他資料）')
+        if save_supplement:
+            rows=[]
+            for _,r in edited.iterrows():
+                values={k:float(r[k]) for k in ('eps','cash_dividends_paid') if pd.notna(r[k])}
+                if values:rows.append({'year':int(r['year']),**values,'source_url':str(r['source_url'] or '')})
+            if not rows:st.error('請至少填入一項年度EPS或股利支出。')
+            elif not checked:st.error('請先核對資料並勾選確認。')
+            else:
+                result=api('PATCH','/annual-supplement/'+supplement_symbol.strip(),json={'confirmed':True,
+                    'unit':{'元':'TWD','千元':'TWD_THOUSAND','百萬元':'TWD_MILLION'}[unit_label],'rows':rows})
+                if result:
+                    st.session_state.pop('result',None)
+                    st.success('已補登年度：'+', '.join(result['years'])+'；請重新分析查看個人評分。')
+        if st.button('查看我的補登資料'):
+            saved=api('GET','/annual-supplement/'+supplement_symbol.strip())
+            if saved:
+                st.caption('下表股利支出已統一換算為元；重填時請留意單位。')
+                st.dataframe(saved['rows'],hide_index=True)
+        st.divider()
         st.subheader('匯入個人年度歷史資料')
-        st.info('目前官方快取以最新季度為主，未自動補齊5～10年資料。此處匯入的是你提供的年度數據，不代表已經官方驗證；只影響你的分級。')
+        st.info('共用資料已分批下載；仍缺的年度欄位可由官方年報核對後補登或匯入。人工資料不代表系統已自動驗證，只影響你的分級。')
         columns='year,eps,roe_pct,cash_yield_pct,cash_dividend_per_share,operating_cash_flow,capital_expenditure,cash_dividends_paid,revenue,source_url\n'
         st.download_button('下載空白CSV欄位範本',columns,'annual_history_template.csv','text/csv')
         st.caption('每列一個完整西元年度、每年附來源網址，空白表示缺值。ROE及殖利率用百分點；資本支出填正數支出。營收、營業現金流、資本支出、支付現金股利總額必須同幣別同單位、同合併範圍。現金股利每股與總額不可混填。')

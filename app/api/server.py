@@ -113,6 +113,19 @@ def ratings(user=Depends(current_user)):
     data=get_many(['quote:'+s for s in watches(user)[:30]])
     return rated_many(list(data.values()),user)
 
+@app.get('/annual-supplement/{symbol}')
+def annual_supplement_get(symbol:str,user=Depends(current_user)):
+    from app.services.annual_data import supplemental_rows
+    try:return supplemental_rows(user,symbol)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+@app.patch('/annual-supplement/{symbol}')
+async def annual_supplement_save(symbol:str,request:Request,user=Depends(current_user)):
+    from app.services.annual_data import supplement
+    body=await limited_body(request,32768)
+    try:return supplement(user,symbol,json.loads(body))
+    except (ValueError,TypeError) as exc:raise HTTPException(400,str(exc))
+
 async def limited_body(request,limit):
     chunks=[];size=0
     async for chunk in request.stream():

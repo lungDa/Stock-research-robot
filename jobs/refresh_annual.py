@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from app.db import init_db, get, put
 from app.providers.bounded_http import fetch_json
 from app.providers.annual_free import (FINMIND, SEC, TW_DATASETS, SEC_CONCEPTS,
-                                      taiwan_rows, taiwan_fund_profile, sec_records, us_rows)
+                                      taiwan_rows, taiwan_fund_profile, sec_records, us_rows,TW_CASH_SCHEMA)
 from app.providers.market import normalize
 from app.services.accounts import member_users
 from app.services.watchlist import watches
@@ -22,7 +22,10 @@ def compact(dataset, records, code):
     result=[]
     for r in records:
         if not isinstance(r,dict) or str(r.get('stock_id'))!=code:continue
-        if dataset in TW_DATASETS[:3] and r.get('type') not in tags and r.get('origin_name') not in ('支付之股利','發放現金股利'):continue
+        if dataset in TW_DATASETS[:3] and r.get('type') not in tags:
+            # Keep dividend cash-flow labels before parsing; preserve diagnostics
+            # instead of losing every unfamiliar source label at compaction.
+            if dataset!=TW_DATASETS[2] or not any(s in str(r.get('origin_name','')) for s in ('股利','股息')):continue
         result.append({k:v for k,v in r.items() if k in cols})
     return result
 
@@ -67,9 +70,10 @@ def run():
         if now<get('annual:source:'+source,{}).get('next_attempt',0):continue
         statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
         put('annual:cursor',{'value':(i+1)%len(tasks)})
-        if now<state.get('next_attempt',0):continue
+        migration=feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA
+        if now<state.get('next_attempt',0) and not migration:continue
         # Reserve before request, including failures/interruption; no immediate retries.
-        put(statekey,{**state,'next_attempt':now+86400})
+        put(statekey,{**state,'next_attempt':now+86400,'schema':TW_CASH_SCHEMA})
         try:
             if symbol.endswith(('.TW','.TWO')):
                 payload=download(FINMIND,{'dataset':feed,'data_id':symbol.split('.')[0],
@@ -98,14 +102,16 @@ def run():
                 records=sec_records(payload,feed,today)
                 put('annual:cik:'+symbol,{'cik':cik})
             if not records:raise ValueError('No usable annual records; keep old snapshot')
-            put(statekey,{'next_attempt':now+7*86400,'records':records,'at':now,'status':'ok'})
+            put(statekey,{'next_attempt':now+7*86400,'records':records,'at':now,'status':'ok','schema':TW_CASH_SCHEMA})
+            if feed==TW_DATASETS[2]:
+                print({'symbol':symbol,'cash_dividend_labels':sorted({str(r.get('origin_name','')) for r in records if '股利' in str(r.get('origin_name','')) or '股息' in str(r.get('origin_name',''))})[:20]})
             touched.add(symbol)
         except StopIteration:break
         except Exception as exc:
             failures+=1
             code=getattr(getattr(exc,'response',None),'status_code',None)
             if code in (401,403,429):put('annual:source:'+source,{'next_attempt':now+86400})
-            put(statekey,{**state,'next_attempt':now+86400,'status':'failed'})
+            put(statekey,{**state,'next_attempt':now+86400,'status':'failed','schema':TW_CASH_SCHEMA})
             # No exception strings: remote URLs or headers must not expose tokens.
             print('年度資料來源未完成：'+symbol+' / '+feed+'；保留舊快取並冷卻一天。')
     for symbol in touched:
