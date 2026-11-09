@@ -7,6 +7,17 @@ from app.providers.fundamentals import FEEDS,merge
 
 
 def run():
+    from app.db import leased
+    from datetime import datetime,timezone
+    init_db()
+    with leased('annual:worker',180) as owned:
+        if not owned:return []
+        result=_run()
+        put('jobs:fundamentals',{'updated_at':datetime.now(timezone.utc).isoformat(),'feeds':result})
+        return result
+
+
+def _run():
     init_db(); start=time.monotonic(); now=time.time()
     cursor=get('fundamentals:cursor',{'value':0})['value']%len(FEEDS)
     results=[]

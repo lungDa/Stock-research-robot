@@ -141,8 +141,10 @@ def session_info(request):
 @router.get('/me')
 def auth_me(request:Request):
     _,session,member=session_info(request)
+    from app.api.security import is_admin
     return {'stage':session.get('stage'),'name':member.get('name','LINE使用者'),
-            'password_change_required':member.get('password_change_required',True)}
+            'password_change_required':member.get('password_change_required',True),
+            'is_admin':session.get('stage')=='active' and is_admin(session['user'])}
 
 @router.post('/password/verify')
 async def verify_password(request:Request):

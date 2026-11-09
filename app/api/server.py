@@ -1,8 +1,8 @@
 import asyncio,json,logging,time
-from fastapi import FastAPI,Depends,HTTPException,Request
+from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks
 from pydantic import BaseModel,Field
 from app.db import init_db,get,claim,put
-from app.api.security import current_user
+from app.api.security import current_user,current_admin,is_admin
 from app.services.research import research
 from app.services.watchlist import watches,add,remove,toggle
 from app.channels import line,commands
@@ -26,7 +26,21 @@ class Notice(BaseModel): enabled:bool
 @app.get('/health')
 def health(): return {'status':'ok'}
 @app.get('/me')
-def me(user=Depends(current_user)): return {'user':user}
+def me(user=Depends(current_user)): return {'user':user,'is_admin':is_admin(user)}
+
+@app.get('/admin/status')
+def admin_status(user=Depends(current_admin)):
+    from app.services.operations import overview
+    return overview()
+
+@app.get('/ready')
+def ready():
+    from app.db import Session
+    from sqlalchemy import text
+    try:
+        with Session() as session:session.execute(text('SELECT 1'))
+        return {'status':'ok','database':'ok'}
+    except Exception:raise HTTPException(503,'資料庫暫不可用')
 @app.get('/watchlist')
 def watchlist(user=Depends(current_user)): return watches(user)
 @app.post('/watchlist')
@@ -57,11 +71,23 @@ async def prepare_fundamentals(symbol:str,user=Depends(current_user)):
     try:
         async with quote_lock:return await asyncio.to_thread(prepare,symbol)
     except ValueError as exc:raise HTTPException(400,str(exc))
+
+@app.post('/fundamentals/request/{symbol}')
+def request_fundamentals(symbol:str,background_tasks:BackgroundTasks,user=Depends(current_user)):
+    from app.api.public import request_fundamentals as request_shared
+    return request_shared(symbol,background_tasks)
+
+@app.get('/fundamentals/status/{symbol}')
+def download_status(symbol:str,user=Depends(current_user)):
+    from app.api.public import download_status as shared_status
+    return shared_status(symbol)
 @app.get('/scan')
 def scan(user=Depends(current_user)):
     from app.services.multifactor import rated_many
     report=get('scan:latest',{})
-    if report:report['ratings']=rated_many(report.get('candidates',[])[:30],user)
+    if report:
+        from app.services.multifactor import rated_report
+        report=rated_report(report,user)
     return report
 @app.post('/line/webhook')
 async def webhook(request:Request):
@@ -117,8 +143,8 @@ async def import_annual(symbol:str,request:Request,user=Depends(current_user)):
 def ratings(user=Depends(current_user)):
     from app.services.multifactor import rated_many
     from app.db import get_many
-    data=get_many(['quote:'+s for s in watches(user)[:30]])
-    return rated_many(list(data.values()),user)
+    from app.services.research import quotes_for
+    return rated_many(quotes_for(watches(user)[:30]),user)
 
 @app.get('/annual-supplement/{symbol}')
 def annual_supplement_get(symbol:str,user=Depends(current_user)):

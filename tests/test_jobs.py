@@ -7,7 +7,7 @@ def test_scan_continues_after_stock_failure(monkeypatch):
     monkeypatch.setattr(scan,'load',lambda:['2330.TW','2412.TW'])
     def fake(symbol,refresh):
         if symbol=='2330.TW': raise RuntimeError('bad stock')
-        put('quote:2412.TW',{'cached_at':__import__('time').time(),'symbol':'2412.TW','name':'Microsoft','date':'2026-11-06','income':{'matched':False},'swing':{'matched':True}})
+        put('quote:2412.TW',{'cached_at':__import__('time').time(),'symbol':'2412.TW','name':'Microsoft','date':scan.local_now().date().isoformat(),'kind':'STOCK','price':110,'adjusted_close':110,'ma20':100,'ma60':90,'volume_ratio':1,'income':{'matched':False},'swing':{'matched':True}})
     monkeypatch.setattr(scan,'research',fake)
     scan.run(2,60)
     result=get('scan:latest')

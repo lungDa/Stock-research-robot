@@ -4,7 +4,7 @@ from datetime import datetime,timezone
 from app.db import get,put
 from app.providers.market import normalize,fetch
 from app.services.analysis import enrich
-from app.services.freshness import needs_evening_refresh,local_now
+from app.services.freshness import needs_evening_refresh,local_now,mark_cached,quote_due
 
 def shared_us_quote(symbol):
     if symbol.endswith(('.TW','.TWO')):return None
@@ -12,16 +12,18 @@ def shared_us_quote(symbol):
     if not data:return None
     try:
         age=(local_now().date()-datetime.fromisoformat(data['date']).date()).days
-        if not 0<=age<=7 or time.time()-data['cached_at']>72*3600:return None
+        if not 0<=age<=7 or time.time()-data['cached_at']>36*3600:return None
     except (KeyError,ValueError,TypeError):return None
     return data
 
 def annual_only(symbol):
     shared=get('annual:shared:'+symbol,{})
-    if not shared.get('rows'):return None
-    stock=any(r.get('provenance')=='SEC_10K' for r in shared['rows'].values())
+    eps=get('eps:official:'+symbol,{})
+    if not shared.get('rows') and not eps.get('rows'):return None
+    us=any(r.get('provenance')=='SEC_10K' for r in shared.get('rows',{}).values())
+    stock=us or bool(eps.get('rows'))
     return enrich({'symbol':symbol,'name':symbol,'kind':'STOCK' if stock else 'UNKNOWN',
-        'currency':'USD' if stock else '未提供','price':None,'date':'','history':[],
+        'currency':'USD' if us else 'TWD' if stock else '未提供','price':None,'date':'','history':[],
         **{k:None for k in ('ma20','ma60','adjusted_close','volume_ratio','volatility','eps','roe','pe','yield','expense_ratio')},
         'source':'年度財報共用快取','data_status':'fundamentals_only',
         'cached_at':time.time(),'updated_at':shared.get('updated_at'),
@@ -34,9 +36,7 @@ def research(symbol,refresh=False):
     cached=get('quote:'+symbol)
     if symbol.endswith(('.TW','.TWO')) and cached and cached.get('price_basis')!='未還原收盤價':
         cached=None
-    ttl=1800 if cached and cached.get('price_basis')=='未還原收盤價' else (300 if cached and cached.get('data_status')=='partial' else 3600)
-    evening_refresh=bool(cached and symbol.endswith(('.TW','.TWO')) and needs_evening_refresh(cached['cached_at'],cached.get('date')))
-    if cached and not refresh and not evening_refresh and time.time()-cached['cached_at']<ttl:
+    if cached and not refresh and not quote_due(cached):
         if symbol.endswith(('.TW','.TWO')):
             from app.providers.fundamentals import attach
             cached=enrich(attach(cached)); put('quote:'+symbol,cached)
@@ -60,14 +60,30 @@ def research(symbol,refresh=False):
     data['cached_at']=time.time()
     data['updated_at']=datetime.now(timezone.utc).isoformat()
     put('quote:'+symbol,data)
-    return data
+    return mark_cached(data)
+
+
+def quotes_for(symbols):
+    from app.db import get_many
+    keys=['quote:'+s for s in symbols]+['usdaily:quote:'+s for s in symbols if not s.endswith(('.TW','.TWO'))]
+    documents={}
+    for offset in range(0,len(keys),80):documents.update(get_many(keys[offset:offset+80]))
+    results=[]
+    for symbol in symbols:
+        quote=documents.get('quote:'+symbol)
+        shared=documents.get('usdaily:quote:'+symbol)
+        if shared:
+            candidate=mark_cached(shared)
+            if candidate.get('data_status')!='stale' and (not quote or shared.get('date','')>=quote.get('date','')):quote=shared
+        if quote:results.append(mark_cached(quote))
+    return results
 
 def cached_quote(symbol):
     symbol=normalize(symbol)
     preferred=shared_us_quote(symbol)
-    if preferred:return preferred
+    if preferred:return mark_cached(preferred)
     data=get('quote:'+symbol)
     if data and symbol.endswith(('.TW','.TWO')):
         from app.providers.fundamentals import attach
         data=enrich(attach(data))
-    return data
+    return mark_cached(data)

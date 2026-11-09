@@ -25,7 +25,7 @@ def test_missing_values_not_zero_or_match():
     assert not r['matched'] and all(v is None for v in r['checks'].values())
 
 def test_etf_uses_separate_rules():
-    r=evaluate({'kind':'ETF','yield':4,'volatility':15,'expense_ratio':.001},'income')
+    r=evaluate({'kind':'ETF','yield':4,'volatility':15,'expense_ratio':.001,'price':100,'date':__import__('app.services.freshness',fromlist=['local_now']).local_now().date().isoformat(),'yield_basis':'trailing_paid_365d','expense_ratio_basis':'annual_total_expense'},'income')
     assert r['matched'] and 'EPS為正' not in r['checks']
 
 def test_watchlist_isolation_and_idempotency():

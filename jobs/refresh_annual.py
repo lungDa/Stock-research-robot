@@ -34,6 +34,17 @@ def compact(dataset, records, code):
 
 
 def run(symbols=None,max_requests=8,seconds=48,query=False):
+    from app.db import leased
+    init_db()
+    with leased('annual:worker',180) as owned:
+        if not owned:return {'state':'busy','annual_requests':0,'updated_symbols':0,'failed_feeds':0}
+        result=_run(symbols,max_requests,seconds,query)
+        if not query:
+            put('jobs:annual',{'updated_at':datetime.now(timezone.utc).isoformat(),**(result or {})})
+        return result
+
+
+def _run(symbols=None,max_requests=8,seconds=48,query=False):
     init_db(); started=time.monotonic(); now=time.time(); today=local_now().date()
     token=os.getenv('FINMIND_TOKEN','').strip()
     sec_agent=os.getenv('SEC_USER_AGENT','').strip()
@@ -49,8 +60,9 @@ def run(symbols=None,max_requests=8,seconds=48,query=False):
             s=normalize(s)
             if s not in symbols:symbols.append(s)
     if not explicit:
-        for s,stamp in get('annual:requested',{}).items():
-            if now-stamp<14*86400 and s not in symbols:symbols.append(s)
+        from app.services.data_queue import requested
+        for s in requested():
+            if s not in symbols:symbols.append(s)
     if not symbols:
         print('年度資料：尚無追蹤清單或ANNUAL_SYMBOLS，略過。');return
     symbols=sorted(symbols)
@@ -64,10 +76,15 @@ def run(symbols=None,max_requests=8,seconds=48,query=False):
             if quote.get('kind')!='ETF':tasks.extend((s,m) for m in SEC_CONCEPTS)
     if not tasks:
         print('年度資料：未設定來源憑證／識別資訊，或僅有不支援的ETF；不發請求。');return
+    # Round-robin across companies, then feeds; retain the persisted cursor.
+    tasks=sorted(tasks,key=lambda pair:((list(TW_DATASETS).index(pair[1]) if pair[1] in TW_DATASETS else list(SEC_CONCEPTS).index(pair[1])),pair[0]))
     count=0; touched=set(); failures=0
     def download(url,params=None,headers=None):
         nonlocal count
         if count>=max_requests or time.monotonic()-started>=seconds:raise StopIteration
+        from app.services.data_queue import source_slot
+        source='finmind' if url==FINMIND else 'sec'
+        if not source_slot(source,100 if source=='finmind' else 60):raise StopIteration
         count+=1
         return fetch_json(url,params,headers=headers,max_bytes=1048576,seconds=6)
     cursor_key='annual:query_cursor:'+symbols[0] if query else 'annual:cursor'
@@ -118,12 +135,19 @@ def run(symbols=None,max_requests=8,seconds=48,query=False):
             if feed==TW_DATASETS[2]:
                 print({'symbol':symbol,'cash_dividend_labels':sorted({str(r.get('origin_name','')) for r in records if '股利' in str(r.get('origin_name','')) or '股息' in str(r.get('origin_name',''))})[:20]})
             touched.add(symbol)
-        except StopIteration:break
+        except StopIteration:
+            put(statekey,state)
+            break
         except Exception as exc:
             failures+=1
             code=getattr(getattr(exc,'response',None),'status_code',None)
             if code in (401,403,429):put('annual:source:'+source,{'next_attempt':now+86400})
-            put(statekey,{**state,'next_attempt':now+86400,'status':'failed','schema':TW_CASH_SCHEMA,'period_schema':PERIOD_SCHEMA})
+            from app.providers.bounded_http import ResourceLimitError
+            reason=('來源回應超過本批大小或時間預算' if isinstance(exc,ResourceLimitError) else
+                    '來源拒絕或限流，等待冷卻' if code in (401,403,429) else
+                    '來源未提供可用紀錄、連線失敗或格式未通過核對')
+            put(statekey,{**state,'next_attempt':now+86400,'status':'failed','last_error':reason,
+                          'last_attempt':now,'schema':TW_CASH_SCHEMA,'period_schema':PERIOD_SCHEMA})
             # No exception strings: remote URLs or headers must not expose tokens.
             print('年度資料來源未完成：'+symbol+' / '+feed+'；保留舊快取並冷卻一天。')
     for symbol in touched:
@@ -131,10 +155,12 @@ def run(symbols=None,max_requests=8,seconds=48,query=False):
             m:get('annual:feed:'+symbol+':'+m,{}).get('records',{}) for m in SEC_CONCEPTS}
         rows=taiwan_rows(symbol,feeds,today) if symbol.endswith(('.TW','.TWO')) else us_rows(get('annual:cik:'+symbol)['cik'],feeds,today)
         # Recompute from successful feed snapshots; absent feeds remain missing.
+        profile=taiwan_fund_profile(symbol,feeds.get(TW_DATASETS[3],[]),today) if symbol.endswith(('.TW','.TWO')) else {}
+        if profile:profile['fetched_at']=get('annual:feed:'+symbol+':'+TW_DATASETS[3],{}).get('at',0)
         put('annual:shared:'+symbol,{'rows':rows,'updated_at':datetime.now(timezone.utc).isoformat(),
             'trailing':taiwan_trailing(symbol,feeds,today) if symbol.endswith(('.TW','.TWO')) else us_trailing({
                 m:get('annual:feed:'+symbol+':'+m,{}).get('period_records',[]) for m in ('eps','net_income','equity')},today),
-            'fund_profile':taiwan_fund_profile(symbol,feeds.get(TW_DATASETS[3],[]),today) if symbol.endswith(('.TW','.TWO')) else {},
+            'fund_profile':profile,
             'status':'partial','notes':['分批補齊；無資料不補零。美股EPS以USD/股計，台股以TWD/股計。',
                 'ETF不套用公司EPS與ROE；費用率與完整配息仍須可核對來源。']})
     summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures}

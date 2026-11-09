@@ -12,7 +12,10 @@ def feed_status(symbol):
     feeds=TW_DATASETS if symbol.endswith(('.TW','.TWO')) else SEC_CONCEPTS
     states=[get('annual:feed:'+symbol+':'+feed,{}) for feed in feeds]
     complete=sum(s.get('status')=='ok' and bool(s.get('records')) for s in states)
-    return {'available_feeds':complete,'total_feeds':len(states)}
+    return {'available_feeds':complete,'total_feeds':len(states),
+            'feeds':[{'dataset':feed,'state':s.get('status','pending'),'reason':s.get('last_error',''),
+                      'retry_after_seconds':max(0,round(s.get('next_attempt',0)-time.time()))}
+                     for feed,s in zip(feeds,states)]}
 
 
 def prepare(symbol):
@@ -43,10 +46,9 @@ def prepare(symbol):
         return {**base,'state':'limited','message':'查詢下載額度暫滿，未新增請求；先顯示已有資料。'}
     if not any(claim('annual:query_day:'+day+':'+str(i),{'at':now}) for i in range(30)):
         return {**base,'state':'limited','message':'今日查詢下載額度已滿，先顯示已有資料。'}
-    requested={s:t for s,t in get('annual:requested',{}).items() if now-t<14*86400}
-    requested[symbol]=now
-    requested=dict(sorted(requested.items(),key=lambda x:x[1],reverse=True)[:100])
-    put('annual:requested',requested)
+    from app.services.data_queue import enqueue
+    if not enqueue(symbol):
+        return {**base,'state':'limited','message':'待補清單暫滿，保留已有資料；請稍後重試。'}
     # Reserve before starting, so a timed out browser does not immediately repeat.
     put('annual:query_result:'+symbol,{'at':now,'state':'running'})
     try:
@@ -67,3 +69,64 @@ def prepare(symbol):
         result={**base,'state':'failed','message':'本次下載未完成，保留已有資料，已加入排程續補。'}
     put('annual:query_result:'+symbol,{'at':now,**result})
     return result
+
+
+def request_download(symbol):
+    """Return immediately after a bounded durable enqueue, before any HTTP call."""
+    from app.db import leased
+    from app.services.data_queue import enqueue
+    symbol=normalize(symbol);now=time.time()
+    with leased('annual:enqueue_symbol:'+symbol,15) as owned:
+        if not owned:return {**status(symbol),'state':'queued','message':'此標的正在安排更新。'}
+        old=get('annual:query_result:'+symbol,{})
+        if now-old.get('at',0)<300:
+            return {**status(symbol),'state':old.get('state','cached'),
+                    'message':old.get('message','此標的剛已處理，未重複下載。')}
+        tw=symbol.endswith(('.TW','.TWO'))
+        eps_supported=bool(re.fullmatch(r'\d{4}\.TW',symbol)) and get('quote:'+symbol,{}).get('kind')!='ETF'
+        configured=bool(os.getenv('FINMIND_TOKEN','').strip()) if tw else bool(
+            re.search(r'[^\s@]+@[^\s@]+\.[^\s@]+',os.getenv('SEC_USER_AGENT','')))
+        if not tw and ('.' in symbol or get('quote:'+symbol,{}).get('kind')=='ETF'):
+            return {**status(symbol),'state':'unsupported','message':'此標的財報來源尚未支援，保留已有行情。'}
+        if not configured and not eps_supported:
+            return {**status(symbol),'state':'not_configured','message':'伺服器尚未設定適用的資料來源，本次未下載。'}
+        minute=str(int(now//60));day=str(local_now().date())
+        if not any(claim('annual:query_minute:'+minute+':'+str(i),{'at':now}) for i in range(2)) or not any(
+            claim('annual:query_day:'+day+':'+str(i),{'at':now}) for i in range(30)):
+            return {**status(symbol),'state':'limited','message':'查詢下載額度暫滿，保留已有資料；待排程續補。'}
+        if not enqueue(symbol):return {**status(symbol),'state':'limited','message':'待補清單暫滿，請稍後重試。'}
+        result={**status(symbol),'at':now,'state':'queued','message':'已安排背景補資料，可先查看行情；完成後會在此頁提醒。'}
+        put('annual:query_result:'+symbol,result)
+        return result
+
+
+def process_download(symbol):
+    """Best-effort immediate batch; scheduled workers recover after interruption."""
+    from app.db import leased
+    with leased('annual:query_process:'+symbol,240) as owned:
+        if not owned:return
+        started=time.time()
+        put('annual:query_result:'+symbol,{'at':started,'state':'running','message':'背景正在補資料，可繼續操作。'})
+        try:
+            from jobs.refresh_eps import run as eps_run
+            from jobs.refresh_annual import run
+            eps=eps_run([symbol]) if re.fullmatch(r'\d{4}\.TW',symbol) else {'eps_requests':0}
+            summary=run([symbol],max_requests=2-eps.get('eps_requests',0),seconds=12,query=True) or {}
+            result={**summary,'eps_requests':eps.get('eps_requests',0)}
+            failed=summary.get('failed_feeds',0)>0 or eps.get('state')=='failed'
+            state='partial' if failed or feed_status(symbol)['available_feeds']<feed_status(symbol)['total_feeds'] else 'updated'
+            if summary.get('state')=='busy':state='partial'
+            result.update(at=started,state=state,message='本批背景處理已結束；'+('仍有缺項，待排程續補，請查看各欄原因。' if state=='partial' else '請核對各欄期間與來源，資料集齊全不代表每個欄位都有值。'))
+        except Exception:
+            result={'at':started,'state':'failed','message':'本批未完成，已保留資料與待補清單，待排程續補。'}
+        put('annual:query_result:'+symbol,result)
+
+
+def status(symbol):
+    symbol=normalize(symbol)
+    last=get('annual:query_result:'+symbol,{})
+    if last.get('state') in ('running','queued') and time.time()-last.get('at',0)>300:
+        last={**last,'state':'partial','message':'即時批次未確認完成；待補需求仍保留，由排程續補。'}
+    return {'symbol':symbol,'annual_requests':0,'updated_symbols':0,'failed_feeds':0,
+            'state':'idle','message':'尚未安排下載',**last,**feed_status(symbol),
+            'eps_status':get('eps:state:'+symbol,{})}

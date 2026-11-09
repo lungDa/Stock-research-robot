@@ -52,13 +52,15 @@ def run(limit=30, seconds=120):
         processed.add(symbol); report['attempted']+=1
         d=get('quote:'+symbol) if success else None
         if d and time.time()-d['cached_at']<36*3600:
+            from app.services.multifactor import rated
+            d=rated(d,'public')
             report['fresh_count']+=1
-            fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','data_status','cached_at')
+            fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','volume_ratio','eps','roe','pe','income','swing','price_basis','source','updated_at','warnings','data_status','cached_at')
             report['candidates'].append({k:d.get(k) for k in fields})
             if d.get('date') == report['target_date']: report['today_count']+=1
             if d.get('date') and d['date'] not in report['data_dates']: report['data_dates'].append(d['date'])
             for mode in ('income','swing'):
-                if d.get(mode,{}).get('matched'):
+                if (d['rating']['grade'] in ('買','強力買') if mode=='income' else d.get(mode,{}).get('matched')):
                     report[mode].append(f"{d['symbol']} {d['name']}｜{d['date']}")
         # 每檔checkpoint；工作中斷不會遺失整批輪掃位置。
         advanced=0

@@ -7,8 +7,9 @@ from app.services.freshness import local_now
 
 def attach(data,shared,paid=None,manual=None,today=None):
     data=copy.deepcopy(data);today=today or local_now().date()
-    if data.get('kind')!='STOCK':return data
+    if data.get('kind') not in ('STOCK','ETF'):return data
     details=copy.deepcopy(shared.get('trailing',{}));manual=manual or {}
+    details.pop('paid_yield_pct',None)  # Always recompute the rolling window at the current price.
     if manual:details['eps_ttm']=manual
     price=finite(data.get('price'));price_date=None
     try:price_date=date.fromisoformat(data.get('date',''))
@@ -20,13 +21,13 @@ def attach(data,shared,paid=None,manual=None,today=None):
         try:stamp=datetime.fromisoformat(str(profile['as_of'])).replace(tzinfo=timezone.utc).timestamp()
         except (KeyError,ValueError):stamp=0
         paid={'payments':profile['payments'],'splits':profile.get('splits',[]),
-              'currency':profile.get('currency'),'fetched_at':stamp,'source':profile.get('source','FinMind')}
-    if not profile.get('payments') and profile.get('cash_paid_365d_per_share') is not None and profile.get('as_of')==str(today) and quote_ok:
+              'currency':profile.get('currency'),'fetched_at':profile.get('fetched_at',stamp),'source':profile.get('source','FinMind')}
+    if not profile.get('payments') and profile.get('cash_paid_365d_per_share') is not None and profile.get('as_of')==str(today) and quote_ok and not data.get('corporate_action_risk'):
         details['paid_yield_pct']={'value':profile['cash_paid_365d_per_share']/price*100,
             'period_start':str(today-timedelta(days=365)+timedelta(days=1)),'period_end':str(today),
             'source':profile.get('source','FinMind'),'basis':'payment date in (today-365d, today] / latest available close',
             'price_date':str(price_date),'price':price}
-    if paid and quote_ok and time.time()-paid.get('fetched_at',0)<=8*86400 and paid.get('currency')==data.get('currency'):
+    if paid and quote_ok and not data.get('corporate_action_risk') and 0<=time.time()-paid.get('fetched_at',0)<=8*86400 and paid.get('currency')==data.get('currency'):
         payments=paid.get('payments',[]);cut=str(today-timedelta(days=365))
         # Source must extend beyond window; a truncated recent table cannot prove coverage.
         if payments and min(p['date'] for p in payments)<=cut and not any(cut<d<=str(today) for d in paid.get('splits',[])):
@@ -45,6 +46,14 @@ def attach(data,shared,paid=None,manual=None,today=None):
     data['yield']=details.get('paid_yield_pct',{}).get('value')
     data['yield_basis']='trailing_paid_365d' if data['yield'] is not None else None
     data['trailing_details']=details
+    if data.get('kind')=='ETF':
+        data['fund_profile']=profile
+        data['warnings']=[w for w in data.get('warnings',[]) if not w.startswith('基本面尚缺：')]
+        missing=[]
+        if data['yield'] is None:missing.append('近365天已到發放日配息率')
+        if data.get('expense_ratio_basis')!='annual_total_expense':missing.append('可核對的年度總費用率')
+        if missing:data['warnings'].append('基本面尚缺：'+'、'.join(missing)+'；缺項不判定符合。')
+        return data
     missing=[label for key,label in [('eps','EPS（TTM；尚缺可核對股數基準的近一年數值）'),('roe','ROE（TTM期間）'),('yield','近365天已到發放日現金配息率')] if data.get(key) is None]
     data['warnings']=[w for w in data.get('warnings',[]) if not w.startswith('基本面尚缺：')]
     if missing:data['warnings'].append('基本面尚缺：'+'、'.join(missing)+'；不以年度或除息日數字替代。')

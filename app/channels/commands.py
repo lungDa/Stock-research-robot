@@ -62,7 +62,7 @@ def format_quote(d):
     return (f"{d['name']}（{assistant.display_symbol(d['symbol'])}）\n行情日 {d['date']}｜{d['currency']} {d['price']:.2f}\n"
         f"更新時間 {format_updated_at(d.get('updated_at'))}\n{quote_note(d)}\n"
         f"分級 {r.get('grade','尚未評估')}｜資料完整度 {r.get('coverage',0)}%\n"
-        f"存股 {d['income']['score']}/{d['income']['total']}；波段 {d['swing']['score']}/{d['swing']['total']}\n"
+        f"近一年簡易檢核 {d['income']['score']}/{d['income']['total']}；波段 {d['swing']['score']}/{d['swing']['total']}\n"
         '可輸入「追蹤＋代號」，或點下方功能選單。規則篩選非報酬預測。')
 
 
@@ -109,6 +109,8 @@ def handle(user,text):
         return f"最近批次更新：{format_updated_at(r.get('updated_at'))}\n涵蓋{r.get('fresh_count',0)}/{r.get('universe_size',0)}檔（本批次，非全市場）；實際行情日：{'、'.join(r.get('data_dates',[])) or '尚無資料'}。\n5～10年財報、ETF年度總費用及完整配息仍可能缺資料；缺資料不冒稱符合。"
     if command in ('存股選股','波段選股'):
         report=get('scan:latest',{});key='income' if command=='存股選股' else 'swing'
+        from app.services.multifactor import rated_report
+        report=rated_report(report,user if personal else 'public')
         if key=='income':
             items=rated_many(report.get('candidates',[])[:30],user if personal else 'public')
             rows=[d['name']+'｜'+assistant.display_symbol(d['symbol'])+'：'+d['rating']['grade'] for d in items if d['rating']['grade'] in ('買','強力買')]

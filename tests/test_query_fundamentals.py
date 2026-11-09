@@ -23,7 +23,7 @@ def test_query_targets_symbol_without_watch_and_preserves_global_cursor(monkeypa
     result=prepare('2412')
     assert result['annual_requests']<=2 and result['state']=='partial'
     assert calls and all(p['data_id']=='2412' for p in calls)
-    assert '2412.TW' in get('annual:requested')
+    assert get('annual:request:2412.TW')['expires']>time.time()
     assert get('annual:cursor')['value']==77
     assert prepare('2412')['state']=='cached'
 

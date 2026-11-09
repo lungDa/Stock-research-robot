@@ -65,12 +65,29 @@ def annual_rows(user,symbol,documents=None):
         fields=read('fundamentals:index:'+market,{}).get(code,{}).get('fields',{})
         eps=fields.get('eps',{})
         if eps.get('period','').endswith('Q4'):
-            official[eps['period'][:4]]={'eps':eps['value'],'source_url':eps['source'],'provenance':'official_Q4'}
+            official[eps['period'][:4]]={'eps':eps['value'],'source_url':eps['source'],'provenance':'official_Q4','as_of':eps.get('as_of','')}
     private=read('annual:'+user+':'+symbol,{})
     shared=read('annual:shared:'+symbol,{})
     rows=copy.deepcopy(shared.get('rows',{}))
-    for year,row in official.items():rows.setdefault(year,{}).update(row)
-    for year,row in private.items():rows.setdefault(year,{}).update(row)
+    saved=read('eps:official:'+symbol,{}).get('rows',{})
+    for snapshot in (saved,official):
+        for year,row in snapshot.items():
+            existing=rows.setdefault(year,{})
+            old_source=existing.get('field_sources',{}).get('eps',{})
+            if row.get('as_of','')<old_source.get('as_of',existing.get('as_of','')) and existing.get('eps') is not None:continue
+            if not existing:existing.update(copy.deepcopy(row))
+            existing['eps']=row['eps']
+            existing.setdefault('field_sources',{})['eps']=copy.deepcopy(row.get('field_sources',{}).get('eps',{
+                'url':row.get('source_url',''),'as_of':row.get('as_of',''),'provenance':row.get('provenance','official_Q4')}))
+            if 'notes' in existing:existing['notes']=[n for n in existing['notes'] if 'EPS未直接' not in n]
+    for year,row in private.items():
+        existing=rows.setdefault(year,{})
+        sources={**existing.get('field_sources',{}),**row.get('field_sources',{})}
+        for key in row:
+            if key in ('eps','roe_pct','cash_yield_pct','cash_dividend_per_share','operating_cash_flow','capital_expenditure','cash_dividends_paid','revenue') and key not in row.get('field_sources',{}):
+                sources[key]={'url':row.get('source_url',''),'as_of':row.get('as_of',''),'provenance':row.get('provenance','user_import')}
+        existing.update(row)
+        existing['field_sources']=sources
     return rows
 
 def value_for(data,rows,metric,years,today):
@@ -107,7 +124,7 @@ def value_for(data,rows,metric,years,today):
     try:
         age=(today-date.fromisoformat(data['date'])).days
         if not 0<=age<=7:return None
-    except (ValueError,KeyError):return None
+    except (ValueError,KeyError,TypeError):return None
     if metric=='price_ma20':
         a,b=data.get('adjusted_close'),data.get('ma20')
         return (a/b-1)*100 if a is not None and b is not None and b>0 else None
@@ -116,7 +133,8 @@ def value_for(data,rows,metric,years,today):
         return (a/b-1)*100 if a is not None and b is not None and b>0 else None
     # ETF指標只接受明確聲明期間的資料；舊Yahoo/官方公告殖利率不可替代。
     key={'etf_yield':'yield','expense_pct':'expense_ratio','volatility':'volatility'}[metric]
-    if metric!='volatility' and data.get(key+'_basis') not in ('trailing_paid_365d','annual_total_expense'):return None
+    expected='trailing_paid_365d' if metric=='etf_yield' else 'annual_total_expense'
+    if metric!='volatility' and data.get(key+'_basis')!=expected:return None
     v=data.get(key)
     return v*100 if metric=='expense_pct' and v is not None else v
 
@@ -140,40 +158,50 @@ def evaluate(data,c,rows=None,today=None):
     weight=sum(r['weight'] for r in checks);available=sum(r['weight'] for r in known)
     score=round(100*sum(r['weight'] for r in known if r['passed'])/available,2) if available else None
     missing=len(known)<len(checks)
-    if not known or (missing and c['missing_policy']=='block'):grade='資料不足'
+    required_missing=any(r['required'] and r['passed'] is None for r in checks)
+    from app.services.freshness import market_usable
+    market_ok=market_usable(data,today)
+    if not market_ok or required_missing or not known or (missing and c['missing_policy']=='block'):grade='資料不足'
     elif any(r['required'] and r['passed'] is False for r in checks):grade='觀望'
     elif score>=c['strong_score'] and not missing:grade='強力買'
     elif score>=c['buy_score']:grade='買'
     else:grade='觀望'
+    reasons=[]
+    if not market_ok:reasons.append('行情過舊或不完整，停止買入分級')
+    if required_missing:reasons.append('必要條件缺資料')
     return {'grade':grade,'score':score,'coverage':round(100*available/weight,1) if weight else 0,
-        'checks':checks,'config_hash':config_hash(c),'reason':'規則分級，非報酬預測；缺資料不補零'}
+        'market_usable':market_ok,'required_missing':required_missing,
+        'checks':checks,'config_hash':config_hash(c),'reason':'；'.join(reasons+['規則分級，非報酬預測；分數僅計已知資料，缺資料不補零'])}
 
 def rated(data,user,config=None,documents=None):
+    if documents is None:
+        from app.db import get_many
+        documents=get_many(_rating_keys([data],user))
+        return rated(data,user,config or documents.get('strategy:'+user,copy.deepcopy(DEFAULT)),documents)
     from app.db import get
+    read=get if documents is None else lambda k,d=None:documents.get(k,d)
     shared=(get('annual:shared:'+data['symbol'],{}) if documents is None else documents.get('annual:shared:'+data['symbol'],{}))
-    profile=shared.get('fund_profile',{})
     data=copy.deepcopy(data)
-    if data.get('kind')=='STOCK':
+    from app.services.freshness import mark_cached
+    if 'cached_at' in data:data=mark_cached(data)
+    if data['symbol'].endswith(('.TW','.TWO')):
+        from app.providers.fundamentals import attach as official_attach
+        data=official_attach(data,documents)
+        if data.get('kind')=='UNKNOWN' and read('eps:official:'+data['symbol'],{}).get('rows'):
+            data['kind']='STOCK'
+    if data.get('kind') in ('STOCK','ETF'):
         from app.services.trailing_metrics import attach
-        read=get if documents is None else lambda k,d=None:documents.get(k,d)
         data=attach(data,shared,read('paid:shared:'+data['symbol'],{}),read('ttm:'+user+':'+data['symbol'],{}))
-    if data.get('kind')=='ETF' and profile:
-        today=local_now().date()
-        asof=date.fromisoformat(profile['as_of'])
-        total=profile.get('cash_paid_365d_per_share');price=data.get('price')
-        if 0<=(today-asof).days<=7 and total is not None and price and price>0:
-            data['yield']=total/price*100
-            data['yield_basis']='trailing_paid_365d'
-            data['fund_profile']=profile
-            data['warnings']=[w for w in data.get('warnings',[]) if not w.startswith('基本面尚缺：')]
-            if data.get('expense_ratio_basis')!='annual_total_expense':
-                data['warnings'].append('ETF年度總費用率仍缺可核對來源；不以其他費用欄位替代。')
+    from app.services.analysis import enrich
+    data=enrich(data)
     rows=annual_rows(user,data['symbol'],documents)
-    return {**data,'rating':evaluate(data,config or settings_for(user),rows),
+    rating=evaluate(data,config or settings_for(user),rows)
+    from app.services.data_quality import report
+    return {**data,'rating':rating,'data_quality':report(data,rows,rating,read),
             'annual_rows':rows,
             'annual_refresh':_annual_state(data['symbol'],documents),
             'annual_sources':[{'year':year,'source':r.get('source_url',''),'provenance':r.get('provenance','unknown'),
-                'currency':r.get('currency',data.get('currency','未知')),'period_end':r.get('period_end',''),
+                'currency':r.get('currency',data.get('currency','未知')),'period_end':r.get('period_end',''),'field_sources':r.get('field_sources',{}),
                 'notes':'；'.join(r.get('notes',[]))} for year,r in sorted(rows.items(),reverse=True)]}
 
 def _annual_state(symbol,documents):
@@ -182,14 +210,29 @@ def _annual_state(symbol,documents):
     shared=read('annual:shared:'+symbol,{})
     return {k:shared[k] for k in ('updated_at','status','notes') if k in shared}
 
-def rated_many(items,user):
-    from app.db import get_many
+def _rating_keys(items,user):
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
     keys+=['annual:shared:'+d['symbol'] for d in items]
     keys+=['paid:shared:'+d['symbol'] for d in items]+['ttm:'+user+':'+d['symbol'] for d in items]
-    keys+=['fundamentals:index:TW','fundamentals:index:TWO']
+    keys+=['eps:official:'+d['symbol'] for d in items]
+    keys+=['annual:query_result:'+d['symbol'] for d in items]
+    markets={d['symbol'].rsplit('.',1)[-1] for d in items if d['symbol'].endswith(('.TW','.TWO'))}
+    keys+=['fundamentals:index:'+market for market in sorted(markets)]+['annual:source:finmind','annual:source:sec']
+    return list(dict.fromkeys(keys))
+
+
+def rated_many(items,user):
+    from app.db import get_many
+    keys=_rating_keys(items,user)
     # 30 candidates + private/shared rows exceed the database's 80-key bound.
     documents={}
     for offset in range(0,len(keys),80):documents.update(get_many(keys[offset:offset+80]))
     c=documents.get('strategy:'+user,copy.deepcopy(DEFAULT))
     return [rated(d,user,c,documents) for d in items]
+
+
+def rated_report(report,user):
+    items=rated_many(report.get('candidates',[])[:30],user)
+    return {**report,'ratings':items,
+        'income':[f"{d['symbol']} {d['name']}｜{d['date']}" for d in items if d['rating']['grade'] in ('買','強力買')],
+        'swing':[f"{d['symbol']} {d['name']}｜{d['date']}" for d in items if d.get('swing',{}).get('matched')]}

@@ -55,12 +55,12 @@ def test_snapshot_survives_month_failure(monkeypatch):
     assert d['eps'] is None and d['data_status']=='partial' and d['source']=='臺灣證券交易所 TWSE'
 
 def test_raw_split_disables_signal():
-    rows=[{'date':x.date().isoformat(),'close':100 if i<65 else 25,'volume':1000} for i,x in enumerate(pd.date_range('2026-08-01',periods=70))]
+    rows=[{'date':x.date().isoformat(),'close':100 if i<65 else 25,'volume':1000} for i,x in enumerate(pd.date_range(end=__import__('app.services.freshness',fromlist=['local_now']).local_now().date(),periods=70))]
     d=enrich(official.build_result('0050.TW',rows,{'kind':'ETF'},[]))
     assert d['ma20'] is None and d['volatility'] is None and not d['swing']['matched']
 
 def test_sufficient_history_computes_moving_averages():
-    rows=[{'date':x.date().isoformat(),'close':100+i,'volume':1000} for i,x in enumerate(pd.date_range('2026-08-01',periods=70))]
+    rows=[{'date':x.date().isoformat(),'close':100+i,'volume':1000} for i,x in enumerate(pd.date_range(end=__import__('app.services.freshness',fromlist=['local_now']).local_now().date(),periods=70))]
     d=enrich(official.build_result('2330.TW',rows,{'kind':'STOCK'},[]))
     assert d['ma20']==159.5 and d['ma60']==139.5 and d['swing']['matched']
     assert not d['income']['matched'] and d['yield'] is None

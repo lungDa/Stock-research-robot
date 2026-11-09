@@ -81,6 +81,16 @@ def merge(market, rows, category, source, now):
         parsed = parse(row,market,category,source,now)
         if parsed is None: continue
         code, entry = parsed
+        eps=entry['fields'].get('eps',{})
+        if eps.get('period','').endswith('Q4'):
+            history_key='eps:official:'+code+'.'+market
+            history=get(history_key,{'rows':{}});year=eps['period'][:4]
+            old=history['rows'].get(year,{})
+            if eps['as_of']>=old.get('as_of',''):
+                history['rows'][year]={'eps':eps['value'],'as_of':eps['as_of'],'currency':'TWD',
+                    'source_url':source,'provenance':'official_Q4','period_end':year+'-12-31',
+                    'field_sources':{'eps':{'url':source,'as_of':eps['as_of'],'unit':'TWD_PER_SHARE','basis':eps['basis']}}}
+                put(history_key,history)
         existing = index.setdefault(code, {'name': entry['name'], 'fields': {}})
         for field, value in entry['fields'].items():
             old = existing['fields'].get(field, {})
@@ -93,9 +103,12 @@ def merge(market, rows, category, source, now):
     return count
 
 
-def attach(data):
+def attach(data,documents=None):
+    data.setdefault('kind','UNKNOWN')
+    data.setdefault('warnings',[])
     symbol = data['symbol']; code,market = symbol.rsplit('.',1)
-    entry = get('fundamentals:index:'+market,{}).get(code,{})
+    read=get if documents is None else lambda key,default=None:documents.get(key,default)
+    entry = read('fundamentals:index:'+market,{}).get(code,{})
     fields = entry.get('fields',{})
     data['fundamentals_version'] = VERSION
     data['fundamental_details'] = fields

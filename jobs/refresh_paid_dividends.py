@@ -46,6 +46,8 @@ def run():
     from app.services.accounts import member_users
     from app.services.watchlist import watches
     symbols+= [s for user in member_users() for s in watches(user)]
+    from app.services.data_queue import requested
+    symbols+=list(requested())
     for symbol,url in SOURCES.items():
         if symbol not in symbols:continue
         now=time.time();key='paid:state:'+symbol

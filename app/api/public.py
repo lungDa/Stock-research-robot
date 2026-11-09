@@ -1,8 +1,8 @@
 """免登入公開行情與預設選股；不提供個人清單、設定、年報匯入或通知操作。"""
 import asyncio,time
-from fastapi import APIRouter,HTTPException
+from fastapi import APIRouter,HTTPException,BackgroundTasks
 from app.db import get,claim
-from app.services.freshness import local_now
+from app.services.freshness import local_now,quote_due,mark_cached
 from app.services.research import cached_quote,research
 from app.services.multifactor import rated,rated_many
 from app.providers.market import normalize
@@ -20,12 +20,14 @@ async def quote(symbol:str):
         symbol=normalize(symbol)
         async with lock:
             data=await asyncio.to_thread(cached_quote,symbol)
-            if data:
-                if time.time()-data.get('cached_at',0)>36*3600:
-                    data={**data,'data_status':'stale','warnings':list(data.get('warnings',[]))+['公開模式顯示較舊快取，請核對實際行情日。']}
-            else:
-                if not await asyncio.to_thread(reserve_refresh):raise HTTPException(429,'公開查詢更新額度已用完，請稍後重試或LINE登入使用個人查詢')
-                data=await asyncio.to_thread(research,symbol)
+            if quote_due(data):
+                if await asyncio.to_thread(reserve_refresh):
+                    data=await asyncio.to_thread(research,symbol)
+                elif data:
+                    data={**mark_cached(data),'refresh_deferred':True,
+                          'warnings':list(dict.fromkeys(data.get('warnings',[])+['公開更新額度已滿，本次保留既有行情；請核對行情日。']))}
+                else:
+                    raise HTTPException(429,'公開查詢更新額度已用完，請稍後重試或LINE登入使用個人查詢')
         return await asyncio.to_thread(rated,data,'public')
     except ValueError as e:raise HTTPException(400,str(e))
     except HTTPException:raise
@@ -34,7 +36,9 @@ async def quote(symbol:str):
 @router.get('/scan')
 def scan():
     report=get('scan:latest',{})
-    if report:report['ratings']=rated_many(report.get('candidates',[])[:30],'public')
+    if report:
+        from app.services.multifactor import rated_report
+        report=rated_report(report,'public')
     return report
 
 @router.post('/fundamentals/prepare/{symbol}')
@@ -42,4 +46,21 @@ async def prepare_fundamentals(symbol:str):
     from app.services.query_fundamentals import prepare
     try:
         async with lock:return await asyncio.to_thread(prepare,symbol)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+
+@router.post('/fundamentals/request/{symbol}')
+def request_fundamentals(symbol:str,background_tasks:BackgroundTasks):
+    from app.services.query_fundamentals import request_download,process_download
+    try:
+        result=request_download(symbol)
+        if result.get('state')=='queued':background_tasks.add_task(process_download,result['symbol'])
+        return result
+    except ValueError as exc:raise HTTPException(400,str(exc))
+
+
+@router.get('/fundamentals/status/{symbol}')
+def download_status(symbol:str):
+    from app.services.query_fundamentals import status
+    try:return status(symbol)
     except ValueError as exc:raise HTTPException(400,str(exc))

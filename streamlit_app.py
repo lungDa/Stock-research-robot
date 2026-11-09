@@ -9,9 +9,9 @@ try: base=st.secrets.get('API_BASE_URL',os.getenv('API_BASE_URL','http://localho
 except FileNotFoundError: base=os.getenv('API_BASE_URL','http://localhost:10000')
 def api(method,path,**kwargs):
     # 訪客只走公開GET端點；個人寫入端點仍由後端強制認證。
-    if not st.session_state.get('personal_active') and method=='GET' and (path.startswith('/quote/') or path=='/scan'):
+    if not st.session_state.get('personal_active') and method=='GET' and (path.startswith(('/quote/','/fundamentals/status/')) or path=='/scan'):
         path='/public'+path
-    if not st.session_state.get('personal_active') and method=='POST' and path.startswith('/fundamentals/prepare/'):
+    if not st.session_state.get('personal_active') and method=='POST' and path.startswith(('/fundamentals/prepare/','/fundamentals/request/')):
         path='/public'+path
     headers={'Authorization':'Bearer '+st.session_state.token} if st.session_state.get('token') else {}
     try:
@@ -38,6 +38,7 @@ if st.session_state.get('token'):
     if info:
         st.session_state.login_stage=info['stage'];st.session_state.login_name=info['name']
         st.session_state.password_change_required=info['password_change_required']
+        st.session_state.is_admin=info.get('is_admin',False)
         st.session_state.personal_active=info['stage']=='active'
     else:
         st.session_state.clear()
@@ -86,23 +87,46 @@ with query:
         symbol=st.text_input('代號','2330',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
         submit=st.form_submit_button('分析')
     if submit:
-        with st.status('正在處理查詢：檢查快取並下載一小批基本面…',expanded=True) as progress:
-            progress.write('首次查詢不需加入追蹤；每批最多兩次來源請求，通常需數秒至十多秒。')
-            result=api('POST','/fundamentals/prepare/'+symbol.strip())
-            st.session_state.download_result=result
-            if result:
-                progress.write(result['message'])
-                progress.write(f"本批請求 {result['annual_requests']} 次；已有資料集 {result['available_feeds']}/{result['total_feeds']}。資料集數不代表所有指標完整。")
-            progress.write('正在取得行情並重新計算評分…')
-            st.session_state.result=api('GET','/quote/'+symbol.strip())
-            problem=not result or result.get('state') in ('failed','not_configured','limited','cooldown','unsupported') or st.session_state.result is None
-            label='本次查詢處理結束：有未完成項目，請查看說明' if problem else ('本批處理完成，仍有資料待補' if result.get('state')=='partial' else '本次查詢處理完成')
-            progress.update(label=label,state='error' if problem else 'complete',expanded=problem or bool(result and result.get('state')=='partial'))
+        requested_symbol=symbol.strip()
+        with st.spinner('正在取得行情並安排背景補資料…'):
+            st.session_state.result=api('GET','/quote/'+requested_symbol)
+            result=api('POST','/fundamentals/request/'+requested_symbol)
+        st.session_state.download_result=result
+        st.session_state.download_symbol=requested_symbol
+        st.session_state.download_pending=bool(result and result.get('state') in ('queued','running'))
         if result:
-            st.toast('本批更新完成' if result['state']=='updated' else ('本批處理結束，仍有項目待處理' if result['state'] in ('partial','failed') else result['message']))
-            if result['state']=='updated':st.success(result['message'])
-            elif result['state'] in ('partial','failed','not_configured','limited','cooldown','unsupported'):st.warning(result['message'])
-            else:st.info(result['message'])
+            st.info(result['message'])
+            if st.session_state.download_pending:st.toast('已開始背景補資料，可繼續查看行情。')
+        st.session_state.download_notice_key=None
+
+    @st.fragment(run_every='4s' if st.session_state.get('download_pending') else None)
+    def download_progress():
+        target=st.session_state.get('download_symbol')
+        if not target:return
+        previous=st.session_state.get('download_result') or {}
+        result=api('GET','/fundamentals/status/'+target) if st.session_state.get('download_pending') else previous
+        if not result:return
+        st.session_state.download_result=result
+        state=result.get('state')
+        if state in ('queued','running'):
+            st.info('基本面背景更新中；行情已先顯示，完成後將提醒。')
+            return
+        st.caption(result.get('message','')+f"｜已有資料集 {result.get('available_feeds',0)}/{result.get('total_feeds',0)}；資料集數不代表欄位完整度。")
+        failed=[f for f in result.get('feeds',[]) if f.get('state')=='failed']
+        if failed:
+            with st.expander('資料來源本批未完成原因'):
+                st.dataframe([{'資料集':f['dataset'],'原因':f['reason'],'可重試倒數（秒）':f['retry_after_seconds']} for f in failed],hide_index=True)
+        if st.session_state.get('download_pending'):
+            st.session_state.download_pending=False
+            refreshed=api('GET','/quote/'+target)
+            if refreshed:st.session_state.result=refreshed
+            st.session_state.download_notice_key='待提醒'
+            st.rerun()
+    download_progress()
+    if st.session_state.get('download_notice_key')=='待提醒':
+        result=st.session_state.get('download_result') or {}
+        st.toast('本批背景更新完成。' if result.get('state')=='updated' else '本批處理結束，仍有資料待補；請查看缺漏原因。')
+        st.session_state.download_notice_key='已提醒'
     d=st.session_state.get('result')
     if d:
         for warning in d.get('warnings', []): st.warning(warning)
@@ -152,10 +176,19 @@ with query:
                     if state.get('updated_at'):st.caption('共用年度資料更新：'+format_updated_at(state['updated_at']))
                     for note in state.get('notes',[]):st.caption(note)
                     st.caption('五年殖利率口徑：各年已到發放日的現金股利／該年未還原年底收盤價，再取平均；美股EPS門檻以USD／股計，台股以TWD／股計。缺少欄位留白，不視為零。')
-            st.caption('缺資料模式為封鎖時，部分分數再高也不代表取得買入級別。')
+            st.caption('分數僅計已知資料；必要條件缺漏或行情過舊時，一律不取得買入級別。')
+            st.caption(rating.get('reason',''))
             st.dataframe([{'因子':x['label'],'期間（年）':x['years'],'實際值':x['value'],'門檻':str(x['op'])+' '+str(x['threshold']),'結果':'缺資料' if x['passed'] is None else ('符合' if x['passed'] else '未符合'),'必要':x['required'],'權重':x['weight']} for x in rating['checks']],hide_index=True)
+        quality=d.get('data_quality',{})
+        with st.expander('各欄資料狀態與缺漏原因',expanded=bool(quality.get('required_missing'))):
+            labels={'available':'可計算','unsupported':'尚未支援','verification_required':'需核對補登',
+                    'cooldown':'來源冷卻','not_configured':'來源未設定','history_missing':'歷史／行情不足','missing':'待補資料','queued':'已排程'}
+            fields=quality.get('current_fields',[])+quality.get('rule_fields',[])
+            st.dataframe([{'項目':x['label'],'狀態':labels.get(x['state'],x['state']),
+                '缺漏年度':'、'.join(map(str,x.get('missing_years',[]))),'說明':x['reason']} for x in fields],hide_index=True)
+            st.caption('已安排下載不代表來源一定涵蓋；TTM EPS需核對股數基準，年度EPS不替代。')
         cols=st.columns(2)
-        for col,mode,title in zip(cols,['income','swing'],['存股條件','波段條件']):
+        for col,mode,title in zip(cols,['income','swing'],['近一年簡易檢核','波段條件']):
             with col:
                 st.markdown('### '+title)
                 st.write(f"符合 {d[mode]['score']} / {d[mode]['total']}")
@@ -187,7 +220,7 @@ with screen:
         if report.get('ratings'):
             st.subheader('本次批次多因子分級（依你的設定）')
             st.dataframe([{'代號':x['symbol'],'名稱':x['name'],'分級':x['rating']['grade'],'有效資料分數':x['rating']['score'],'完整度':x['rating']['coverage']} for x in report['ratings']],hide_index=True)
-        mode=st.radio('篩選模式',['income','swing'],format_func=lambda x:'存股' if x=='income' else '波段',horizontal=True)
+        mode=st.radio('篩選模式',['income','swing'],format_func=lambda x:'多因子存股' if x=='income' else '波段',horizontal=True)
         st.dataframe(pd.DataFrame({'符合條件標的':report.get(mode,[])}),use_container_width=True)
         with st.expander('本次失敗代號'): st.write(report.get('failed',[]))
     else: st.info('尚無掃描報告，請先執行排程。')
@@ -345,3 +378,32 @@ with strategy_tab:
         if change_pw:
             if next_pw!=next_confirm:st.error('兩次新密碼不一致')
             elif api('POST','/auth/password/change',json={'current_password':current_pw,'new_password':next_pw}):st.success('密碼已修改，其他登入工作階段將失效。')
+
+
+if personal:
+    with st.expander('我的帳戶資訊（管理者設定用）'):
+        if st.button('顯示我的LINE識別碼'):
+            account=api('GET','/me')
+            if account:st.code(account['user'],language=None)
+
+
+if personal and st.session_state.get('is_admin'):
+    with st.expander('管理者：資料更新與系統狀態'):
+        if st.button('檢查資料更新狀態'):
+            status=api('GET','/admin/status')
+            if status:st.session_state.operations_status=status
+        status=st.session_state.get('operations_status')
+        if status:
+            left,right=st.columns(2)
+            left.metric('有效查詢需求',status['queue_symbols'])
+            right.metric('最早需求距今（小時）',status['oldest_request_age_hours'])
+            st.caption(status['queue_scope'])
+            st.write('來源設定：',status['source_configured'])
+            st.write('今日來源請求／本系統上限：',status['daily_provider_requests'])
+            st.write('來源可重試倒數（秒）：',status['source_retry_after_seconds'])
+            st.dataframe([{'工作':name,'最後結束':item.get('updated_at','尚無紀錄'),
+                '狀態':item.get('state','詳見紀錄')} for name,item in status['jobs'].items()],hide_index=True)
+            st.write('最近掃描：',status['scan'])
+            st.caption(status['field_coverage_scope'])
+            st.dataframe([{'欄位':x['label'],'有值檔數':x['known'],'抽樣檔數':x['sampled'],'完整率（%）':x['coverage_pct']} for x in status['field_coverage_sample']],hide_index=True)
+            st.caption(f"資料集抽樣 {status['feed_states_sampled']} 筆（上限 {status['feed_sample_limit']}）；成功 {status['feed_ok']}，失敗 {status['feed_failed']}。")

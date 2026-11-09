@@ -212,7 +212,7 @@ def build_result(symbol, rows, meta, warnings):
             'debt_to_equity': None, 'expense_ratio': None, 'yield': None,
             'history': [{'date': r['date'], 'close': float(r['close'])} for r in frame.to_dict('records')],
             'source': '臺灣證券交易所 TWSE' if market == 'TW' else '證券櫃檯買賣中心 TPEx',
-            'price_basis': '未還原收盤價', 'history_count': count,
+            'price_basis': '未還原收盤價', 'history_count': count,'corporate_action_risk':jump,
             'data_status': 'partial', 'warnings': list(dict.fromkeys(warnings))}
 
 

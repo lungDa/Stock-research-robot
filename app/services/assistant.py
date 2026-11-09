@@ -18,8 +18,8 @@ def display_symbol(symbol):
 
 def personal_ratings(user):
     codes=watches(user)[:30]
-    docs=get_many(['quote:'+s for s in codes])
-    return rated_many(list(docs.values()),user) if docs else []
+    from app.services.research import quotes_for
+    return rated_many(quotes_for(codes),user)
 
 def summary(user):
     codes=watches(user)

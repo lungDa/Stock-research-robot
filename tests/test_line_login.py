@@ -27,7 +27,7 @@ def activate(client,user=U,new='12345678'):
 
 def test_public_works_private_denied_before_login(monkeypatch):
     import app.api.public as public
-    monkeypatch.setattr(public,'cached_quote',lambda s:{'symbol':s,'kind':'UNKNOWN','cached_at':time.time(),'date':'2026-11-06'})
+    monkeypatch.setattr(public,'cached_quote',lambda s:{'symbol':s,'kind':'UNKNOWN','price':100,'cached_at':time.time(),'date':'2026-11-06'})
     with TestClient(app) as c:
         assert c.get('/public/quote/2330').status_code==200
         assert c.get('/public/scan').status_code==200
