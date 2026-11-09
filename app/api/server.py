@@ -119,6 +119,12 @@ def annual_supplement_get(symbol:str,user=Depends(current_user)):
     try:return supplemental_rows(user,symbol)
     except ValueError as exc:raise HTTPException(400,str(exc))
 
+@app.put('/ttm-eps/{symbol}')
+async def ttm_eps_save(symbol:str,request:Request,user=Depends(current_user)):
+    from app.services.annual_data import save_ttm_eps
+    try:return save_ttm_eps(user,symbol,json.loads(await limited_body(request,4096)))
+    except (ValueError,TypeError) as exc:raise HTTPException(400,str(exc))
+
 @app.patch('/annual-supplement/{symbol}')
 async def annual_supplement_save(symbol:str,request:Request,user=Depends(current_user)):
     from app.services.annual_data import supplement

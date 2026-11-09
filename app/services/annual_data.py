@@ -98,3 +98,22 @@ def supplemental_rows(user,symbol):
     return {'symbol':symbol,'rows':[{'year':int(y),'eps':r.get('eps'),
         'cash_dividends_paid':r.get('cash_dividends_paid'),'source_url':r.get('source_url',''),
         'field_sources':r.get('field_sources',{})} for y,r in sorted(data.items(),reverse=True)]}
+
+
+def save_ttm_eps(user,symbol,body):
+    from datetime import date
+    symbol=normalize(symbol)
+    if not isinstance(body,dict) or body.get('confirmed') is not True:raise ValueError('請核對近四季EPS及股數基準')
+    try:start=date.fromisoformat(body['period_start']);end=date.fromisoformat(body['period_end'])
+    except (KeyError,ValueError,TypeError):raise ValueError('請提供TTM起訖日期')
+    if not 330<=(end-start).days<=400 or not 0<=(local_now().date()-end).days<=190:raise ValueError('TTM須涵蓋近一年，期末不可在未來或距今超過190天')
+    value=body.get('value');source=body.get('source','')
+    if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('EPS須為有限數值')
+    if not isinstance(source,str):raise ValueError('來源網址須為文字')
+    url=urlparse(source)
+    if len(source)>2048 or url.scheme!='https' or not url.hostname or url.username or url.password:raise ValueError('請提供官方財報HTTPS來源網址')
+    row={'value':value,'period_start':str(start),'period_end':str(end),'source':source,
+         'basis':'user_verified_TTM_EPS; reported currency per share; system has not verified report',
+         'provenance':'user_report_verified','as_of':str(local_now().date())}
+    put('ttm:'+user+':'+symbol,row)
+    return {'symbol':symbol,**row}

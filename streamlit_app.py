@@ -98,6 +98,15 @@ with query:
             st.line_chart(pd.DataFrame(d['history']).set_index('date'))
         else:
             st.info('目前僅有單日收盤價，歷史圖表待官方資料補齊。')
+        if d.get('kind')=='STOCK':
+            st.subheader('近一年基本面（TTM／近365天）')
+            trailing=d.get('trailing_details',{})
+            names={'eps_ttm':'EPS（TTM／報表幣別每股）','roe_ttm_pct':'ROE（TTM／%）','paid_yield_pct':'近365天已到發放日配息率（%）'}
+            st.dataframe([{'項目':label,'數值':trailing.get(key,{}).get('value'),
+                '起日':trailing.get(key,{}).get('period_start',''),'迄日':trailing.get(key,{}).get('period_end',''),
+                '股價日':trailing.get(key,{}).get('price_date',''),'來源':trailing.get(key,{}).get('source',''),
+                '口徑':trailing.get(key,{}).get('basis','缺少可核對的近一年資料')} for key,label in names.items()],hide_index=True)
+            st.caption('TTM財報期間與配息365天區間可能不同；多年平均EPS／ROE等個人選股規則仍使用年度資料，不以TTM替代。')
         with st.expander('分類與基本面來源 / 期間'):
             labels={'kind':'商品分類','fund_type':'基金類型','eps':'財報累計EPS（元）','pe':'官方本益比','official_yield':'官方公告殖利率（%）','reported_roe':'報表ROE（小數；僅展示）'}
             details=d.get('fundamental_details',{})
@@ -268,6 +277,23 @@ with strategy_tab:
             if saved:
                 st.caption('下表股利支出已統一換算為元；重填時請留意單位。')
                 st.dataframe(saved['rows'],hide_index=True)
+        st.divider()
+        st.subheader('核對補登近一年 EPS（台股／美股）')
+        st.caption('僅在有可核對的TTM來源時使用。請先確認近四季股數基準一致；不能把全年、第四季單季或不同股數基準的EPS直接當TTM。此處只影響你的近一年EPS，不覆蓋年度資料。')
+        with st.form('ttm_eps_form'):
+            ttm_symbol=st.text_input('近一年EPS代號','2330',key='ttm_symbol')
+            from datetime import timedelta
+            ttm_start=st.date_input('TTM期間起日',value=local_now().date()-timedelta(days=364))
+            ttm_end=st.date_input('TTM期間迄日',value=local_now().date())
+            ttm_value=st.number_input('已核對的近一年EPS（報表幣別／股）',value=None,step=0.01)
+            ttm_source=st.text_input('近一年EPS官方財報來源HTTPS網址')
+            ttm_check=st.checkbox('我已核對近一年起訖期間與股數基準；數值不是單季或預估EPS')
+            ttm_save=st.form_submit_button('儲存已核對的TTM EPS')
+        if ttm_save:
+            if ttm_value is None or not ttm_check:st.error('請填EPS並核對期間與股數基準。')
+            elif api('PUT','/ttm-eps/'+ttm_symbol.strip(),json={'confirmed':True,'value':ttm_value,
+                'period_start':str(ttm_start),'period_end':str(ttm_end),'source':ttm_source}):
+                st.session_state.pop('result',None);st.success('TTM EPS已保存，請重新分析。')
         st.divider()
         st.subheader('匯入個人年度歷史資料')
         st.info('共用資料已分批下載；仍缺的年度欄位可由官方年報核對後補登或匯入。人工資料不代表系統已自動驗證，只影響你的分級。')

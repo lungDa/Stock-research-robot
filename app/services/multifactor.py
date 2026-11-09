@@ -153,6 +153,10 @@ def rated(data,user,config=None,documents=None):
     shared=(get('annual:shared:'+data['symbol'],{}) if documents is None else documents.get('annual:shared:'+data['symbol'],{}))
     profile=shared.get('fund_profile',{})
     data=copy.deepcopy(data)
+    if data.get('kind')=='STOCK':
+        from app.services.trailing_metrics import attach
+        read=get if documents is None else lambda k,d=None:documents.get(k,d)
+        data=attach(data,shared,read('paid:shared:'+data['symbol'],{}),read('ttm:'+user+':'+data['symbol'],{}))
     if data.get('kind')=='ETF' and profile:
         today=local_now().date()
         asof=date.fromisoformat(profile['as_of'])
@@ -182,6 +186,7 @@ def rated_many(items,user):
     from app.db import get_many
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
     keys+=['annual:shared:'+d['symbol'] for d in items]
+    keys+=['paid:shared:'+d['symbol'] for d in items]+['ttm:'+user+':'+d['symbol'] for d in items]
     keys+=['fundamentals:index:TW','fundamentals:index:TWO']
     # 30 candidates + private/shared rows exceed the database's 80-key bound.
     documents={}

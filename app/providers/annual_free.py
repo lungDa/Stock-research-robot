@@ -54,17 +54,24 @@ def valid_day(value):
 
 def taiwan_fund_profile(symbol, records, today):
     """Distributions whose disclosed payment date has passed; never announced yield."""
-    events={}; code=symbol.split('.')[0]
+    events={}; all_events={};splits=[];code=symbol.split('.')[0]
     for r in records:
         d=valid_day(r.get('CashDividendPaymentDate'))
-        if str(r.get('stock_id'))!=code or not d or not today-timedelta(days=365)<d<=today:continue
+        if str(r.get('stock_id'))!=code or not d:continue
         a=finite(r.get('CashEarningsDistribution')); b=finite(r.get('CashStatutorySurplus'))
         if a is None or b is None or min(a,b)<0:continue
         key=(str(d),r.get('year'),r.get('CashExDividendTradingDate'))
+        if key in all_events and all_events[key]!=a+b:return {}
+        all_events[key]=a+b
+        stock_a=finite(r.get('StockEarningsDistribution'));stock_b=finite(r.get('StockStatutorySurplus'))
+        split_date=valid_day(r.get('StockExDividendTradingDate'))
+        if split_date and ((stock_a or 0)>0 or (stock_b or 0)>0):splits.append(str(split_date))
+        if not today-timedelta(days=365)<d<=today:continue
         if key in events and events[key]!=a+b:return {}
         events[key]=a+b
     if not events:return {}
     return {'cash_paid_365d_per_share':sum(events.values()),'as_of':today.isoformat(),
+        'payments':[{'date':k[0],'amount':v} for k,v in all_events.items()], 'splits':splits,'currency':'TWD',
         'source':'FinMind / TaiwanStockDividend','basis':'disclosed_payment_date_passed',
         'note':'依公告發放日計算；來源未涵蓋或不適用時留白，不以宣告殖利率替代'}
 
