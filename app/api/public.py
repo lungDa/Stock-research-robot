@@ -36,3 +36,10 @@ def scan():
     report=get('scan:latest',{})
     if report:report['ratings']=rated_many(report.get('candidates',[])[:30],'public')
     return report
+
+@router.post('/fundamentals/prepare/{symbol}')
+async def prepare_fundamentals(symbol:str):
+    from app.services.query_fundamentals import prepare
+    try:
+        async with lock:return await asyncio.to_thread(prepare,symbol)
+    except ValueError as exc:raise HTTPException(400,str(exc))

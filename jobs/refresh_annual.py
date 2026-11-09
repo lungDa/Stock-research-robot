@@ -33,19 +33,24 @@ def compact(dataset, records, code):
     return result
 
 
-def run():
+def run(symbols=None,max_requests=8,seconds=48,query=False):
     init_db(); started=time.monotonic(); now=time.time(); today=local_now().date()
     token=os.getenv('FINMIND_TOKEN','').strip()
     sec_agent=os.getenv('SEC_USER_AGENT','').strip()
     if sec_agent and not re.search(r'[^\s@]+@[^\s@]+\.[^\s@]+',sec_agent):
         print('年度資料：SEC_USER_AGENT須包含維護者聯絡Email；本次不請求SEC。')
         sec_agent=''
-    symbols=list(dict.fromkeys(normalize(s) for u in member_users() for s in watches(u)))
+    max_requests=max(1,min(int(max_requests),8));seconds=max(1,min(float(seconds),48))
+    explicit=symbols is not None
+    symbols=([normalize(s) for s in symbols] if explicit else list(dict.fromkeys(normalize(s) for u in member_users() for s in watches(u))))
     # Optional operator-selected symbols allow bootstrapping before adding watches.
-    for s in os.getenv('ANNUAL_SYMBOLS','').split(','):
+    for s in ([] if explicit else os.getenv('ANNUAL_SYMBOLS','').split(',')):
         if s.strip():
             s=normalize(s)
             if s not in symbols:symbols.append(s)
+    if not explicit:
+        for s,stamp in get('annual:requested',{}).items():
+            if now-stamp<14*86400 and s not in symbols:symbols.append(s)
     if not symbols:
         print('年度資料：尚無追蹤清單或ANNUAL_SYMBOLS，略過。');return
     symbols=sorted(symbols)
@@ -62,17 +67,18 @@ def run():
     count=0; touched=set(); failures=0
     def download(url,params=None,headers=None):
         nonlocal count
-        if count>=8 or time.monotonic()-started>=48:raise StopIteration
+        if count>=max_requests or time.monotonic()-started>=seconds:raise StopIteration
         count+=1
         return fetch_json(url,params,headers=headers,max_bytes=1048576,seconds=6)
-    cursor=get('annual:cursor',{'value':0})['value']%len(tasks)
+    cursor_key='annual:query_cursor:'+symbols[0] if query else 'annual:cursor'
+    cursor=get(cursor_key,{'value':0})['value']%len(tasks)
     for offset in range(len(tasks)):
-        if count>=8 or time.monotonic()-started>=48:break
+        if count>=max_requests or time.monotonic()-started>=seconds:break
         i=(cursor+offset)%len(tasks); symbol,feed=tasks[i]
         source='finmind' if symbol.endswith(('.TW','.TWO')) else 'sec'
         if now<get('annual:source:'+source,{}).get('next_attempt',0):continue
         statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
-        put('annual:cursor',{'value':(i+1)%len(tasks)})
+        put(cursor_key,{'value':(i+1)%len(tasks)})
         migration=(feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
         if now<state.get('next_attempt',0) and not migration:continue
         # Reserve before request, including failures/interruption; no immediate retries.
@@ -131,7 +137,9 @@ def run():
             'fund_profile':taiwan_fund_profile(symbol,feeds.get(TW_DATASETS[3],[]),today) if symbol.endswith(('.TW','.TWO')) else {},
             'status':'partial','notes':['分批補齊；無資料不補零。美股EPS以USD/股計，台股以TWD/股計。',
                 'ETF不套用公司EPS與ROE；費用率與完整配息仍須可核對來源。']})
-    print({'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures})
+    summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures}
+    print(summary)
+    return summary
 
 
 if __name__=='__main__':run()

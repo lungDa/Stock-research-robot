@@ -1,51 +1,30 @@
-# 股海燈塔：新台股財報備援來源小量驗證
+# 查詢時下載基本面與畫面提醒
 
-此包只驗證DataSinking免費財報來源，不宣稱已自動補齊EPS、ROE或配息率。DataSinking提供Markdown財報全文，不是現成TTM數值API；須先確認來源涵蓋、財報期間、單位與表格內容，才能安全接進評分。
+本補丁套用於目前股海燈塔專案，請保留 ZIP 內的相對路徑，覆蓋同名檔案後提交 GitHub，等待 Render 與 Streamlit 更新。
 
-## 取得免費Key
+## 必要設定
+1. Render → Stock-research-robot → Environment，新增 FINMIND_TOKEN，值使用既有 GitHub Secret 的同一個 FinMind token，儲存並重新部署。
+2. 若也查詢美股年度財報，Render 需有 SEC_USER_AGENT，內容包含維護者聯絡 Email。
+3. Render 與既有 GitHub 年度資料排程必須使用同一個 DATABASE_URL；保留既有排程啟用。
+GitHub Secrets 不會自動傳入 Render。不要把 token 放在前端程式、公開變數或訊息中。
 
-1. 開啟 https://datasink.ing/pricing ，選Free區塊的Get Free。
-2. 依網站流程取得免費API Key；不選Yearly或付費結帳。
-3. GitHub lungDa/Stock-research-robot → Settings → Secrets and variables → Actions → Secrets → New repository secret。
-4. Name填DATASINK_API_KEY，Secret貼上你的免費Key。不要貼到聊天、公開檔案或Repository Variable。
+## 查詢流程
+在 Streamlit 輸入 2412，按「分析」：
+- 開始顯示處理中，檢查共用快取並下載一小批基本面。
+- 本批結束顯示更新結果、請求數、資料集數，並出現提示通知。
+- 部分完成會明確顯示「仍有資料待補」，其餘交由既有年度排程續補，不必加入追蹤。
+- 行情及評分在本批處理後重新讀取。沒有憑證、來源冷卻、額度用完或失敗，都會顯示原因並保留已有資料。
+提醒顯示於網站；本補丁沒有新增 LINE 推播，也不會自動加入個人追蹤或開啟訂閱。
 
-供應商目前方案頁標示Free為$0/forever，個人輕量使用，每7天每Key最多8191份文件，另有所有免費使用者共用池。額度以文件數而非單純請求數計算，資料與方案仍以供應商當時公告為準。
+## 流量與時間限制
+每次前景批次最多兩次來源請求，採 12 秒處理預算；網路、資料庫及正在進行的來源請求可能讓實際等待超過預算，不代表所有歷史資料會在 12 秒內下載完畢。
+公用與個人查詢共用每分鐘 2 個批次、每日 30 個批次限制；同一標的 5 分鐘內不重複下載。來源既有快取及冷卻機制沿用。
+續補清單最多保留 100 檔、14 天，實際續補時間依既有排程、來源額度及可取得資料而定。
 
-## 安裝與執行
+## 完成判定
+「本批更新完成」只表示本次批次結束，不表示每項指標已補齊。資料集數不等於欄位完整度。
+來源沒有提供或無法核對期間的 EPS、ROE、股利資料仍保留缺漏，不以推估值冒充完整值。
 
-將包內 scripts/check_tw_report_backup.py、.github/workflows/report-backup-check.yml 與 tests/test_report_backup_check.py 依原路徑上傳GitHub main。保留原本其他檔案，.github開頭有點。
-
-Actions → Check Taiwan report backup → Run workflow，symbol先保留2330.TW。
-
-此第一階段檢查限四位數上市代號.TW；上櫃、其他市場及全面輪掃尚未接入，不能由這次成功推論所有台股都有資料。
-
-展開Validate one public report：
-- 成功會列出公開的公司、報告期間、文件類型、內容大小及是否出現EPS／淨利／權益／股利支出等關鍵字。
-- numeric_values_verified固定為false。關鍵字出現不代表數字已正確抽取，更不代表已算成TTM。
-- 不輸出Key、完整請求URL或財報全文。
-- 若失敗只顯示錯誤類別；表示權限、資料格式、涵蓋、網路或大小上限等仍待確認，請勿反覆重跑。
-
-完成後可提供這個步驟的結果，據以確認能否接EPS／ROE報表解析。Key不用傳給任何人。
-
-## 預算與界線
-
-- 手動執行，沒有新增定時排程。
-- 最多兩次HTTP請求：1筆目錄＋1份財報。
-- 目錄最多64KiB、財報最多512KiB；各6秒串流軟預算，步驟硬限制1分鐘，整個工作最多4分鐘。
-- 財報超過大小預算就停止，不把截斷內容當完整報表。
-- 不寫資料庫，不變更現有數字、不發LINE訊息、不啟用付費方案。
-- REST依官方文件以apikey參數認證；程式不記錄包含Key的URL或原始網路例外。
-
-## 為何先驗證
-
-已檢查的其他候選：FinLab免費台股資料只到較舊期間；TWMD免費層不含財報三表。它們目前不適合拿來承諾最新TTM三項都能補齊。
-
-DataSinking的官方文件列台股財報目錄與全文查詢，但這次尚未使用你的Key做正式連線驗證，也尚未確認全部台股的最新期涵蓋。
-
-本機5項測試通過：請求數與大小預算、公司／期間核對、錯誤代號拒收、來源文字不直接當數值、例外不洩漏Key。
-
-官方資料：
-https://datasink.ing/pricing
-https://datasink.ing/zh-tw/docs
-https://studio.finlab.finance/docs/reference/data
-https://twmarketdata.com/zh-TW/pricing
+## 驗證
+176 項自動測試通過；Streamlit 模擬查詢驗證通過，確認先送出下載請求、再取得行情，並顯示部分完成提醒。
+尚未部署至你的服務，亦未在正式環境執行 FinMind 下載。部署後可用 2412 檢查上述流程。

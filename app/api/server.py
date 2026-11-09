@@ -50,6 +50,13 @@ async def quote(symbol:str,user=Depends(current_user)):
     except ValueError as e: raise HTTPException(400,str(e))
     except Exception:
         log.exception('quote failed'); raise HTTPException(503,'行情暫不可用，請稍後再試')
+
+@app.post('/fundamentals/prepare/{symbol}')
+async def prepare_fundamentals(symbol:str,user=Depends(current_user)):
+    from app.services.query_fundamentals import prepare
+    try:
+        async with quote_lock:return await asyncio.to_thread(prepare,symbol)
+    except ValueError as exc:raise HTTPException(400,str(exc))
 @app.get('/scan')
 def scan(user=Depends(current_user)):
     from app.services.multifactor import rated_many

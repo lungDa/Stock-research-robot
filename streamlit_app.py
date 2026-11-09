@@ -11,6 +11,8 @@ def api(method,path,**kwargs):
     # 訪客只走公開GET端點；個人寫入端點仍由後端強制認證。
     if not st.session_state.get('personal_active') and method=='GET' and (path.startswith('/quote/') or path=='/scan'):
         path='/public'+path
+    if not st.session_state.get('personal_active') and method=='POST' and path.startswith('/fundamentals/prepare/'):
+        path='/public'+path
     headers={'Authorization':'Bearer '+st.session_state.token} if st.session_state.get('token') else {}
     try:
         r=requests.request(method,base+path,headers=headers,timeout=45,**kwargs)
@@ -84,7 +86,23 @@ with query:
         symbol=st.text_input('代號','2330',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
         submit=st.form_submit_button('分析')
     if submit:
-        with st.spinner('取得資料中…'): st.session_state.result=api('GET','/quote/'+symbol.strip())
+        with st.status('正在處理查詢：檢查快取並下載一小批基本面…',expanded=True) as progress:
+            progress.write('首次查詢不需加入追蹤；每批最多兩次來源請求，通常需數秒至十多秒。')
+            result=api('POST','/fundamentals/prepare/'+symbol.strip())
+            st.session_state.download_result=result
+            if result:
+                progress.write(result['message'])
+                progress.write(f"本批請求 {result['annual_requests']} 次；已有資料集 {result['available_feeds']}/{result['total_feeds']}。資料集數不代表所有指標完整。")
+            progress.write('正在取得行情並重新計算評分…')
+            st.session_state.result=api('GET','/quote/'+symbol.strip())
+            problem=not result or result.get('state') in ('failed','not_configured','limited','cooldown','unsupported') or st.session_state.result is None
+            label='本次查詢處理結束：有未完成項目，請查看說明' if problem else ('本批處理完成，仍有資料待補' if result.get('state')=='partial' else '本次查詢處理完成')
+            progress.update(label=label,state='error' if problem else 'complete',expanded=problem or bool(result and result.get('state')=='partial'))
+        if result:
+            st.toast('本批更新完成' if result['state']=='updated' else ('本批處理結束，仍有項目待處理' if result['state'] in ('partial','failed') else result['message']))
+            if result['state']=='updated':st.success(result['message'])
+            elif result['state'] in ('partial','failed','not_configured','limited','cooldown','unsupported'):st.warning(result['message'])
+            else:st.info(result['message'])
     d=st.session_state.get('result')
     if d:
         for warning in d.get('warnings', []): st.warning(warning)
