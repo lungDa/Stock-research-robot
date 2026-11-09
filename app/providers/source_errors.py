@@ -4,6 +4,8 @@ import requests
 from app.providers.bounded_http import ResourceLimitError
 
 CONTRACTS={
+ 'Cash-flow split table mismatch':'現金流量表科目與金額表格無法逐列對齊',
+ 'Cash-flow company metadata mismatch':'現金流量表公司標題與欄位不符',
  'Cash-flow catalog mismatch':'無法核對官方現金流量表目錄',
  'Cash-flow report period mismatch':'官方回應的年度／季別與請求不符',
  'Not a cash-flow statement':'官方回應不是現金流量表',

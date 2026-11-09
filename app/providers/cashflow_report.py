@@ -26,7 +26,7 @@ def catalog(html):
     found={(r['code'],canonical(r['unit'])) for r in parser.items if
         canonical(r['text']).lstrip('●•·') in ('現金流量表','現金流量表(累計)') and
         re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',r['code']) and
-        canonical(r['unit']) in ('新台幣仟元','新台幣千元','新臺幣仟元','新臺幣千元')}
+        canonical(r['unit']) in ('','新台幣仟元','新台幣千元','新臺幣仟元','新臺幣千元')}
     if len(found)!=1:raise ValueError('Cash-flow catalog mismatch')
     code,unit=found.pop();return {'code':code,'unit':unit}
 
@@ -37,7 +37,7 @@ def fields(symbols,year,metric):
         raise ValueError('Invalid cash-flow company batch')
     if not 2013<=year<=2100:raise ValueError('Invalid cash-flow year')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',metric.get('code','')):raise ValueError('Cash-flow catalog mismatch')
-    if canonical(metric.get('unit','')) not in ('新台幣仟元','新台幣千元','新臺幣仟元','新臺幣千元'):raise ValueError('Cash-flow unit mismatch')
+    if canonical(metric.get('unit','')) not in ('','新台幣仟元','新台幣千元','新臺幣仟元','新臺幣千元'):raise ValueError('Cash-flow unit mismatch')
     return {'compareItem':metric['code'],'ylabel':metric['unit'],'companyId':codes,'ys':f'{year}4',
         'quarter':'true','qnumber':'','revenue':'true','bcodeAvg':'false','companyAvg':'false'}
 
@@ -45,16 +45,17 @@ def fields(symbols,year,metric):
 class ReportHTML(HTMLParser):
     """Bounded grid collector, including merged cells. Ignore script text."""
     def __init__(self):
-        super().__init__();self.inputs={};self.tables=[];self.stack=[];self.cell=None;self.text=[];self.ignore=0;self.rows=0
+        super().__init__();self.inputs={};self.tables=[];self.stack=[];self.cell=None;self.text=[];self.ignore=0;self.rows=0;self.divs=[];self.contexts=[]
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
         if tag in ('script','style'):self.ignore+=1;return
         if self.ignore:return
+        if tag=='div':self.divs.append(attrs.get('id',''))
         if tag=='input' and attrs.get('name') in ('yearseason','reportName'):
             self.inputs.setdefault(attrs['name'],set()).add(clean(attrs.get('value','')))
         if tag=='table':
             if len(self.tables)>=30 or len(self.stack)>=4:raise ValueError('Cash-flow table limit')
-            table=[];self.tables.append(table);self.stack.append(table)
+            table=[];self.tables.append(table);self.stack.append(table);self.contexts.append(tuple(self.divs))
         elif tag=='tr' and self.stack:
             self.rows+=1
             if self.rows>3000:raise ValueError('Cash-flow table limit')
@@ -73,6 +74,7 @@ class ReportHTML(HTMLParser):
         if tag in ('script','style'):
             self.ignore=max(0,self.ignore-1);return
         if self.ignore:return
+        if tag=='div' and self.divs:self.divs.pop()
         if tag in ('td','th') and self.cell is not None:
             self.stack[-1][-1].append(self.cell);self.cell=None
         if tag=='table' and self.stack:self.stack.pop()
@@ -116,12 +118,29 @@ def parse(html,symbols,year,today,metric):
     parser=ReportHTML();parser.feed(html)
     if {value.upper().replace('Q','') for value in parser.inputs.get('yearseason',set())}!={f'{year}4'}:raise ValueError('Cash-flow report period mismatch')
     names=parser.inputs.get('reportName',set())
-    if not names or any('現金流量表' not in name for name in names):raise ValueError('Not a cash-flow statement')
+    if not names:raise ValueError('Not a cash-flow statement')
     unit_text=unicodedata.normalize('NFKC',' '.join(parser.text))
     units={canonical(value) for value in re.findall(r'金額\s*單位\s*[:：]\s*([^()<>，,\s]+)',unit_text)}
     if len(units)!=1 or not units<= {'新台幣仟元','新台幣千元','新臺幣仟元','新臺幣千元'}:
         raise ValueError('Cash-flow unit mismatch')
     all_rows=[grid(table) for table in parser.tables]
+    # Official HTML uses two sibling tables: row labels and company values.
+    # Only join the explicitly identified containers with equal row counts.
+    heads=[i for i,c in enumerate(parser.contexts) if 'headTable' in c]
+    bodies=[i for i,c in enumerate(parser.contexts) if 'bodyTable' in c]
+    split=False
+    if heads or bodies:
+        if len(heads)!=1 or len(bodies)!=1:raise ValueError('Cash-flow split table mismatch')
+        labels=all_rows[heads[0]];values=all_rows[bodies[0]]
+        if len(labels)!=len(values) or len(labels)<3 or any(len(r)!=1 for r in labels):raise ValueError('Cash-flow split table mismatch')
+        if labels[0]!=['報表類別'] or labels[1]!=['會計科目']:raise ValueError('Cash-flow split table mismatch')
+        width=len(values[1])
+        if not width or any(len(r)!=width for r in values):raise ValueError('Cash-flow split table mismatch')
+        sections={canonical(r[0]) for r in labels}
+        if not all(kind+'活動之淨現金流入(流出)' in sections for kind in ('營業','投資','籌資')):raise ValueError('Not a cash-flow statement')
+        if names!={clean(v) for v in values[1]}:raise ValueError('Cash-flow company metadata mismatch')
+        all_rows=[[left+right for left,right in zip(labels,values)]];split=True
+    if not split and any('現金流量表' not in name for name in names):raise ValueError('Not a cash-flow statement')
     source_url=BASE+'/compare/report?'+urlencode(form,doseq=True)
     results={};issues={}
     for symbol in symbols:

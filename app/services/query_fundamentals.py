@@ -161,7 +161,7 @@ def status(symbol):
 def cash_status(symbol):
     from app.db import get_many
     years=list(range(local_now().date().year-1,local_now().date().year-6,-1))
-    keys=['annual:shared:'+symbol,'cashflow:official:'+symbol]+[f'cashflow:state:{symbol}:{year}' for year in years]
+    keys=['annual:shared:'+symbol,'cashflow:official:'+symbol,'cashflow:catalog_state','annual:source:mopsfin']+[f'cashflow:state:{symbol}:{year}' for year in years]
     docs=get_many(keys);shared=docs.get(keys[0],{}).get('rows',{});official=docs.get(keys[1],{}).get('rows',{})
     rows=[]
     for year in years:
@@ -169,6 +169,13 @@ def cash_status(symbol):
         if entry.get('cash_dividends_paid') is None:entry=official.get(y,{})
         state=docs.get(f'cashflow:state:{symbol}:{year}',{})
         value=entry.get('cash_dividends_paid')
+        # A source-wide failure happens before individual company rows exist.
+        # Surface it instead of leaving every stock indefinitely pending.
+        if value is None and not state:
+            for global_key in ('cashflow:catalog_state','annual:source:mopsfin'):
+                blocker=docs.get(global_key,{})
+                if blocker.get('reason') and blocker.get('next_attempt',0)>time.time():
+                    state={**blocker,'status':'failed'};break
         rows.append({'year':year,'value':value,'state':'available' if value is not None else state.get('status','pending'),
             'reason':state.get('reason','') if value is None else entry.get('cash_dividends_paid_basis','已保存年度支出'),
             'retry_after_seconds':max(0,round(state.get('next_attempt',0)-time.time())) if value is None else 0,
