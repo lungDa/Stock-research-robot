@@ -118,6 +118,17 @@ with query:
         if official:
             with st.expander('官方年度EPS／ROE下載狀態'):
                 st.dataframe([{'欄位':name,'狀態':item.get('status','尚待下載'),'已涵蓋年度':'、'.join(item.get('years',[])),'說明':item.get('reason','')} for name,item in official.items()],hide_index=True)
+                pdf=result.get('eps_status',{})
+                st.write('TWSE年度EPS PDF備援：',pdf.get('status','尚待下載'))
+                if pdf.get('reason'):st.caption(pdf['reason'])
+                if pdf.get('years'):st.caption('PDF已涵蓋年度：'+'、'.join(pdf['years']))
+        if result.get('feeds'):
+            with st.expander('各資料集最新期間／行情備援狀態'):
+                st.dataframe([{'資料集':f['dataset'],'狀態':f['state'],'最新紀錄日':f.get('latest_record_date',''),'保存筆數':f.get('downloaded_records',0),'說明':f.get('reason','')} for f in result['feeds']],hide_index=True)
+                daily=result.get('tw_daily_status',{})
+                st.write('台股日線備援：',daily.get('status','尚待下載'))
+                if daily.get('date'):st.caption(f"備援行情日：{daily['date']}；日線筆數：{daily.get('history_count',0)}")
+                if daily.get('reason'):st.caption(daily['reason'])
         failed=[f for f in result.get('feeds',[]) if f.get('state')=='failed']
         partial=[f for f in result.get('feeds',[]) if f.get('state')=='partial']
         if partial:
@@ -219,8 +230,11 @@ with query:
         for col,mode,title in zip(cols,['income','swing'],['近一年簡易檢核','波段條件']):
             with col:
                 st.markdown('### '+title)
-                st.write(f"符合 {d[mode]['score']} / {d[mode]['total']}")
-                st.table([{'條件':k,'結果':'缺資料' if v is None else ('符合' if v else '未符合')} for k,v in d[mode]['checks'].items()])
+                known=sum(v is not None for v in d[mode]['checks'].values())
+                st.write(f"符合 {d[mode]['score']} / {d[mode]['total']}；可判定 {known} 項")
+                from app.services.freshness import market_usable
+                unavailable='行情待更新，暫停判定' if not market_usable(d) else '待補期間／來源資料'
+                st.table([{'條件':k,'結果':unavailable if v is None else ('符合' if v else '未符合')} for k,v in d[mode]['checks'].items()])
         st.caption('近一年配息率為歷史現金配息／目前價格；不是未來收益承諾。ETF 配息不等同總報酬。')
         if personal and st.button('加入我的追蹤'): 
             if api('POST','/watchlist',json={'symbol':d['symbol']}): st.success('已加入')

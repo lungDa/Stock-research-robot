@@ -4,6 +4,8 @@
 
 本版包含台股個股財務補強；先閱讀 `TW_FINANCIALS_UPDATE.md`，並在部署後手動執行 **Verify Taiwan annual EPS and ROE source**，確認新官方入口的實際回應。
 
+本次正式環境追查：更新後執行 **Replenish data and clean expired records**；若2330仍缺欄位，執行新增 **Diagnose stock source gaps**，輸入 `2330.TW`，保留該步驟JSON輸出。這個診斷最多6次請求，不寫入資料庫、不發送LINE；請勿貼出憑證。詳細界線見 `TW_RUNTIME_RECOVERY.md`。
+
 ## 1. 套用檔案
 
 將 ZIP 解壓縮後，開啟 `Stock-research-robot-main` 資料夾，將裡面的內容覆蓋至原專案同名路徑。不要再在 GitHub 專案內多包一層同名資料夾。

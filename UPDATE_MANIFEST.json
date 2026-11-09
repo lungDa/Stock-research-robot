@@ -1,7 +1,7 @@
 {
-  "release": "Free-source pipeline gap fixes",
-  "baseline_library_version": 2,
-  "baseline_zip_sha256": "734e3868dd743dae69555047dc169d233d0c15344f7a1445aaf80017dd27ab8d",
+  "release": "Taiwan runtime source recovery and diagnostics",
+  "baseline_library_version": 3,
+  "baseline_zip_sha256": "7dba9f374fc88d57c1115fa35af076e46b0b71829758b225ab91a54eac7d3297",
   "changed_files_since_previous": [
     ".github/workflows/annual-data.yml",
     ".github/workflows/daily.yml",
@@ -9,37 +9,38 @@
     "UPDATE_MANIFEST.json",
     "UPGRADE_GUIDE.md",
     "VALIDATION.md",
-    "app/providers/annual_free.py",
     "app/providers/fundamentals.py",
-    "app/providers/mopsfin.py",
-    "app/providers/taiwan_official.py",
+    "app/providers/twse_eps.py",
+    "app/services/multifactor.py",
     "app/services/query_fundamentals.py",
     "app/services/research.py",
-    "app/services/trailing_metrics.py",
-    "jobs/refresh_annual.py",
     "jobs/refresh_data.py",
-    "jobs/scan.py",
-    "streamlit_app.py",
-    "tests/test_market_resilience.py",
-    "tests/test_resource_budgets.py"
+    "jobs/refresh_eps.py",
+    "jobs/refresh_tw_financials.py",
+    "streamlit_app.py"
   ],
   "added_files_since_previous": [
-    "PROGRAM_GAPS_FIXES.md",
-    "app/providers/date_windows.py",
-    "app/providers/finmind_batch.py",
-    "jobs/refresh_history.py",
-    "tests/test_pipeline_gaps.py"
+    ".github/workflows/diagnose-stock-sources.yml",
+    "TW_RUNTIME_RECOVERY.md",
+    "app/providers/source_errors.py",
+    "app/providers/tw_daily.py",
+    "jobs/refresh_tw_prices.py",
+    "scripts/check_stock_sources.py",
+    "tests/test_tw_runtime_recovery.py"
   ],
   "removed_files_since_previous": [],
   "validation": {
-    "local_pytest": "303 passed; 1 upstream deprecation warning",
-    "python_compileall": "passed",
-    "live_source_end_to_end": "not verified",
-    "deployed": false
+    "local_pytest": "323 passed; 1 upstream warning",
+    "final_diagnostic_regression": "20 passed",
+    "compileall": "passed",
+    "official_2330_pdf_web_text": "retrieved; transcribed cells tested, not raw PDF contract",
+    "direct_runtime_http": "TWSE and MOPS read timeouts",
+    "deployment": "not performed",
+    "all_2330_fields_complete": "not established"
   },
   "notes": [
-    "Free sources retained; no paid integration",
-    "Strict TTM EPS share-basis requirements retained",
-    "See PROGRAM_GAPS_FIXES.md and UPGRADE_GUIDE.md"
+    "No annual EPS substitution for TTM",
+    "No claim that financial cash-dividend totals are complete",
+    "Run Diagnose stock source gaps on deployment network"
   ]
 }
