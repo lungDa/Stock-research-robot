@@ -45,10 +45,14 @@ def report(data,rows,rating,read):
                        'missing_years':years,'required':check['required']})
     current=[]
     if data.get('kind')=='STOCK':
-        for key,label in [('eps_ttm','EPS（TTM）'),('roe_ttm_pct','ROE（TTM）'),('paid_yield_pct','近365天已發配息率')]:
+        eps_key='eps_four_quarter_sum' if tw and data.get('eps_basis')!='verified_or_reported_ttm' else 'eps_ttm'
+        for key,label in [(eps_key,'EPS（近四季合計）' if eps_key=='eps_four_quarter_sum' else 'EPS（TTM）'),('roe_ttm_pct','ROE（TTM）'),('paid_yield_pct','近365天已發配息率')]:
             detail=data.get('trailing_details',{}).get(key,{})
             if detail:
                 state='available';reason=detail.get('basis','')
+            elif key=='eps_four_quarter_sum':
+                state='cooldown' if cooling else 'not_configured' if not configured else 'missing'
+                reason='需要連續四個完整季末的基本EPS；舊版未保存EPS，更新後須補下載損益表。缺季、衝突或最新期間過舊時留白'
             elif key=='eps_ttm':
                 state='verification_required';reason='缺少同一股數基準的完整近一年EPS；僅接受明確12個月報告值或已核對的獲利與加權股數計算，不加總單季EPS'
             elif key=='paid_yield_pct' and not tw and symbol!='AAPL':

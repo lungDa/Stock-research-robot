@@ -81,7 +81,7 @@ def test_cash_schema_refetch_once_respects_new_cooldown(monkeypatch):
     monkeypatch.setenv('FINMIND_TOKEN','fake');monkeypatch.setenv('ANNUAL_SYMBOLS','2330.TW')
     monkeypatch.delenv('SEC_USER_AGENT',raising=False)
     for dataset in TW_DATASETS:
-        put('annual:feed:2330.TW:'+dataset,{'next_attempt':time.time()+86400,'schema':2,'period_schema':1,'records':[]})
+        put('annual:feed:2330.TW:'+dataset,{'next_attempt':time.time()+86400,'schema':2,'period_schema':1,'eps_schema':job.TW_EPS_SCHEMA,'records':[]})
     put('annual:feed:2330.TW:'+TW_DATASETS[2],{'next_attempt':time.time()+86400,'schema':1,'records':[]})
     loader=Mock(return_value={'status':200,'data':[cash('發放股利')]})
     monkeypatch.setattr(job,'fetch_json',loader)

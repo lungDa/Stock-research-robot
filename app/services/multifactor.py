@@ -207,9 +207,13 @@ def rated(data,user,config=None,documents=None):
     rows=annual_rows(user,data['symbol'],documents)
     if data['symbol'].endswith(('.TW','.TWO')):
         # Rebuild from persisted raw periods after upgrades, without redownloading.
-        from app.providers.trailing import taiwan_trailing
+        from app.providers.trailing import taiwan_trailing,taiwan_eps_four_quarters
         from app.providers.annual_free import TW_DATASETS
         derived=taiwan_trailing(data['symbol'],{feed:read('annual:feed:'+data['symbol']+':'+feed,{}).get('records',[]) for feed in TW_DATASETS[:2]},local_now().date())
+        quarterly=taiwan_eps_four_quarters(data['symbol'],read('annual:feed:'+data['symbol']+':'+TW_DATASETS[0],{}).get('records',[]),local_now().date()) if data.get('kind')=='STOCK' else None
+        if quarterly:derived['eps_four_quarter_sum']=quarterly
+        elif shared.get('trailing',{}).get('eps_four_quarter_sum'):
+            shared=copy.deepcopy(shared);shared['trailing'].pop('eps_four_quarter_sum',None)
         if derived:
             shared=copy.deepcopy(shared)
             for key,value in derived.items():

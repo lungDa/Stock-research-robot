@@ -1,5 +1,6 @@
 """Period-aware trailing metrics. No network requests or annual/TTM substitution."""
 from datetime import date,timedelta
+import math
 from app.providers.annual_free import finite,valid_day,TW_DATASETS,tw_series
 
 
@@ -82,6 +83,39 @@ def taiwan_trailing(symbol,feeds,today):
             'opening_equity':a,'closing_equity_date':str(end),'closing_equity':b,
             'mean_equity':(a+b)/2,'scope':'total_consolidated_income_and_equity','currency':'TWD'}
     # No sum of EPS values with unverified share bases.
+    return result
+
+
+def taiwan_eps_four_quarters(symbol,records,today):
+    """Explicit quarterly sum, separate from verified/report-issued TTM EPS."""
+    code=symbol.split('.')[0]
+    quarter_ends={'03-31','06-30','09-30','12-31'}
+    relevant=[r for r in records if str(r.get('stock_id'))==code and
+        r.get('type') in ('EPS','Revenue','IncomeAfterTaxes') and
+        (d:=valid_day(r.get('date'))) is not None and d<=today and str(d)[5:] in quarter_ends]
+    if not relevant:return None
+    end=max(date.fromisoformat(r['date']) for r in relevant)
+    if (today-end).days>190:return None
+    q=(end.month-1)//3
+    expected=[]
+    for offset in range(3,-1,-1):
+        y,n=divmod(end.year*4+q-offset,4)
+        expected.append(f'{y}-{("03-31","06-30","09-30","12-31")[n]}')
+    # EPS is the provider's basic EPS tag. Reject explicit diluted labels.
+    if any('稀釋' in str(r.get('origin_name','')) for r in relevant if r.get('type')=='EPS' and r['date'] in expected):return None
+    values=tw_series(relevant,code)
+    quarterly=[values.get((d,'EPS')) for d in expected]
+    if any(v is None for v in quarterly):return None
+    try:total=math.fsum(quarterly)
+    except OverflowError:return None
+    if not math.isfinite(total):return None
+    first=date.fromisoformat(expected[0]);start=date(first.year,(first.month-1)//3*3+1,1)
+    result=point(total,start,end,'FinMind / TaiwanStockFinancialStatements',
+        '近四個完整季度基本EPS合計；各季原公布值相加，未統一追溯調整股數基準，與報告TTM EPS可能不同')
+    result.update(provenance='FinMind_quarterly_eps_sum',eps_type='four_quarter_sum',
+        unit='TWD_PER_SHARE',verified_share_basis=False,
+        calculation={'method':'sum_reported_quarterly_eps','quarter_ends':expected,
+            'quarter_eps':quarterly,'sum':total,'currency':'TWD','share_basis_adjusted':False})
     return result
 
 

@@ -2,7 +2,7 @@
 At most eight HTTP requests / ~60 seconds per run; 1 MiB per response.
 """
 import os, re, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone,timedelta
 from app.db import init_db, get, put
 from app.providers.bounded_http import fetch_json
 from app.providers.annual_free import (FINMIND, SEC, TW_DATASETS, SEC_CONCEPTS,
@@ -11,14 +11,15 @@ from app.providers.market import normalize
 from app.services.accounts import member_users
 from app.services.watchlist import watches
 from app.services.freshness import local_now
-from app.providers.trailing import sec_period_records,us_trailing,taiwan_trailing
+from app.providers.trailing import sec_period_records,us_trailing,taiwan_trailing,taiwan_eps_four_quarters
 PERIOD_SCHEMA=1
+TW_EPS_SCHEMA=1
 
 
 def compact(dataset, records, code):
     # Persist only needed columns; do not cache the full financial statements.
     if not isinstance(records,list): raise ValueError('Invalid data array')
-    tags={'Revenue','IncomeAfterTaxes','Equity','CashFlowsFromOperatingActivities','PropertyAndPlantAndEquipment'}
+    tags={'EPS','Revenue','IncomeAfterTaxes','Equity','CashFlowsFromOperatingActivities','PropertyAndPlantAndEquipment'}
     cols={'date','stock_id','type','value','origin_name','year','CashDividendPaymentDate',
           'CashExDividendTradingDate','CashEarningsDistribution','CashStatutorySurplus','close',
           'StockExDividendTradingDate','StockEarningsDistribution','StockStatutorySurplus'}
@@ -96,8 +97,19 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         if now<get('annual:source:'+source,{}).get('next_attempt',0):continue
         statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
         put(cursor_key,{'value':(i+1)%len(tasks)})
-        migration=(feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
+        eps_migration=source=='finmind' and feed==TW_DATASETS[0] and state.get('eps_schema',0)<TW_EPS_SCHEMA
+        migration=eps_migration or (feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
         if now<state.get('next_attempt',0) and not migration:continue
+        if eps_migration:
+            # Old versions discarded EPS. Refill recent quarters first without
+            # erasing older financial rows or requesting eleven years again.
+            start=today-timedelta(days=730)
+            rest=[]
+            for window in state.get('pending_windows',[]):
+                if window['start']<str(start):rest.append({'start':window['start'],'end':min(window['end'],str(start-timedelta(days=1)))})
+            if not state.get('records') and not rest:
+                rest=[{'start':f'{today.year-11}-01-01','end':str(start-timedelta(days=1))}]
+            state={**state,'pending_windows':[{'start':str(start),'end':str(today)}]+rest,'eps_schema':TW_EPS_SCHEMA,'next_attempt':0}
         # Reserve before request, including failures/interruption; no immediate retries.
         put(statekey,{**state,'next_attempt':now+86400,'schema':TW_CASH_SCHEMA,'period_schema':PERIOD_SCHEMA})
         try:
@@ -160,9 +172,14 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         if profile:
             profile['fetched_at']=feed_states.get(TW_DATASETS[3],{}).get('at',0)
             if TW_DATASETS[3] in coverage:profile['coverage_windows']=coverage[TW_DATASETS[3]]
+        if symbol.endswith(('.TW','.TWO')):
+            trailing=taiwan_trailing(symbol,feeds,today)
+            quarterly=taiwan_eps_four_quarters(symbol,feeds.get(TW_DATASETS[0],[]),today)
+            if quarterly:trailing['eps_four_quarter_sum']=quarterly
+        else:
+            trailing=us_trailing({m:get('annual:feed:'+symbol+':'+m,{}).get('period_records',[]) for m in ('eps','net_income','equity')},today)
         put('annual:shared:'+symbol,{'rows':rows,'updated_at':datetime.now(timezone.utc).isoformat(),
-            'trailing':taiwan_trailing(symbol,feeds,today) if symbol.endswith(('.TW','.TWO')) else us_trailing({
-                m:get('annual:feed:'+symbol+':'+m,{}).get('period_records',[]) for m in ('eps','net_income','equity')},today),
+            'trailing':trailing,
             'fund_profile':profile,
             'status':'partial','notes':['分批補齊；無資料不補零。美股EPS以USD/股計，台股以TWD/股計。',
                 'ETF不套用公司EPS與ROE；費用率與完整配息仍須可核對來源。']})

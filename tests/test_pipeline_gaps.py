@@ -154,7 +154,8 @@ def test_annual_worker_resumes_oversized_feed_instead_of_one_day_failure(monkeyp
     key='annual:feed:2412.TW:'+TW_DATASETS[0]
     state=get(key)
     assert first['annual_requests']==1 and first['failed_feeds']==0
-    assert state['status']=='partial' and len(state['pending_windows'])==2
+    assert state['status']=='partial' and len(state['pending_windows'])==3
+    assert state['pending_windows'][-1]['start']=='2015-01-01'
     assert 0<state['next_attempt']-time.time()<=60
     assert get('annual:source:finmind') is None
     put(key,{**state,'next_attempt':0});put('annual:cursor',{'value':0})
@@ -162,7 +163,7 @@ def test_annual_worker_resumes_oversized_feed_instead_of_one_day_failure(monkeyp
     loader.return_value={'status':200,'data':[{'stock_id':'2412','date':'2025-12-31','type':'Revenue','value':10}]}
     second=job.run(['2412.TW'],max_requests=1)
     assert second['annual_requests']==1 and get(key)['records'][0]['value']==10
-    assert len(get(key)['pending_windows'])==1
+    assert len(get(key)['pending_windows'])==2
     assert loader.call_args.args[1]['start_date']==state['pending_windows'][0]['start']
 
 
