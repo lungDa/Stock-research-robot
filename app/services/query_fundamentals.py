@@ -15,6 +15,7 @@ def feed_status(symbol):
     return {'available_feeds':complete,'total_feeds':len(states),
             'feeds':[{'dataset':feed,'state':s.get('status','pending'),'reason':s.get('last_error',''),
                       'pending_windows':len(s.get('pending_windows',[])),'downloaded_records':len(s.get('records',[])),
+                      'latest_record_date':max((str(r.get('date','')) for r in s.get('records',[]) if isinstance(r,dict) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',str(r.get('date','')))),default=''),
                       'retry_after_seconds':max(0,round(s.get('next_attempt',0)-time.time()))}
                      for feed,s in zip(feeds,states)]}
 
@@ -115,13 +116,21 @@ def process_download(symbol):
             from jobs.refresh_eps import run as eps_run
             from jobs.refresh_annual import run
             from jobs.refresh_tw_financials import run as official_run
-            official=official_run([symbol],max_requests=2,seconds=12) if re.fullmatch(r'\d{4}\.(TW|TWO)',symbol) else {'official_requests':0}
-            remaining=2-official.get('official_requests',0)
-            eps=eps_run([symbol]) if remaining and re.fullmatch(r'\d{4}\.TW',symbol) else {'eps_requests':0}
-            remaining-=eps.get('eps_requests',0)
+            from jobs.refresh_tw_prices import run as tw_prices
+            from app.services.freshness import quote_due
+            remaining=2;eps={'eps_requests':0};prices={'tw_price_requests':0}
+            official_failed=get('mopsfin:feed:'+symbol+':eps',{}).get('status')=='failed' or time.time()<get('annual:source:mopsfin',{}).get('next_attempt',0)
+            if official_failed and re.fullmatch(r'\d{4}\.TW',symbol):
+                eps=eps_run([symbol]);remaining-=eps.get('eps_requests',0)
+            if remaining and official_failed and symbol.endswith(('.TW','.TWO')) and quote_due(get('quote:'+symbol)):
+                prices=tw_prices([symbol],max_requests=1);remaining-=prices.get('tw_price_requests',0)
+            official=official_run([symbol],max_requests=remaining,seconds=12) if remaining and re.fullmatch(r'\d{4}\.(TW|TWO)',symbol) else {'official_requests':0}
+            remaining-=official.get('official_requests',0)
+            if remaining and not eps.get('eps_requests') and re.fullmatch(r'\d{4}\.TW',symbol):
+                eps=eps_run([symbol]);remaining-=eps.get('eps_requests',0)
             summary=(run([symbol],max_requests=remaining,seconds=12,query=True) or {}) if remaining else {}
-            result={**summary,'eps_requests':eps.get('eps_requests',0),'official_requests':official.get('official_requests',0)}
-            failed=summary.get('failed_feeds',0)>0 or eps.get('state')=='failed' or official.get('failed_feeds',0)>0
+            result={**summary,'eps_requests':eps.get('eps_requests',0),'official_requests':official.get('official_requests',0),'tw_price_requests':prices.get('tw_price_requests',0)}
+            failed=summary.get('failed_feeds',0)>0 or eps.get('state')=='failed' or official.get('failed_feeds',0)>0 or prices.get('failed_feeds',0)>0
             state='partial' if failed or feed_status(symbol)['available_feeds']<feed_status(symbol)['total_feeds'] else 'updated'
             if summary.get('state')=='busy':state='partial'
             result.update(at=started,state=state,message='本批背景處理已結束；'+('仍有缺項，待排程續補，請查看各欄原因。' if state=='partial' else '請核對各欄期間與來源，資料集齊全不代表每個欄位都有值。'))
@@ -139,5 +148,6 @@ def status(symbol):
             'state':'idle','message':'尚未安排下載',**last,**feed_status(symbol),
             'eps_status':get('eps:state:'+symbol,{}),
             'history_status':get('history:state:'+symbol,{}),
+            'tw_daily_status':get('twdaily:state:'+symbol,{}),
             'official_annual_status':{field:get('mopsfin:feed:'+symbol+':'+field,{}) for field in ('eps','roe_pct')},
             'official_annual_source':get('annual:source:mopsfin',{})}

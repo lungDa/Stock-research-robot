@@ -6,6 +6,15 @@ from app.providers.market import normalize,fetch
 from app.services.analysis import enrich
 from app.services.freshness import needs_evening_refresh,local_now,mark_cached,quote_due
 
+def prefer_tw_backup(symbol,cached,read=get):
+    from app.providers.tw_daily import shared
+    backup=shared(symbol,read)
+    if not backup:return cached
+    if not cached or quote_due(cached) or backup['date']>cached.get('date','') or (
+        backup['date']==cached.get('date') and cached.get('ma60') is None and backup.get('ma60') is not None):
+        return backup
+    return cached
+
 def shared_us_quote(symbol):
     if symbol.endswith(('.TW','.TWO')):return None
     data=get('usdaily:quote:'+symbol)
@@ -35,6 +44,8 @@ def research(symbol,refresh=False):
     preferred=shared_us_quote(symbol)
     if preferred:return preferred
     cached=get('quote:'+symbol)
+    preferred_tw=prefer_tw_backup(symbol,cached)
+    if preferred_tw is not cached:return preferred_tw
     if symbol.endswith(('.TW','.TWO')) and cached and cached.get('price_basis')!='未還原收盤價':
         cached=None
     if cached and not refresh and not quote_due(cached):
@@ -74,11 +85,14 @@ def research(symbol,refresh=False):
 def quotes_for(symbols):
     from app.db import get_many
     keys=['quote:'+s for s in symbols]+['usdaily:quote:'+s for s in symbols if not s.endswith(('.TW','.TWO'))]
+    keys += ['twdaily:quote:'+s for s in symbols if s.endswith(('.TW','.TWO'))]
+    keys += ['annual:feed:'+s+':TaiwanStockPrice' for s in symbols if s.endswith(('.TW','.TWO'))]
     documents={}
     for offset in range(0,len(keys),80):documents.update(get_many(keys[offset:offset+80]))
     results=[]
     for symbol in symbols:
         quote=documents.get('quote:'+symbol)
+        quote=prefer_tw_backup(symbol,quote,lambda k,d=None:documents.get(k,d))
         shared=documents.get('usdaily:quote:'+symbol)
         if shared:
             candidate=mark_cached(shared)
@@ -91,6 +105,7 @@ def cached_quote(symbol):
     preferred=shared_us_quote(symbol)
     if preferred:return mark_cached(preferred)
     data=get('quote:'+symbol)
+    data=prefer_tw_backup(symbol,data)
     if data and symbol.endswith(('.TW','.TWO')):
         from app.providers.fundamentals import attach
         from app.providers.taiwan_official import refresh_cached_history

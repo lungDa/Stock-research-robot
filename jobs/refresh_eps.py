@@ -8,6 +8,7 @@ from app.services.watchlist import watches
 from app.services.freshness import local_now
 from app.providers.market import normalize
 from app.providers.twse_eps import fetch
+from app.providers.source_errors import describe
 
 
 def run(symbols=None):
@@ -36,10 +37,10 @@ def run(symbols=None):
                 put(key,{'status':'ok','next_attempt':now+7*86400,'last_success':now,
                          'report_date':result['report_date'],'years':sorted(rows)})
                 return {'state':'updated','eps_requests':1,'symbol':symbol}
-            except Exception:
+            except Exception as exc:
                 # Fixed error: never expose a remote response, user, or credential.
                 put(key,{**old,'status':'failed','last_attempt':now,'next_attempt':now+86400,
-                         'reason':'官方EPS報表未取得或格式未通過核對；保留已有資料'})
+                         **describe(exc,'TWSE年度EPS PDF')})
                 return {'state':'failed','eps_requests':1,'symbol':symbol}
         return {'state':'cached','eps_requests':0}
 

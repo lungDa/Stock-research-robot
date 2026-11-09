@@ -206,6 +206,15 @@ def rated(data,user,config=None,documents=None):
         if display and data.get('name') in (None,data['symbol'],data['symbol'].split('.')[0]):data['name']=display.split(' ',1)[-1]
     rows=annual_rows(user,data['symbol'],documents)
     if data['symbol'].endswith(('.TW','.TWO')):
+        # Rebuild from persisted raw periods after upgrades, without redownloading.
+        from app.providers.trailing import taiwan_trailing
+        from app.providers.annual_free import TW_DATASETS
+        derived=taiwan_trailing(data['symbol'],{feed:read('annual:feed:'+data['symbol']+':'+feed,{}).get('records',[]) for feed in TW_DATASETS[:2]},local_now().date())
+        if derived:
+            shared=copy.deepcopy(shared)
+            for key,value in derived.items():
+                if value.get('period_end','')>=shared.get('trailing',{}).get(key,{}).get('period_end',''):
+                    shared.setdefault('trailing',{})[key]=value
         from app.providers.trailing import reported_twelve_month_eps
         known_period=read('fundamentals:index:'+data['symbol'].rsplit('.',1)[1],{}).get(data['symbol'].split('.')[0],{}).get('fields',{}).get('eps',{}).get('period')
         reported=reported_twelve_month_eps(rows,shared.get('trailing',{}),known_period,local_now().date())
@@ -235,6 +244,7 @@ def _annual_state(symbol,documents):
 def _rating_keys(items,user):
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
     keys+=['annual:shared:'+d['symbol'] for d in items]
+    keys+=['annual:feed:'+d['symbol']+':'+feed for d in items if d['symbol'].endswith(('.TW','.TWO')) for feed in ('TaiwanStockFinancialStatements','TaiwanStockBalanceSheet')]
     keys+=['paid:shared:'+d['symbol'] for d in items]+['ttm:'+user+':'+d['symbol'] for d in items]
     keys+=['eps:official:'+d['symbol'] for d in items]
     keys+=['financial:official:'+d['symbol'] for d in items]

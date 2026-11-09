@@ -114,7 +114,13 @@ def attach(data,documents=None):
     symbol = data['symbol']; code,market = symbol.rsplit('.',1)
     read=get if documents is None else lambda key,default=None:documents.get(key,default)
     entry = read('fundamentals:index:'+market,{}).get(code,{})
-    fields = entry.get('fields',{})
+    fields = dict(entry.get('fields',{}))
+    pe=fields.get('pe',{})
+    try:pe_current=0<=(local_now().date()-date.fromisoformat(pe['as_of'])).days<=14
+    except (KeyError,TypeError,ValueError):pe_current=False
+    if not pe_current:
+        backup=read('eps:official:'+symbol,{}).get('valuation',{}).get('pe')
+        if backup:fields['pe']=backup
     data['fundamentals_version'] = VERSION
     data['fundamental_details'] = fields
     if fields.get('kind'): data['kind'] = fields['kind']['value']

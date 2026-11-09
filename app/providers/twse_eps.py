@@ -44,7 +44,32 @@ def parse_texts(texts,symbol,today):
                 'field_sources':{'eps':{'url':url,'provenance':'TWSE_company_profile','as_of':str(stamp),
                     'unit':'TWD_PER_SHARE','basis':'reported_full_year_EPS'}}}
     if not rows:raise ValueError('No unambiguous full-year EPS table')
-    return {'rows':rows,'report_date':str(stamp),'source':url}
+    valuation={}
+    for page in texts:
+        if '本益比' not in page:continue
+        active=False
+        for line in page.splitlines():
+            if re.fullmatch(r'\s*(?:日期\s+本益比\s*)+',line):
+                active=True;continue
+            if not active:continue
+            pair=r'\d{1,2}/\d{1,2}\s+-?\d+(?:\.\d+)?'
+            if not re.fullmatch(r'\s*'+pair+r'(?:\s+'+pair+r')*\s*',line):
+                if line.strip():active=False
+                continue
+            for month,day,value in re.findall(r'(\d{1,2})/(\d{1,2})\s+(-?\d+(?:\.\d+)?)',line):
+                try:
+                    year=stamp.year if (int(month),int(day))<=(stamp.month,stamp.day) else stamp.year-1
+                    quote_day=date(year,int(month),int(day));pe=finite(value)
+                except ValueError:continue
+                if pe is not None and pe>0 and 0<=(today-quote_day).days<=14:
+                    if str(quote_day) in valuation and valuation[str(quote_day)]!=pe:raise ValueError('Conflicting profile PE')
+                    valuation[str(quote_day)]=pe
+    result={'rows':rows,'report_date':str(stamp),'source':url}
+    if valuation:
+        day=max(valuation)
+        result['valuation']={'pe':{'value':valuation[day],'as_of':day,'source':url,
+            'basis':'TWSE company profile reported PE; not inferred EPS','provenance':'TWSE_company_profile'}}
+    return result
 
 
 def parse_pdf(raw,symbol,today):

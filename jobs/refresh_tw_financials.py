@@ -8,6 +8,7 @@ from app.services.watchlist import watches
 from app.services.freshness import local_now
 from app.providers.market import normalize
 from app.providers.mopsfin import request,parse_catalog,parse_company,parse_annual,annual_fields
+from app.providers.source_errors import describe
 
 
 def run(symbols=None,max_requests=4,seconds=24):
@@ -35,8 +36,8 @@ def run(symbols=None,max_requests=4,seconds=24):
                 catalog={'at':now,'metrics':parse_catalog(download('/'))}
                 put('mopsfin:catalog',catalog)
         except StopIteration:return {'state':'limited','official_requests':count}
-        except Exception:
-            put('annual:source:mopsfin',{'next_attempt':now+86400,'reason':'官方目錄暫不可用或格式未通過核對'})
+        except Exception as exc:
+            put('annual:source:mopsfin',{'next_attempt':now+86400,**describe(exc,'官方目錄')})
             result={'state':'failed','official_requests':count,'failed_feeds':1,'updated_at':datetime.now(timezone.utc).isoformat()}
             put('jobs:tw_financials',result)
             return result
@@ -49,13 +50,16 @@ def run(symbols=None,max_requests=4,seconds=24):
             state=get(key,{})
             if now<state.get('next_attempt',0):continue
             put(cursor_key,{'value':i})  # Resume this task if metadata uses the last request.
+            stage='公司代號查詢'
             try:
                 company=get('mopsfin:company:'+symbol,{})
                 if now-company.get('at',0)>30*86400 or not company.get('display'):
                     company={'at':now,'display':parse_company(download('/suggestCompany',params={'query':symbol.split('.')[0]}),symbol)}
                     put('mopsfin:company:'+symbol,company)
                 metric=catalog['metrics'][field]
+                stage='年度'+field+'下載'
                 payload=download('/compare/data',form=annual_fields(field,company['display'],metric))
+                stage='年度'+field+'解析'
                 rows=parse_annual(payload,symbol,field,company['display'],local_now().date(),metric)
                 shared=copy.deepcopy(get('financial:official:'+symbol,{'rows':{}}))
                 for year,row in rows.items():
@@ -71,11 +75,11 @@ def run(symbols=None,max_requests=4,seconds=24):
             except Exception as exc:
                 failed+=1
                 code=getattr(getattr(exc,'response',None),'status_code',None)
-                reason='官方來源拒絕或限流' if code in (401,403,429) else '官方資料連線失敗、公司／期間／單位或格式未通過核對'
-                put(key,{**state,'status':'failed','last_attempt':now,'reason':reason,'next_attempt':now+86400})
+                detail=describe(exc,stage)
+                put(key,{**state,'status':'failed','last_attempt':now,**detail,'next_attempt':now+86400})
                 put(cursor_key,{'value':(i+1)%len(tasks)})
                 if code in (401,403,429):
-                    put('annual:source:mopsfin',{'next_attempt':now+86400,'reason':reason});break
+                    put('annual:source:mopsfin',{'next_attempt':now+86400,**detail});break
         result={'state':'partial' if failed else 'finished','official_requests':count,
                 'updated_symbols':len(touched),'failed_feeds':failed,'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:tw_financials',result)
