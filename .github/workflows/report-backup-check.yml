@@ -1,0 +1,32 @@
+name: Check Taiwan report backup
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'TWSE ticker for a small access check (e.g. 2330.TW)'
+        default: '2330.TW'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-report-backup-check
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      DATASINK_API_KEY: ${{ secrets.DATASINK_API_KEY }}
+      REPORT_PROBE_SYMBOL: ${{ inputs.symbol }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal HTTP dependency
+        timeout-minutes: 1
+        run: pip install --disable-pip-version-check 'requests>=2.32,<3'
+      - name: Validate one public report (no database writes)
+        timeout-minutes: 1
+        run: PYTHONPATH=. python scripts/check_tw_report_backup.py
