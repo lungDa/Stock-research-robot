@@ -1,0 +1,29 @@
+name: Diagnose stock source gaps
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: '台股代號，例如 2330.TW'
+        required: true
+        default: '2330.TW'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-official-contract
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DIAGNOSE_SYMBOL: ${{ inputs.symbol }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Diagnose official EPS, PDF backup and Taiwan daily backup
+        timeout-minutes: 2
+        run: python -m scripts.check_stock_sources --symbol "$DIAGNOSE_SYMBOL"

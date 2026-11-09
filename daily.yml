@@ -1,0 +1,71 @@
+name: Daily scan and digest
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC 10:17 = 台灣18:17；官方資料尚未公布時保留實際行情日期。
+    - cron: '17 10 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - name: Install worker dependencies
+        timeout-minutes: 4
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh market universe
+        timeout-minutes: 1
+        run: python -m jobs.refresh_universe
+      - name: Refresh Taiwan backup daily prices (two symbols maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_prices
+      - name: Refresh shared fundamentals (two bounded feeds)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_fundamentals
+      - name: Continue official historical prices (two months maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_history
+      - name: Refresh official annual EPS and ROE (TWSE and TPEx)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_financials
+      - name: Refresh verified full-year EPS (one TWSE profile)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_eps
+      - name: Refresh free annual fundamentals (bounded batch)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_annual
+      - name: Backfill Taiwan annual cash-dividend totals (market batches)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_cash_dividends
+      - name: Refresh shared US daily prices (two symbols)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_us_prices
+      - name: Refresh verified issuer payment dates (bounded)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_paid_dividends
+      - name: Scan tracked symbols and rotating market batch
+        # Annual data and US prices share the same persistent source cooldown.
+        timeout-minutes: 3
+        run: python -m jobs.scan --limit 30 --seconds 120
+      - name: Send opted-in digest
+        timeout-minutes: 1
+        run: python -m jobs.notify

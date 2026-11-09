@@ -1,0 +1,53 @@
+name: Refresh free annual data
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  # Share the daily worker's group: do not race its checkpoints.
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  annual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install worker dependencies
+        timeout-minutes: 4
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh official annual EPS and ROE (TWSE and TPEx)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_financials
+      - name: Refresh Taiwan backup daily prices (two symbols maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_tw_prices
+      - name: Refresh verified full-year EPS (one TWSE profile)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_eps
+      - name: Refresh bounded annual batch (no LINE messages)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_annual
+      - name: Backfill Taiwan annual cash-dividend totals (market batches)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_cash_dividends
+      - name: Continue official historical prices (two months maximum)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_history
+      - name: Refresh shared US daily prices (two symbols)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_us_prices
+      - name: Refresh verified issuer payment dates (bounded)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_paid_dividends
