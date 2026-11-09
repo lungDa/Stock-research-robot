@@ -40,8 +40,11 @@ def research(symbol,refresh=False):
     if cached and not refresh and not quote_due(cached):
         if symbol.endswith(('.TW','.TWO')):
             from app.providers.fundamentals import attach
-            cached=enrich(attach(cached)); put('quote:'+symbol,cached)
+            from app.providers.taiwan_official import refresh_cached_history
+            cached=enrich(attach(refresh_cached_history(cached))); put('quote:'+symbol,cached)
         return cached
+    if cached and time.time()<get('quote_refresh:'+symbol,{}).get('next_attempt',0):
+        return mark_cached(cached)
     try:
         data=fetch(symbol)
         if symbol.endswith(('.TW','.TWO')):
@@ -49,10 +52,13 @@ def research(symbol,refresh=False):
             data=attach(data)
         data=enrich(data)
     except Exception:
+        put('quote_refresh:'+symbol,{'next_attempt':time.time()+300})
         # 保留原行情日期與快取時間，不把舊資料偽裝成新報價。
         if cached and cached.get('data_status')!='fundamentals_only' and time.time()-cached['cached_at']<=72*3600:
             logging.getLogger(__name__).warning('來源暫不可用，使用舊行情快取：%s',symbol)
-            return {**cached,'data_status':'stale','warnings':list(cached.get('warnings',[]))+['來源更新失敗，目前顯示舊快取；請核對行情日期，勿視為最新報價。']}
+            stale={**cached,'data_status':'stale','warnings':list(dict.fromkeys(cached.get('warnings',[])+['來源更新失敗，目前顯示舊快取；請核對行情日期，勿視為最新報價。']))}
+            put('quote:'+symbol,stale)
+            return stale
         partial=annual_only(symbol)
         if partial:
             put('quote:'+symbol,partial)
@@ -60,6 +66,7 @@ def research(symbol,refresh=False):
         raise
     data['cached_at']=time.time()
     data['updated_at']=datetime.now(timezone.utc).isoformat()
+    put('quote_refresh:'+symbol,{'next_attempt':0})
     put('quote:'+symbol,data)
     return mark_cached(data)
 
@@ -86,5 +93,6 @@ def cached_quote(symbol):
     data=get('quote:'+symbol)
     if data and symbol.endswith(('.TW','.TWO')):
         from app.providers.fundamentals import attach
-        data=enrich(attach(data))
+        from app.providers.taiwan_official import refresh_cached_history
+        data=enrich(attach(refresh_cached_history(data)))
     return mark_cached(data)

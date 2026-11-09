@@ -88,7 +88,7 @@ def tw_series(records, code):
     return grouped
 
 
-def taiwan_rows(symbol, feeds, today):
+def taiwan_rows(symbol, feeds, today, coverage=None):
     code = symbol.split('.')[0]; rows = {}
     def row(year):
         return rows.setdefault(str(year), {'currency':'TWD', 'provenance':'FinMind',
@@ -149,9 +149,12 @@ def taiwan_rows(symbol, feeds, today):
         if d.year not in prices or d>prices[d.year][0]: prices[d.year]=(d,v)
     for y,total in payments.items():
         if y>=today.year or total is None: continue
+        from app.providers.date_windows import covers
+        if coverage is not None and TW_DATASETS[3] in coverage and not covers(coverage[TW_DATASETS[3]],f'{y}-01-01',f'{y}-12-31'):continue
         row(y)['cash_dividend_per_share']=total
         row(y)['dividend_basis']='payment_date; no missing year assumed zero'
         if y in prices and prices[y][0].month==12:
+            if coverage is not None and TW_DATASETS[4] in coverage and not covers(coverage[TW_DATASETS[4]],f'{y}-12-01',f'{y}-12-31'):continue
             row(y)['cash_yield_pct']=total/prices[y][1]*100
             row(y)['yield_basis']='paid_calendar_year / unadjusted_year_end_close'
     # The source cannot prove quarterly EPS compatibility, so expose the reason.

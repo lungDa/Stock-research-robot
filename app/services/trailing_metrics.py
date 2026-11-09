@@ -22,6 +22,7 @@ def attach(data,shared,paid=None,manual=None,today=None):
         except (KeyError,ValueError):stamp=0
         paid={'payments':profile['payments'],'splits':profile.get('splits',[]),
               'currency':profile.get('currency'),'fetched_at':profile.get('fetched_at',stamp),'source':profile.get('source','FinMind')}
+        if 'coverage_windows' in profile:paid['coverage_windows']=profile['coverage_windows']
     if not profile.get('payments') and profile.get('cash_paid_365d_per_share') is not None and profile.get('as_of')==str(today) and quote_ok and not data.get('corporate_action_risk'):
         details['paid_yield_pct']={'value':profile['cash_paid_365d_per_share']/price*100,
             'period_start':str(today-timedelta(days=365)+timedelta(days=1)),'period_end':str(today),
@@ -30,7 +31,10 @@ def attach(data,shared,paid=None,manual=None,today=None):
     if paid and quote_ok and not data.get('corporate_action_risk') and 0<=time.time()-paid.get('fetched_at',0)<=8*86400 and paid.get('currency')==data.get('currency'):
         payments=paid.get('payments',[]);cut=str(today-timedelta(days=365))
         # Source must extend beyond window; a truncated recent table cannot prove coverage.
-        if payments and min(p['date'] for p in payments)<=cut and not any(cut<d<=str(today) for d in paid.get('splits',[])):
+        from app.providers.date_windows import covers
+        coverage_ok=(covers(paid['coverage_windows'],cut,str(today),now=time.time(),max_age=8*86400) if 'coverage_windows' in paid else
+                     bool(payments and min(p['date'] for p in payments)<=cut))
+        if coverage_ok and not any(cut<d<=str(today) for d in paid.get('splits',[])):
             amount=sum(p['amount'] for p in payments if cut<p['date']<=str(today))
             details['paid_yield_pct']={'value':amount/price*100,'period_start':str(today-timedelta(days=364)),
                 'period_end':str(today),'source':paid['source'],'basis':'disclosed payable date passed / latest available close',

@@ -1,12 +1,12 @@
 """共用官方基本面快取。僅排程下載；查詢與LINE不增加外部請求。"""
-import re
+import re,unicodedata
 import time
 from datetime import date
 from app.db import get, put
 from app.providers.taiwan_official import numeric, trading_date
 from app.services.freshness import local_now
 
-VERSION = 1
+VERSION = 2
 TW = 'https://openapi.twse.com.tw/v1/'
 OTC = 'https://www.tpex.org.tw/openapi/v1/'
 # 依序輪替，每次最多兩個端點。每個來源只保留解析後的必要欄位。
@@ -23,7 +23,11 @@ for sector in ('basi', 'bd', 'fh', 'ins', 'mim'):
 
 
 def pick(row, *keys):
-    return next((row[k] for k in keys if row.get(k) not in ('', None)), None)
+    def canonical(value):return re.sub(r'\s+','',unicodedata.normalize('NFKC',str(value)))
+    wanted={canonical(key) for key in keys}
+    values=[value for key,value in row.items() if canonical(key) in wanted and value not in ('',None)]
+    # Conflicting aliases must not silently choose a different financial value.
+    return values[0] if values and len({canonical(value) for value in values})==1 else None
 
 
 def parse(row, market, category, source, now):
@@ -54,7 +58,7 @@ def parse(row, market, category, source, now):
             quarter = int(pick(row, '季別', 'Season'))
             if quarter not in (1,2,3,4) or not 2000<=year<=local_now().date().year: return None
         except (ValueError, TypeError): return None
-        value = numeric(row.get('基本每股盈餘（元）'))
+        value = numeric(pick(row,'基本每股盈餘（元）','基本每股盈餘(元)'))
         if value is not None:
             fields['eps'] = {**meta, 'value': value, 'period': f'{year}Q{quarter}',
                              'basis': '財報年初至本季累計；非近四季EPS'}
@@ -89,7 +93,8 @@ def merge(market, rows, category, source, now):
             if eps['as_of']>=old.get('as_of',''):
                 history['rows'][year]={'eps':eps['value'],'as_of':eps['as_of'],'currency':'TWD',
                     'source_url':source,'provenance':'official_Q4','period_end':year+'-12-31',
-                    'field_sources':{'eps':{'url':source,'as_of':eps['as_of'],'unit':'TWD_PER_SHARE','basis':eps['basis']}}}
+                'field_sources':{'eps':{'url':source,'as_of':eps['as_of'],'unit':'TWD_PER_SHARE','basis':eps['basis'],
+                    'provenance':'official_Q4','period_start':year+'-01-01','period_end':year+'-12-31'}}}
                 put(history_key,history)
         existing = index.setdefault(code, {'name': entry['name'], 'fields': {}})
         for field, value in entry['fields'].items():

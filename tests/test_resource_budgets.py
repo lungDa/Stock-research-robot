@@ -69,7 +69,7 @@ def test_scan_limit_and_report_do_not_walk_whole_universe(monkeypatch):
     calls=[]
     def research(symbol,refresh):
         calls.append(symbol)
-        put('quote:'+symbol,{'symbol':symbol,'cached_at':time.time(),'name':'test','date':'2026-11-06','income':{'matched':False},'swing':{'matched':False}})
+        put('quote:'+symbol,{'symbol':symbol,'cached_at':time.time(),'price':100,'name':'test','date':str(scan.local_now().date()),'income':{'matched':False},'swing':{'matched':False}})
     monkeypatch.setattr(scan,'research',research)
     scan.run(10000,10000)
     report=get('scan:latest')

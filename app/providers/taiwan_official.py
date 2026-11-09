@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 from contextvars import ContextVar
 from datetime import date, datetime
 from io import StringIO
@@ -34,7 +35,9 @@ def warn_once(key, message):
 
 def numeric(value):
     try:
-        n = float(str(value).replace(',', '').strip())
+        value=unicodedata.normalize('NFKC',str(value)).replace('−','-').replace(',', '').strip()
+        if re.fullmatch(r'\(\d+(?:\.\d+)?\)',value):value='-'+value[1:-1]
+        n = float(value)
         return n if math.isfinite(n) else None
     except (TypeError, ValueError):
         return None
@@ -214,6 +217,29 @@ def build_result(symbol, rows, meta, warnings):
             'source': '臺灣證券交易所 TWSE' if market == 'TW' else '證券櫃檯買賣中心 TPEx',
             'price_basis': '未還原收盤價', 'history_count': count,'corporate_action_risk':jump,
             'data_status': 'partial', 'warnings': list(dict.fromkeys(warnings))}
+
+
+def refresh_cached_history(data):
+    """Rebuild technicals from new month caches; never refresh quote timestamps."""
+    symbol=data.get('symbol','')
+    if not re.fullmatch(r'\d{4,6}[A-Z]?\.(TW|TWO)',symbol):return data
+    from jobs.refresh_history import months
+    from app.db import get_many
+    code,market=symbol.rsplit('.',1)
+    today=datetime.now(ZoneInfo('Asia/Taipei')).date()
+    keys=[f'official:month:{market}:{code}:{first:%Y%m}' for first in months(today)]
+    records=get_many(keys)
+    if any(not records.get(k) for k in keys):return data
+    stamp=max(records[k]['at'] for k in keys)
+    if stamp<=data.get('history_cache_stamp',0):return data
+    rows=[r for k in keys for r in records[k]['data'] if r['date']<=data.get('date','')]
+    if not rows:return data
+    latest=max(rows,key=lambda r:r['date'])
+    if latest['date']!=data.get('date') or latest['close']!=data.get('price'):return data
+    warnings=[w for w in data.get('warnings',[]) if not (w.startswith('目前僅取得') or w.startswith('最新收盤價尚未') or w.startswith('歷史價格出現'))]
+    rebuilt=build_result(symbol,rows,data,warnings)
+    fields=('ma20','ma60','volume_ratio','volatility','history','history_count','corporate_action_risk','warnings')
+    return {**data,**{k:rebuilt[k] for k in fields},'history_cache_stamp':stamp}
 
 
 def fetch(symbol):

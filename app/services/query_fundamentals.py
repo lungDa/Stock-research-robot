@@ -14,6 +14,7 @@ def feed_status(symbol):
     complete=sum(s.get('status')=='ok' and bool(s.get('records')) for s in states)
     return {'available_feeds':complete,'total_feeds':len(states),
             'feeds':[{'dataset':feed,'state':s.get('status','pending'),'reason':s.get('last_error',''),
+                      'pending_windows':len(s.get('pending_windows',[])),'downloaded_records':len(s.get('records',[])),
                       'retry_after_seconds':max(0,round(s.get('next_attempt',0)-time.time()))}
                      for feed,s in zip(feeds,states)]}
 
@@ -41,14 +42,14 @@ def prepare(symbol):
            now<get('annual:feed:'+symbol+':'+feed,{}).get('next_attempt',0) for feed in feeds):
         return {**base,'state':'cached','message':'資料集已在共用快取有效期間內，本次未重複下載。'}
     # Shared cap applies to private and public callers alike: 2/minute, 30/day.
-    minute=str(int(now//60));day=str(local_now().date())
-    if not any(claim('annual:query_minute:'+minute+':'+str(i),{'at':now}) for i in range(2)):
-        return {**base,'state':'limited','message':'查詢下載額度暫滿，未新增請求；先顯示已有資料。'}
-    if not any(claim('annual:query_day:'+day+':'+str(i),{'at':now}) for i in range(30)):
-        return {**base,'state':'limited','message':'今日查詢下載額度已滿，先顯示已有資料。'}
     from app.services.data_queue import enqueue
     if not enqueue(symbol):
         return {**base,'state':'limited','message':'待補清單暫滿，保留已有資料；請稍後重試。'}
+    minute=str(int(now//60));day=str(local_now().date())
+    if not any(claim('annual:query_minute:'+minute+':'+str(i),{'at':now}) for i in range(2)):
+        return {**base,'state':'limited','queued_for_schedule':True,'message':'即時下載額度暫滿，已加入排程續補；先顯示已有資料。'}
+    if not any(claim('annual:query_day:'+day+':'+str(i),{'at':now}) for i in range(30)):
+        return {**base,'state':'limited','queued_for_schedule':True,'message':'今日即時下載額度已滿，已加入排程續補；先顯示已有資料。'}
     # Reserve before starting, so a timed out browser does not immediately repeat.
     put('annual:query_result:'+symbol,{'at':now,'state':'running'})
     try:
@@ -90,11 +91,14 @@ def request_download(symbol):
             return {**status(symbol),'state':'unsupported','message':'此標的財報來源尚未支援，保留已有行情。'}
         if not configured and not eps_supported:
             return {**status(symbol),'state':'not_configured','message':'伺服器尚未設定適用的資料來源，本次未下載。'}
+        # Capacity controls immediate work, not durable replenishment requests.
+        if not enqueue(symbol):return {**status(symbol),'state':'limited','message':'待補清單暫滿，請稍後重試。'}
         minute=str(int(now//60));day=str(local_now().date())
         if not any(claim('annual:query_minute:'+minute+':'+str(i),{'at':now}) for i in range(2)) or not any(
             claim('annual:query_day:'+day+':'+str(i),{'at':now}) for i in range(30)):
-            return {**status(symbol),'state':'limited','message':'查詢下載額度暫滿，保留已有資料；待排程續補。'}
-        if not enqueue(symbol):return {**status(symbol),'state':'limited','message':'待補清單暫滿，請稍後重試。'}
+            result={**status(symbol),'at':now,'state':'limited','queued_for_schedule':True,'message':'即時下載額度暫滿；已加入排程續補，先保留已有資料。'}
+            put('annual:query_result:'+symbol,result)
+            return result
         result={**status(symbol),'at':now,'state':'queued','message':'已安排背景補資料，可先查看行情；完成後會在此頁提醒。'}
         put('annual:query_result:'+symbol,result)
         return result
@@ -134,5 +138,6 @@ def status(symbol):
     return {'symbol':symbol,'annual_requests':0,'updated_symbols':0,'failed_feeds':0,
             'state':'idle','message':'尚未安排下載',**last,**feed_status(symbol),
             'eps_status':get('eps:state:'+symbol,{}),
+            'history_status':get('history:state:'+symbol,{}),
             'official_annual_status':{field:get('mopsfin:feed:'+symbol+':'+field,{}) for field in ('eps','roe_pct')},
             'official_annual_source':get('annual:source:mopsfin',{})}

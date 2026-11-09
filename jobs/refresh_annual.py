@@ -103,13 +103,12 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         try:
             period_records=[]
             if symbol.endswith(('.TW','.TWO')):
-                payload=download(FINMIND,{'dataset':feed,'data_id':symbol.split('.')[0],
-                    'start_date':f'{today.year-11}-01-01','end_date':today.isoformat()},
-                    {'Authorization':'Bearer '+token})
-                if payload.get('status')!=200:
-                    put('annual:source:finmind',{'next_attempt':now+86400})
-                    raise ValueError('FinMind unavailable')
-                records=compact(feed,payload.get('data'),symbol.split('.')[0])
+                from app.providers.finmind_batch import batch
+                result,changed=batch(symbol,feed,state,today,download,compact,token)
+                result.update(schema=TW_CASH_SCHEMA,period_schema=PERIOD_SCHEMA)
+                put(statekey,result)
+                if changed:touched.add(symbol)
+                continue
             else:
                 # SEC contact goes only to SEC. No token or identity is printed.
                 index=get('annual:sec_tickers',{})
@@ -140,7 +139,7 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             break
         except Exception as exc:
             failures+=1
-            code=getattr(getattr(exc,'response',None),'status_code',None)
+            code=getattr(exc,'status',None) or getattr(getattr(exc,'response',None),'status_code',None)
             if code in (401,403,429):put('annual:source:'+source,{'next_attempt':now+86400})
             from app.providers.bounded_http import ResourceLimitError
             reason=('來源回應超過本批大小或時間預算' if isinstance(exc,ResourceLimitError) else
@@ -151,12 +150,16 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             # No exception strings: remote URLs or headers must not expose tokens.
             print('年度資料來源未完成：'+symbol+' / '+feed+'；保留舊快取並冷卻一天。')
     for symbol in touched:
-        feeds={feed:get('annual:feed:'+symbol+':'+feed,{}).get('records',[]) for feed in TW_DATASETS} if symbol.endswith(('.TW','.TWO')) else {
+        feed_states={feed:get('annual:feed:'+symbol+':'+feed,{}) for feed in TW_DATASETS} if symbol.endswith(('.TW','.TWO')) else {}
+        coverage={feed:state['coverage_windows'] for feed,state in feed_states.items() if 'coverage_windows' in state}
+        feeds={feed:state.get('records',[]) for feed,state in feed_states.items()} if symbol.endswith(('.TW','.TWO')) else {
             m:get('annual:feed:'+symbol+':'+m,{}).get('records',{}) for m in SEC_CONCEPTS}
-        rows=taiwan_rows(symbol,feeds,today) if symbol.endswith(('.TW','.TWO')) else us_rows(get('annual:cik:'+symbol)['cik'],feeds,today)
+        rows=taiwan_rows(symbol,feeds,today,coverage) if symbol.endswith(('.TW','.TWO')) else us_rows(get('annual:cik:'+symbol)['cik'],feeds,today)
         # Recompute from successful feed snapshots; absent feeds remain missing.
         profile=taiwan_fund_profile(symbol,feeds.get(TW_DATASETS[3],[]),today) if symbol.endswith(('.TW','.TWO')) else {}
-        if profile:profile['fetched_at']=get('annual:feed:'+symbol+':'+TW_DATASETS[3],{}).get('at',0)
+        if profile:
+            profile['fetched_at']=feed_states.get(TW_DATASETS[3],{}).get('at',0)
+            if TW_DATASETS[3] in coverage:profile['coverage_windows']=coverage[TW_DATASETS[3]]
         put('annual:shared:'+symbol,{'rows':rows,'updated_at':datetime.now(timezone.utc).isoformat(),
             'trailing':taiwan_trailing(symbol,feeds,today) if symbol.endswith(('.TW','.TWO')) else us_trailing({
                 m:get('annual:feed:'+symbol+':'+m,{}).get('period_records',[]) for m in ('eps','net_income','equity')},today),

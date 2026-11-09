@@ -14,9 +14,10 @@ def run():
         from jobs.refresh_us_prices import run as prices
         from jobs.refresh_paid_dividends import run as paid
         from jobs.refresh_tw_financials import run as tw_financials
+        from jobs.refresh_history import run as history
         # Each job reserves its own provider limits; a failure must not suppress others.
         result={'started_at':datetime.now(timezone.utc).isoformat(),'steps':{}}
-        for name,step in [('maintenance',clean),('fundamentals',fundamentals),('tw_financials',tw_financials),('eps_first',eps),('eps_second',eps),('annual',annual),('us_prices',prices),('paid',paid)]:
+        for name,step in [('maintenance',clean),('history',history),('fundamentals',fundamentals),('tw_financials',tw_financials),('eps_first',eps),('eps_second',eps),('annual',annual),('us_prices',prices),('paid',paid)]:
             try:
                 value=step();state='finished'
                 if isinstance(value,dict) and (value.get('state') in ('failed','partial','busy','limited','cooldown') or value.get('failed_feeds',0)):

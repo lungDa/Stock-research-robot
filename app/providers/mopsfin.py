@@ -83,15 +83,22 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
     if field not in METRICS or not isinstance(payload,dict):raise ValueError('Invalid annual response')
     if payload.get('message'):raise ValueError('No annual data')
     if clean(payload.get('ylabel',''))!=METRICS[field][2]:raise ValueError('Annual unit mismatch')
-    if payload.get('quarter') in (True,'true') or str(payload.get('qnumber','4'))!='4':raise ValueError('Not cumulative Q4')
+    if payload.get('quarter') in (True,1,'1','true','True') or str(payload.get('qnumber','4')) not in ('4','04'):raise ValueError('Not cumulative Q4')
     axes=payload.get('xaxisList');graph=payload.get('graphData')
     if not isinstance(axes,list) or not 1<=len(axes)<=100 or len(set(map(str,axes)))!=len(axes):raise ValueError('Invalid annual periods')
     if not isinstance(graph,list) or len(graph)!=1 or not isinstance(graph[0],dict):raise ValueError('Unexpected company or average series')
     series=graph[0]
-    if clean(series.get('label','')) not in (display,display.split(' ',1)[1]):raise ValueError('Company series does not match verified identity')
+    code=company_code(symbol)
+    aliases={display,display.split(' ',1)[1],code}
+    label=clean(series.get('label',''))
+    if label not in aliases:raise ValueError('Company series does not match verified identity')
+    code_verified=label in (display,code)
     for key in ('displayCompanyId','checkedNameList'):
         values=payload.get(key)
-        if not isinstance(values,list) or [clean(v) for v in values]!=[display]:raise ValueError('Company identity metadata mismatch')
+        if values in (None,[]):continue
+        if not isinstance(values,list) or len(values)!=1 or clean(values[0]) not in aliases:raise ValueError('Company identity metadata mismatch')
+        code_verified=code_verified or clean(values[0]) in (code,display)
+    if not code_verified:raise ValueError('Company code cannot be bound to this series')
     if payload.get('extraNameList'):raise ValueError('Average series must not be used')
     years=[]
     for axis in axes:
@@ -102,8 +109,13 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
     if not isinstance(points,list) or len(points)>100:raise ValueError('Invalid annual points')
     rows={};seen=set()
     for point in points:
-        if not isinstance(point,list) or len(point)<2 or type(point[0]) is not int:raise ValueError('Invalid point index')
-        index=point[0]
+        if not isinstance(point,list) or len(point)<2:raise ValueError('Invalid point index')
+        raw_index=point[0]
+        if isinstance(raw_index,bool) or type(raw_index) not in (int,float,str):raise ValueError('Invalid point index')
+        if isinstance(raw_index,str) and not re.fullmatch(r'\d+',raw_index):raise ValueError('Invalid point index')
+        try:index=int(raw_index)
+        except (ValueError,OverflowError):raise ValueError('Invalid point index')
+        if not isinstance(raw_index,str) and index!=raw_index:raise ValueError('Invalid point index')
         if not 0<=index<len(years) or index in seen:raise ValueError('Duplicate or invalid period index')
         seen.add(index);year=years[index];value=number(point[1])
         if value is None or not max(2013,today.year-11)<=year<today.year:continue

@@ -47,7 +47,10 @@ def test_stale_fallback_does_not_change_cache_timestamp(monkeypatch):
     result=svc.research('AAPL')
     assert result['data_status']=='stale'
     assert result['cached_at']==cached['cached_at'] and result['updated_at']=='original'
-    assert get('quote:AAPL')==cached
+    assert get('quote:AAPL')==result
+    assert get('quote:AAPL')['cached_at']==cached['cached_at']
+    svc.research('AAPL')
+    assert svc.fetch.call_count==1
 
 def test_over_72_hours_not_used(monkeypatch):
     from app.services import research as svc

@@ -42,7 +42,7 @@ def run(limit=30, seconds=120):
         token=history_months.set(0)
         success=False
         try:
-            research(symbol,refresh=False)
+            fetched=research(symbol,refresh=False)
             success=True
         except Exception as exc:
             report['failed'].append(symbol)
@@ -50,8 +50,9 @@ def run(limit=30, seconds=120):
         finally:
             history_months.reset(token)
         processed.add(symbol); report['attempted']+=1
-        d=get('quote:'+symbol) if success else None
-        if d and time.time()-d['cached_at']<36*3600:
+        d=(fetched if isinstance(fetched,dict) else get('quote:'+symbol)) if success else None
+        from app.services.freshness import market_usable
+        if d and time.time()-d.get('cached_at',0)<36*3600 and market_usable(d):
             from app.services.multifactor import rated
             d=rated(d,'public')
             report['fresh_count']+=1
