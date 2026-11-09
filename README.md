@@ -1,5 +1,7 @@
 # 股海燈塔：台股個股財務補強（嚴格核對）
 
+本次程式缺漏修正請先讀 [PROGRAM_GAPS_FIXES.md](PROGRAM_GAPS_FIXES.md)：保留免費來源，修正欄位辨識、待補佇列、分批續跑、日線回補與舊行情標示。
+
 本版保留前一輪行情、評分及背景續補改善，新增上市／上櫃年度 EPS、年度 ROE 官方備援及嚴格 TTM 核對流程。ZIP 為完整專案；請保留相對路徑，將根目錄內的檔案覆蓋至原 GitHub 專案。部署步驟見 [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md)。
 
 ## 這版會有什麼不同

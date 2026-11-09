@@ -1,7 +1,7 @@
 {
-  "release": "Taiwan stock financials, strict TTM basis",
-  "baseline_library_version": 1,
-  "baseline_zip_sha256": "d1b54063e6a641cd96788e9568502d45c3f6e853663634151184499b2e5cf61c",
+  "release": "Free-source pipeline gap fixes",
+  "baseline_library_version": 2,
+  "baseline_zip_sha256": "734e3868dd743dae69555047dc169d233d0c15344f7a1445aaf80017dd27ab8d",
   "changed_files_since_previous": [
     ".github/workflows/annual-data.yml",
     ".github/workflows/daily.yml",
@@ -9,35 +9,37 @@
     "UPDATE_MANIFEST.json",
     "UPGRADE_GUIDE.md",
     "VALIDATION.md",
-    "app/api/server.py",
     "app/providers/annual_free.py",
-    "app/providers/trailing.py",
-    "app/services/annual_data.py",
-    "app/services/data_quality.py",
-    "app/services/multifactor.py",
-    "app/services/operations.py",
+    "app/providers/fundamentals.py",
+    "app/providers/mopsfin.py",
+    "app/providers/taiwan_official.py",
     "app/services/query_fundamentals.py",
     "app/services/research.py",
     "app/services/trailing_metrics.py",
+    "jobs/refresh_annual.py",
     "jobs/refresh_data.py",
+    "jobs/scan.py",
     "streamlit_app.py",
-    "tests/test_data_queue.py",
-    "tests/test_trailing_metrics.py",
-    "tests/test_ui_flow.py"
+    "tests/test_market_resilience.py",
+    "tests/test_resource_budgets.py"
   ],
   "added_files_since_previous": [
-    ".github/workflows/tw-financial-contract.yml",
-    "TW_FINANCIALS_UPDATE.md",
-    "app/providers/mopsfin.py",
-    "app/services/ttm_proof.py",
-    "jobs/refresh_tw_financials.py",
-    "scripts/check_tw_financial_contract.py",
-    "tests/test_mopsfin.py",
-    "tests/test_ttm_proof.py"
+    "PROGRAM_GAPS_FIXES.md",
+    "app/providers/date_windows.py",
+    "app/providers/finmind_batch.py",
+    "jobs/refresh_history.py",
+    "tests/test_pipeline_gaps.py"
   ],
-  "test_result": "282 passed, 1 upstream deprecation warning",
-  "python": "3.12.14",
-  "live_official_contract": "Not verified in this environment; run the manual verification workflow.",
-  "ttm_policy": "Strict reported 12-month window or explicitly user-verified ordinary profit / weighted shares; no quarterly EPS sum.",
-  "deployment": "Not deployed. See TW_FINANCIALS_UPDATE.md."
+  "removed_files_since_previous": [],
+  "validation": {
+    "local_pytest": "303 passed; 1 upstream deprecation warning",
+    "python_compileall": "passed",
+    "live_source_end_to_end": "not verified",
+    "deployed": false
+  },
+  "notes": [
+    "Free sources retained; no paid integration",
+    "Strict TTM EPS share-basis requirements retained",
+    "See PROGRAM_GAPS_FIXES.md and UPGRADE_GUIDE.md"
+  ]
 }

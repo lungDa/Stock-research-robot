@@ -119,6 +119,13 @@ with query:
             with st.expander('官方年度EPS／ROE下載狀態'):
                 st.dataframe([{'欄位':name,'狀態':item.get('status','尚待下載'),'已涵蓋年度':'、'.join(item.get('years',[])),'說明':item.get('reason','')} for name,item in official.items()],hide_index=True)
         failed=[f for f in result.get('feeds',[]) if f.get('state')=='failed']
+        partial=[f for f in result.get('feeds',[]) if f.get('state')=='partial']
+        if partial:
+            with st.expander('分批下載進度（排程會接續）'):
+                st.dataframe([{'資料集':f['dataset'],'已保存紀錄':f.get('downloaded_records',0),'待下載區間':f.get('pending_windows',0),'說明':f.get('reason','')} for f in partial],hide_index=True)
+        history=result.get('history_status',{})
+        if history.get('remaining_months'):
+            st.caption(f"歷史日線尚待回補 {history['remaining_months']} 個月份；完成後才依實際日線計算均線。")
         if failed:
             with st.expander('資料來源本批未完成原因'):
                 st.dataframe([{'資料集':f['dataset'],'原因':f['reason'],'可重試倒數（秒）':f['retry_after_seconds']} for f in failed],hide_index=True)

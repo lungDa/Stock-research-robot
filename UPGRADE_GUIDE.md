@@ -1,5 +1,7 @@
 # 更新與驗收說明
 
+本次更新說明見 `PROGRAM_GAPS_FIXES.md`；新增檔案請一併提交，不能只覆蓋原有檔案。已有 FinMind 分批狀態會自動續跑，無須清空資料庫。
+
 本版包含台股個股財務補強；先閱讀 `TW_FINANCIALS_UPDATE.md`，並在部署後手動執行 **Verify Taiwan annual EPS and ROE source**，確認新官方入口的實際回應。
 
 ## 1. 套用檔案
