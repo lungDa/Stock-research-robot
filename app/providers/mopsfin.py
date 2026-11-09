@@ -132,19 +132,26 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
 
 
 def request(path,*,params=None,form=None):
-    if path not in ('/','/suggestCompany','/compare/data'):raise ValueError('Nonallowlisted path')
-    if (path=='/compare/data')!=(form is not None):raise ValueError('Invalid method for official path')
+    if path not in ('/','/suggestCompany','/compare/data','/compare/report'):raise ValueError('Nonallowlisted path')
+    if (path in ('/compare/data','/compare/report'))!=(form is not None):raise ValueError('Invalid method for official path')
     start=time.monotonic();chunks=[];size=0
     headers={'Accept':'application/json,text/html','User-Agent':'Stock-Lighthouse/2.0'}
     if form is not None:
         headers.update({'Origin':BASE,'Referer':BASE+'/','X-Requested-With':'XMLHttpRequest'})
     with requests.request('POST' if form is not None else 'GET',BASE+path,params=params,data=form,
-                          headers=headers,timeout=(2,2),stream=True,allow_redirects=False) as response:
+                          headers=headers,timeout=(4,6) if path in ('/','/compare/report') else (2,2),stream=True,allow_redirects=False) as response:
         response.raise_for_status()
         if response.status_code!=200:raise ValueError('No direct successful response')
         for chunk in response.iter_content(8192):
             size+=len(chunk)
-            if size>1048576 or time.monotonic()-start>6:raise ValueError('Official response exceeds budget')
+            if size>1048576:
+                if path=='/compare/report':
+                    from app.providers.bounded_http import ResourceLimitError
+                    raise ResourceLimitError('Cash-flow response exceeds size budget')
+                raise ValueError('Official response exceeds budget')
+            if time.monotonic()-start>(15 if path in ('/','/compare/report') else 6):
+                if path in ('/','/compare/report'):raise requests.ReadTimeout('Official cash-flow response time budget exceeded')
+                raise ValueError('Official response exceeds budget')
             chunks.append(chunk)
     raw=b''.join(chunks).decode('utf-8-sig')
-    return raw if path=='/' else json.loads(raw)
+    return raw if path in ('/','/compare/report') else json.loads(raw)

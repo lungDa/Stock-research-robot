@@ -92,6 +92,15 @@ def annual_rows(user,symbol,documents=None):
             current[field]=row[field]
             current.setdefault('field_sources',{})[field]=copy.deepcopy(source)
             if field=='eps' and 'notes' in current:current['notes']=[n for n in current['notes'] if 'EPS未直接' not in n]
+    # Automatic paid-dividend backup fills absent fields only; personal values
+    # retain priority, and a confirmed zero is never treated as missing.
+    for year,row in read('cashflow:official:'+symbol,{}).get('rows',{}).items():
+        current=rows.setdefault(year,{})
+        if current.get('cash_dividends_paid') is not None or current.get('currency') not in (None,'TWD'):continue
+        if not current:current.update({k:v for k,v in row.items() if k not in ('cash_dividends_paid','field_sources')})
+        current['cash_dividends_paid']=row['cash_dividends_paid']
+        current['cash_dividends_paid_basis']=row['cash_dividends_paid_basis']
+        current.setdefault('field_sources',{})['cash_dividends_paid']=copy.deepcopy(row['field_sources']['cash_dividends_paid'])
     for year,row in private.items():
         existing=rows.setdefault(year,{})
         sources={**existing.get('field_sources',{}),**row.get('field_sources',{})}
@@ -248,6 +257,7 @@ def _annual_state(symbol,documents):
 def _rating_keys(items,user):
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
     keys+=['annual:shared:'+d['symbol'] for d in items]
+    keys+=['cashflow:official:'+d['symbol'] for d in items if d['symbol'].endswith(('.TW','.TWO'))]
     keys+=['annual:feed:'+d['symbol']+':'+feed for d in items if d['symbol'].endswith(('.TW','.TWO')) for feed in ('TaiwanStockFinancialStatements','TaiwanStockBalanceSheet')]
     keys+=['paid:shared:'+d['symbol'] for d in items]+['ttm:'+user+':'+d['symbol'] for d in items]
     keys+=['eps:official:'+d['symbol'] for d in items]

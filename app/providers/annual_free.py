@@ -9,14 +9,16 @@ FINMIND = 'https://api.finmindtrade.com/api/v4/data'
 SEC = 'https://data.sec.gov/api/xbrl/companyconcept/'
 TW_DATASETS = ('TaiwanStockFinancialStatements', 'TaiwanStockBalanceSheet',
                'TaiwanStockCashFlowsStatement', 'TaiwanStockDividend', 'TaiwanStockPrice')
-TW_CASH_SCHEMA = 2
+TW_CASH_SCHEMA = 3
 
 def paid_dividend_label(label):
     label=re.sub(r'\s+','',unicodedata.normalize('NFKC',str(label)))
     # Exact cash-flow totals only; do not include non-controlling dividends,
     # declared policies, payable balances, or interest/dividend combined lines.
     return label in {'支付之股利','發放現金股利','支付股利','支付現金股利',
-        '支付之現金股利','現金股利之支付','發放股利','分配股利','發放現金股利數'}
+        '支付之現金股利','現金股利之支付','發放股利','分配股利','發放現金股利數',
+        '分配現金股利','現金股利之發放','支付予本公司業主之股利',
+        '支付予母公司業主之股利','支付予業主之股利'}
 
 def paid_dividend_total(records,code,end):
     matches=[finite(r.get('value')) for r in records if str(r.get('stock_id'))==code
@@ -129,6 +131,12 @@ def taiwan_rows(symbol, feeds, today, coverage=None):
         if paid is not None:
             row(y)['cash_dividends_paid']=paid
             row(y)['cash_dividends_paid_basis']='calendar_year_paid_cash_flow; TWD'
+            row(y).setdefault('field_sources',{})['cash_dividends_paid']={
+                'url':FINMIND+'?dataset='+TW_DATASETS[2]+'&data_id='+code+'&start_date='+end+'&end_date='+end,
+                'provenance':'FinMind_cash_flow_annual','as_of':str(today),'unit':'TWD',
+                'period_start':f'{y}-01-01','period_end':end,'basis':'reported_Q4_year_to_date_cash_dividend_outflow',
+                'labels':sorted({str(r.get('origin_name','')) for r in feeds.get(TW_DATASETS[2],[])
+                    if str(r.get('stock_id'))==code and r.get('date')==end and paid_dividend_label(r.get('origin_name',''))})}
     seen = {}; payments = {}
     for r in feeds.get(TW_DATASETS[3],[]):
         d = valid_day(r.get('CashDividendPaymentDate'))

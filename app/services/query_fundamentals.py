@@ -119,6 +119,7 @@ def process_download(symbol):
             from jobs.refresh_tw_prices import run as tw_prices
             from app.services.freshness import quote_due
             remaining=2;eps={'eps_requests':0};prices={'tw_price_requests':0}
+            cash={'cash_requests':0}
             official_failed=get('mopsfin:feed:'+symbol+':eps',{}).get('status')=='failed' or time.time()<get('annual:source:mopsfin',{}).get('next_attempt',0)
             if official_failed and re.fullmatch(r'\d{4}\.TW',symbol):
                 eps=eps_run([symbol]);remaining-=eps.get('eps_requests',0)
@@ -128,9 +129,12 @@ def process_download(symbol):
             remaining-=official.get('official_requests',0)
             if remaining and not eps.get('eps_requests') and re.fullmatch(r'\d{4}\.TW',symbol):
                 eps=eps_run([symbol]);remaining-=eps.get('eps_requests',0)
+            if remaining and re.fullmatch(r'\d{4}\.(TW|TWO)',symbol) and get('cashflow:catalog',{}).get('metric'):
+                from jobs.refresh_cash_dividends import run as cash_run
+                cash=cash_run([symbol],max_requests=1);remaining-=cash.get('cash_requests',0)
             summary=(run([symbol],max_requests=remaining,seconds=12,query=True) or {}) if remaining else {}
-            result={**summary,'eps_requests':eps.get('eps_requests',0),'official_requests':official.get('official_requests',0),'tw_price_requests':prices.get('tw_price_requests',0)}
-            failed=summary.get('failed_feeds',0)>0 or eps.get('state')=='failed' or official.get('failed_feeds',0)>0 or prices.get('failed_feeds',0)>0
+            result={**summary,'eps_requests':eps.get('eps_requests',0),'official_requests':official.get('official_requests',0),'tw_price_requests':prices.get('tw_price_requests',0),'cash_requests':cash.get('cash_requests',0)}
+            failed=summary.get('failed_feeds',0)>0 or eps.get('state')=='failed' or official.get('failed_feeds',0)>0 or prices.get('failed_feeds',0)>0 or cash.get('failed_feeds',0)>0
             state='partial' if failed or feed_status(symbol)['available_feeds']<feed_status(symbol)['total_feeds'] else 'updated'
             if summary.get('state')=='busy':state='partial'
             result.update(at=started,state=state,message='本批背景處理已結束；'+('仍有缺項，待排程續補，請查看各欄原因。' if state=='partial' else '請核對各欄期間與來源，資料集齊全不代表每個欄位都有值。'))
@@ -149,5 +153,24 @@ def status(symbol):
             'eps_status':get('eps:state:'+symbol,{}),
             'history_status':get('history:state:'+symbol,{}),
             'tw_daily_status':get('twdaily:state:'+symbol,{}),
+            'cash_dividend_status':cash_status(symbol) if symbol.endswith(('.TW','.TWO')) else {},
             'official_annual_status':{field:get('mopsfin:feed:'+symbol+':'+field,{}) for field in ('eps','roe_pct')},
             'official_annual_source':get('annual:source:mopsfin',{})}
+
+
+def cash_status(symbol):
+    from app.db import get_many
+    years=list(range(local_now().date().year-1,local_now().date().year-6,-1))
+    keys=['annual:shared:'+symbol,'cashflow:official:'+symbol]+[f'cashflow:state:{symbol}:{year}' for year in years]
+    docs=get_many(keys);shared=docs.get(keys[0],{}).get('rows',{});official=docs.get(keys[1],{}).get('rows',{})
+    rows=[]
+    for year in years:
+        y=str(year);entry=shared.get(y,{})
+        if entry.get('cash_dividends_paid') is None:entry=official.get(y,{})
+        state=docs.get(f'cashflow:state:{symbol}:{year}',{})
+        value=entry.get('cash_dividends_paid')
+        rows.append({'year':year,'value':value,'state':'available' if value is not None else state.get('status','pending'),
+            'reason':state.get('reason','') if value is None else entry.get('cash_dividends_paid_basis','已保存年度支出'),
+            'retry_after_seconds':max(0,round(state.get('next_attempt',0)-time.time())) if value is None else 0,
+            'source':entry.get('field_sources',{}).get('cash_dividends_paid',{}).get('url',entry.get('source_url',''))})
+    return {'years':rows,'available_years':sum(row['value'] is not None for row in rows),'total_years':len(years)}

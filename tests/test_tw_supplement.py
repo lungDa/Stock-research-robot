@@ -65,7 +65,7 @@ def cash(label,value=-500):
 def test_compaction_preserves_unfamiliar_labels_and_total_is_not_doubled():
     records=compact(TW_DATASETS[2],[cash('發放股利'),cash('發放股利'),cash('支付利息',-99)],'2330')
     r=taiwan_rows('2330.TW',{TW_DATASETS[2]:records},date(2026,11,9))['2025']
-    assert r['cash_dividends_paid']==500 and len(records)==2
+    assert r['cash_dividends_paid']==500 and len(records)==3  # Preserve all cash-flow labels for diagnostics.
 
 
 def test_conflicting_cashflow_totals_and_unsafe_labels_not_accepted():
@@ -81,7 +81,7 @@ def test_cash_schema_refetch_once_respects_new_cooldown(monkeypatch):
     monkeypatch.setenv('FINMIND_TOKEN','fake');monkeypatch.setenv('ANNUAL_SYMBOLS','2330.TW')
     monkeypatch.delenv('SEC_USER_AGENT',raising=False)
     for dataset in TW_DATASETS:
-        put('annual:feed:2330.TW:'+dataset,{'next_attempt':time.time()+86400,'schema':2,'period_schema':1,'eps_schema':job.TW_EPS_SCHEMA,'records':[]})
+        put('annual:feed:2330.TW:'+dataset,{'next_attempt':time.time()+86400,'schema':job.TW_CASH_SCHEMA,'period_schema':1,'eps_schema':job.TW_EPS_SCHEMA,'records':[]})
     put('annual:feed:2330.TW:'+TW_DATASETS[2],{'next_attempt':time.time()+86400,'schema':1,'records':[]})
     loader=Mock(return_value={'status':200,'data':[cash('發放股利')]})
     monkeypatch.setattr(job,'fetch_json',loader)

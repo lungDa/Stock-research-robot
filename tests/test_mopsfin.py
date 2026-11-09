@@ -180,7 +180,8 @@ def test_manual_contract_probe_four_calls_and_no_ttm_claim():
 def test_independent_refresh_marks_returned_source_failure_as_partial(monkeypatch):
     import jobs.refresh_data as job
     import jobs.refresh_tw_financials as official
-    from jobs import maintenance,refresh_fundamentals,refresh_eps,refresh_annual,refresh_us_prices,refresh_paid_dividends
+    from jobs import maintenance,refresh_fundamentals,refresh_eps,refresh_annual,refresh_us_prices,refresh_paid_dividends,refresh_universe
+    monkeypatch.setattr(refresh_universe,'build',Mock(return_value=None))
     for module in (maintenance,refresh_fundamentals,refresh_eps,refresh_annual,refresh_us_prices,refresh_paid_dividends):
         monkeypatch.setattr(module,'run',Mock(return_value={'state':'cached'}))
     monkeypatch.setattr(official,'run',Mock(return_value={'state':'failed','failed_feeds':1}))

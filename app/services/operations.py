@@ -34,6 +34,6 @@ def overview():
                                  'sec':bool(os.getenv('SEC_USER_AGENT','').strip())},
             'daily_provider_requests':{s:{'used':usage[s],'cap':cap} for s,cap in [('finmind',100),('sec',60),('twse_eps',12),('mopsfin',48)]},
             'source_retry_after_seconds':{s:max(0,round(get('annual:source:'+s,{}).get('next_attempt',0)-now)) for s in ('finmind','sec','mopsfin')},
-            'jobs':{s:get('jobs:'+s,{}) for s in ('annual','fundamentals','tw_financials','maintenance','data_refresh')},
+            'jobs':{s:get('jobs:'+s,{}) for s in ('annual','fundamentals','tw_financials','cash_dividends','maintenance','data_refresh')},
             'scan':{k:v for k,v in get('scan:latest',{}).items() if k in ('updated_at','attempted','fresh_count','today_count','universe_size')},
             'scan_last_failure_at':get('scan:last_failure',{}).get('updated_at')}

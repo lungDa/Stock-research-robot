@@ -1,5 +1,6 @@
 """小流量台股母體；不下載ISIN巨型HTML或Nasdaq整包名單。"""
 import csv
+import os
 import re
 import time
 from pathlib import Path
@@ -7,10 +8,51 @@ from app.db import init_db, get, put
 from app.providers.taiwan_official import snapshot
 
 
+def finmind_backup():
+    """One optional free master-list request; prefer the latest market per code."""
+    token=os.getenv('FINMIND_TOKEN','').strip();now=time.time()
+    if not token:return {}
+    cached=get('universe:finmind',{})
+    if now-cached.get('at',0)<7*86400 and cached.get('markets'):return cached['markets']
+    if now<get('universe:finmind_retry',{}).get('next_attempt',0) or now<get('annual:source:finmind',{}).get('next_attempt',0):return {}
+    from app.providers.bounded_http import fetch_json
+    from app.providers.annual_free import FINMIND,valid_day
+    from app.services.data_queue import source_slot
+    from app.services.freshness import local_now
+    if not source_slot('finmind',100):return {}
+    put('universe:finmind_retry',{'next_attempt':now+3600})
+    try:
+        payload=fetch_json(FINMIND,{'dataset':'TaiwanStockInfo'},headers={'Authorization':'Bearer '+token},max_bytes=1048576,seconds=8)
+        if not isinstance(payload,dict) or payload.get('status')!=200:raise ValueError('Invalid stock master')
+        rows=payload.get('data')
+        if not isinstance(rows,list):raise ValueError('Invalid stock master')
+        latest={};conflicts=set()
+        for row in rows:
+            if not isinstance(row,dict):continue
+            code=str(row.get('stock_id',''));day=valid_day(row.get('date'))
+            if not re.fullmatch(r'\d{4}|00\d{3,4}[A-Z]?',code) or not day or day>local_now().date():continue
+            if code not in latest or str(day)>latest[code]['date']:
+                latest[code]=row;conflicts.discard(code)
+            elif str(day)==latest[code]['date'] and row.get('type')!=latest[code].get('type'):conflicts.add(code)
+        markets={'TW':[],'TWO':[]}
+        for code,row in latest.items():
+            market={'twse':'TW','tpex':'TWO'}.get(row.get('type'))
+            if not market or code in conflicts:continue
+            markets[market].append({'symbol':code+'.'+market,'name':str(row.get('stock_name') or code)})
+        if not all(markets.values()):raise ValueError('Incomplete stock master markets')
+        put('universe:finmind',{'at':now,'markets':markets})
+        return markets
+    except Exception as exc:
+        code=getattr(getattr(exc,'response',None),'status_code',None)
+        if code in (401,403,429):put('annual:source:finmind',{'next_attempt':now+86400})
+        return {}
+
+
 def build():
     init_db()
     rows = []
     partial = False
+    backup=None
     for market in ('TW', 'TWO'):
         key = 'universe:small:' + market
         prior = get(key)
@@ -38,9 +80,14 @@ def build():
                     part = prior
                     print(f'{market}母體更新暫不可用，使用舊清單：{type(exc).__name__}')
                 else:
-                    print(f'{market}母體暫不可用，本次不涵蓋該市場：{type(exc).__name__}')
-                    partial = True
-                    continue
+                    if backup is None:backup=finmind_backup()
+                    if backup.get(market):
+                        part={'at':time.time(),'rows':backup[market],'complete':True,'source':'FinMind / TaiwanStockInfo'}
+                        put(key,part)
+                    else:
+                        print(f'{market}母體暫不可用，本次不涵蓋該市場：{type(exc).__name__}')
+                        partial = True
+                        continue
         rows.extend(part['rows'])
         partial |= not part.get('complete', False)
     if not rows:

@@ -34,6 +34,8 @@ def report(data,rows,rating,read):
             elif tw and metric in ('eps_latest','eps_avg','roe_avg'):
                 state='cooldown' if read('annual:source:mopsfin',{}).get('next_attempt',0)>time.time() else 'queued' if queued else 'missing'
                 reason='官方上市／上櫃全年EPS及ROE待補或來源缺年度；不需FinMind token，請核對官方下載狀態'
+            elif tw and metric=='fcf_coverage':
+                state='missing';reason='須每年度營業現金流、資本支出與現金股利支出總額；後者由官方合併現金流量表分批補齊，請查看年度現金股利下載狀態'
             elif metric=='etf_yield' and not tw:
                 state='unsupported';reason='此ETF尚無可核對的完整發放日期來源'
             elif cooling:state='cooldown';reason='資料來源冷卻中，等待下次允許更新'

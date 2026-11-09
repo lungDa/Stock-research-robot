@@ -4,6 +4,13 @@ import requests
 from app.providers.bounded_http import ResourceLimitError
 
 CONTRACTS={
+ 'Cash-flow catalog mismatch':'無法核對官方現金流量表目錄',
+ 'Cash-flow report period mismatch':'官方回應的年度／季別與請求不符',
+ 'Not a cash-flow statement':'官方回應不是現金流量表',
+ 'Cash-flow unit mismatch':'現金流量表幣別／金額單位未通過核對',
+ 'Ambiguous cash-flow company columns':'現金流量表公司欄位重複，無法唯一對應',
+ 'Invalid cash-flow number':'現金股利支出數字格式未通過核對',
+ 'Cash-flow table limit':'現金流量表超過大小或表格處理預算',
  'Official catalog contract changed':'官方目錄的指標名稱／單位無法辨識',
  'Invalid company lookup':'公司查詢回應格式不符',
  'Company identity missing or ambiguous':'公司查詢沒有唯一符合的股票代號',

@@ -29,7 +29,7 @@ def compact(dataset, records, code):
         if dataset in TW_DATASETS[:3] and r.get('type') not in tags:
             # Keep dividend cash-flow labels before parsing; preserve diagnostics
             # instead of losing every unfamiliar source label at compaction.
-            if dataset!=TW_DATASETS[2] or not any(s in str(r.get('origin_name','')) for s in ('股利','股息')):continue
+            if dataset!=TW_DATASETS[2]:continue
         result.append({k:v for k,v in r.items() if k in cols})
     return result
 
