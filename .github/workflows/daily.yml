@@ -53,6 +53,9 @@ jobs:
       - name: Refresh free annual fundamentals (bounded batch)
         timeout-minutes: 2
         run: python -m jobs.refresh_annual
+      - name: Backfill Taiwan annual cash-dividend totals (market batches)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_cash_dividends
       - name: Refresh shared US daily prices (two symbols)
         timeout-minutes: 1
         run: python -m jobs.refresh_us_prices

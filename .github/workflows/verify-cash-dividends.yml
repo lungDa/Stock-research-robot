@@ -1,0 +1,30 @@
+name: Verify Taiwan cash-dividend source
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: '最多20家公司，包含.TW或.TWO'
+        required: true
+        default: '2330.TW,2412.TW,6488.TWO,2886.TW'
+      year:
+        description: '完整年度（西元）'
+        required: true
+        default: '2025'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CASH_SYMBOLS: ${{ inputs.symbols }}
+      CASH_YEAR: ${{ inputs.year }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Verify annual cash-flow amounts (two read-only requests)
+        timeout-minutes: 2
+        run: python -m scripts.check_cash_dividends --symbols "$CASH_SYMBOLS" --year "$CASH_YEAR"

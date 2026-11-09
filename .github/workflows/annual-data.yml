@@ -39,6 +39,9 @@ jobs:
       - name: Refresh bounded annual batch (no LINE messages)
         timeout-minutes: 2
         run: python -m jobs.refresh_annual
+      - name: Backfill Taiwan annual cash-dividend totals (market batches)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_cash_dividends
       - name: Continue official historical prices (two months maximum)
         timeout-minutes: 1
         run: python -m jobs.refresh_history

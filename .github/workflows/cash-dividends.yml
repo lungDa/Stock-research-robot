@@ -1,0 +1,41 @@
+name: Backfill Taiwan cash-dividend totals
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: '留白為全台股輪替；可指定2330.TW,2412.TW,6488.TWO'
+        required: false
+        default: ''
+      years:
+        description: '最近完整年度數（1至15，最早2013年）'
+        required: true
+        default: '5'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  cash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      CASH_SYMBOLS: ${{ inputs.symbols }}
+      CASH_YEARS: ${{ inputs.years }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh Taiwan market universe
+        timeout-minutes: 1
+        continue-on-error: true
+        run: python -m jobs.refresh_universe
+      - name: Backfill annual cash-dividend totals (four requests maximum)
+        timeout-minutes: 2
+        run: python -m jobs.refresh_cash_dividends --symbols "$CASH_SYMBOLS" --years "$CASH_YEARS" --max-requests 4
