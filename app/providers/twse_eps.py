@@ -10,6 +10,9 @@ from pypdf import PdfReader
 from app.providers.annual_free import finite
 
 BASE='https://www.twse.com.tw/pdf/ch/'
+CONNECT_TIMEOUT=8
+READ_TIMEOUT=12
+DOWNLOAD_SECONDS=30
 
 
 def parse_texts(texts,symbol,today):
@@ -85,11 +88,12 @@ def parse_pdf(raw,symbol,today):
 def fetch(symbol,today):
     if not re.fullmatch(r'\d{4}\.TW',symbol):raise ValueError('TWSE listed stocks only')
     url=BASE+symbol.split('.')[0]+'_ch.pdf';start=time.monotonic();chunks=[];size=0
-    with requests.get(url,timeout=(2,2),stream=True,allow_redirects=False) as response:
+    with requests.get(url,timeout=(CONNECT_TIMEOUT,READ_TIMEOUT),stream=True,allow_redirects=False) as response:
         response.raise_for_status()
         if response.status_code!=200:raise ValueError('No direct PDF')
         for chunk in response.iter_content(8192):
             size+=len(chunk)
-            if size>4*1024*1024 or time.monotonic()-start>6:raise ValueError('PDF exceeds budget')
+            if size>4*1024*1024:raise ValueError('PDF exceeds size budget')
+            if time.monotonic()-start>DOWNLOAD_SECONDS:raise requests.ReadTimeout('PDF download time budget exceeded')
             chunks.append(chunk)
     return parse_pdf(b''.join(chunks),symbol,today)
