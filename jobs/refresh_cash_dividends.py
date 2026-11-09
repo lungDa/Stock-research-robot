@@ -56,7 +56,8 @@ def run(symbols=None,max_requests=2,years=5):
             if count>=max_requests or time.monotonic()-start>=35 or not source_slot('mopsfin',48):raise StopIteration
             count+=1;return request(path,**kwargs)
         metric=get('cashflow:catalog',{})
-        if now<get('cashflow:catalog_state',{}).get('next_attempt',0):return {**summary,'state':'cooldown'}
+        catalog_state=get('cashflow:catalog_state',{})
+        if catalog_state.get('parser_version')==2 and now<catalog_state.get('next_attempt',0):return {**summary,'state':'cooldown','reason':catalog_state.get('reason','')}
         try:
             if now-metric.get('at',0)>7*86400 or not metric.get('metric'):
                 metric={'at':now,'metric':catalog(download('/'))};put('cashflow:catalog',metric)
@@ -64,7 +65,7 @@ def run(symbols=None,max_requests=2,years=5):
         except StopIteration:return {**summary,'state':'limited','cash_requests':count}
         except Exception as exc:
             detail=describe(exc,'現金流量表目錄')
-            put('cashflow:catalog_state',{'next_attempt':now+3600,**detail})
+            put('cashflow:catalog_state',{'next_attempt':now+3600,'parser_version':2,**detail})
             code=getattr(getattr(exc,'response',None),'status_code',None)
             if code in (401,403,429):put('annual:source:mopsfin',{'next_attempt':now+86400,**detail})
             result={**summary,'state':'failed','cash_requests':count,'failed_feeds':1,'reason':detail['reason']}
@@ -137,6 +138,11 @@ def run(symbols=None,max_requests=2,years=5):
         put('jobs:cash_dividends',result);return result
 
 
+def exit_code(result):
+    # A completed Python process is not evidence of a successful download.
+    return 1 if result.get('state')=='failed' or (result.get('failed_feeds',0)>0 and not result.get('updated_fields',0)) else 0
+
+
 if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser()
@@ -144,4 +150,7 @@ if __name__=='__main__':
     parser.add_argument('--max-requests',type=int,default=2)
     args=parser.parse_args()
     selected=[s.strip() for s in args.symbols.split(',') if s.strip()] if args.symbols.strip() else None
-    print(run(selected,max_requests=args.max_requests,years=args.years))
+    import json,sys
+    result=run(selected,max_requests=args.max_requests,years=args.years)
+    print(json.dumps(result,ensure_ascii=False))
+    sys.exit(exit_code(result))

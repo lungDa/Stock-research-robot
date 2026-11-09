@@ -316,3 +316,62 @@ def test_single_company_batch_still_alternates_priority_and_market(monkeypatch):
     monkeypatch.setattr(job,'request',load)
     job.run(max_requests=1,years=1);job.run(max_requests=1,years=1)
     assert calls[0][0] in ('2330','2412','2303') and calls[1]==['1101']
+
+
+def test_live_catalog_blank_unit_is_discovered_and_report_still_verifies_units():
+    html='<a name="CashflowStatement" label="" class="compareItem compareClass ysoClass companyClass">現金流量表(累計)</a>'
+    metric=catalog(html)
+    assert metric=={'code':'CashflowStatement','unit':''}
+    assert fields(['2330.TW'],2025,metric)['ylabel']==''
+    rows,_=parse(report(symbols=['2330.TW']),['2330.TW'],2025,TODAY,metric)
+    assert rows['2330.TW']['cash_dividends_paid']==100000000
+    with pytest.raises(ValueError):
+        parse(report(symbols=['2330.TW'],unit='美元'),['2330.TW'],2025,TODAY,metric)
+
+
+def test_global_catalog_failure_is_visible_for_every_unattempted_year():
+    from app.services.query_fundamentals import cash_status
+    put('cashflow:catalog_state',{'reason':'目錄核對失敗','next_attempt':time.time()+300})
+    rows=cash_status('2330.TW')['years']
+    assert all(r['state']=='failed' and r['reason']=='目錄核對失敗' and r['retry_after_seconds']>0 for r in rows)
+    put('cashflow:official:2330.TW',{'rows':{'2025':{'cash_dividends_paid':0}}})
+    assert cash_status('2330.TW')['years'][0]['state']=='available'
+
+
+def test_cli_failure_exit_does_not_turn_empty_failed_batches_green():
+    from jobs.refresh_cash_dividends import exit_code
+    assert exit_code({'state':'failed'})==1
+    assert exit_code({'state':'partial','failed_feeds':1,'updated_fields':0})==1
+    assert exit_code({'state':'partial','failed_feeds':1,'updated_fields':2})==0
+    assert exit_code({'state':'limited'})==0
+
+
+def test_old_catalog_contract_cooldown_does_not_block_fixed_parser(monkeypatch):
+    import jobs.refresh_cash_dividends as job
+    put('cashflow:catalog_state',{'next_attempt':time.time()+3600,'error_code':'contract'})
+    loader=Mock(return_value=CATALOG);monkeypatch.setattr(job,'request',loader)
+    assert job.run(['2330'],max_requests=1)['cash_requests']==1
+    loader.assert_called_once()
+
+
+def test_captured_official_split_tables_bind_amount_to_company_and_year():
+    from pathlib import Path
+    html=(Path(__file__).parent/'fixtures/mopsfin_cashflow_2330_2025.html').read_text()
+    metric={'code':'CashflowStatement','unit':''}
+    rows,issues=parse(html,['2330.TW','2412.TW'],2025,TODAY,metric)
+    assert rows['2330.TW']['cash_dividends_paid']==466779199000
+    assert '2412.TW' in issues and '2412.TW' not in rows
+    for corrupted in (html.replace('id="bodyTable"','id="otherTable"'),html.replace('2330 台積電','2412 中華電',1),html.replace('新台幣仟元','美元'),html.replace('投資活動之淨現金流入','其他活動之淨現金流入')):
+        with pytest.raises(ValueError):parse(corrupted,['2330.TW'],2025,TODAY,metric)
+
+
+def test_split_multiple_company_columns_keep_distinct_identity_and_zero():
+    labels=['報表類別','會計科目','營業活動之淨現金流入(流出)','投資活動之淨現金流入(流出)','籌資活動之淨現金流入(流出)','發放現金股利']
+    values=[['合併','合併'],['2330 台積電 (上市半導體業)','6488 測試公司 (上櫃業)'],['1','2'],['3','4'],['5','6'],['-100','0']]
+    def table(rows):return '<table>'+''.join('<tr>'+''.join('<td>'+v+'</td>' for v in row)+'</tr>' for row in rows)+'</table>'
+    html='<input name="yearseason" value="2025Q4">'+''.join('<input name="reportName" value="'+v+'">' for v in values[1])+'<p>金額單位：新台幣仟元</p><div id="headTable">'+table([[v] for v in labels])+'</div><div id="bodyTable">'+table(values)+'</div>'
+    rows,issues=parse(html,['2330.TW','6488.TWO'],2025,TODAY,{'code':'CashflowStatement','unit':''})
+    assert not issues
+    assert rows['2330.TW']['cash_dividends_paid']==100000
+    assert rows['6488.TWO']['cash_dividends_paid']==0
+    with pytest.raises(ValueError):parse(html.replace('<td>-100</td>',''),['2330.TW','6488.TWO'],2025,TODAY,METRIC)
