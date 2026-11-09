@@ -40,6 +40,9 @@ def attach(data,shared,paid=None,manual=None,today=None):
         try:
             start=date.fromisoformat(r['period_start']);end=date.fromisoformat(r['period_end'])
             if not 330<=(end-start).days<=400 or not 0<=(today-end).days<=190 or finite(r['value']) is None:details.pop(key,None)
+            if data.get('symbol','').endswith(('.TW','.TWO')):
+                from app.services.ttm_proof import is_calendar_ttm
+                if not is_calendar_ttm(start,end):details.pop(key,None)
         except (KeyError,ValueError,TypeError):details.pop(key,None)
     data['eps']=details.get('eps_ttm',{}).get('value')
     pct=details.get('roe_ttm_pct',{}).get('value');data['roe']=pct/100 if pct is not None else None

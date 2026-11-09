@@ -109,6 +109,12 @@ def taiwan_rows(symbol, feeds, today):
         ni = rows.get(str(y),{}).get('net_income')
         if ni is not None and eq is not None and prev is not None and min(eq,prev)>0:
             row(y)['roe_pct'] = ni / ((eq+prev)/2) * 100
+            row(y)['field_sources']={'roe_pct':{'url':'https://finmind.github.io/tutor/TaiwanMarket/Fundamental/',
+                'provenance':'FinMind_derived','as_of':str(today),'unit':'PERCENT_POINTS',
+                'period_start':f'{y}-01-01','period_end':end,
+                'basis':'full_year_total_net_income / mean opening and closing total equity',
+                'calculation':{'net_income':ni,'opening_equity':prev,'closing_equity':eq,'mean_equity':(eq+prev)/2,
+                               'quarter_ends':quarters,'scope':'total_consolidated_income_and_equity','currency':'TWD'}}}
         for field, tag in [('operating_cash_flow','CashFlowsFromOperatingActivities'),
                            ('capital_expenditure','PropertyAndPlantAndEquipment')]:
             val = cash.get((end,tag))

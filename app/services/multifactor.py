@@ -80,6 +80,18 @@ def annual_rows(user,symbol,documents=None):
             existing.setdefault('field_sources',{})['eps']=copy.deepcopy(row.get('field_sources',{}).get('eps',{
                 'url':row.get('source_url',''),'as_of':row.get('as_of',''),'provenance':row.get('provenance','official_Q4')}))
             if 'notes' in existing:existing['notes']=[n for n in existing['notes'] if 'EPS未直接' not in n]
+    # Official annual EPS/ROE for both markets. Per-field sources remain separate.
+    for year,row in read('financial:official:'+symbol,{}).get('rows',{}).items():
+        current=rows.setdefault(year,{})
+        for field in ('eps','roe_pct'):
+            if field not in row:continue
+            source=row.get('field_sources',{}).get(field,{})
+            old=current.get('field_sources',{}).get(field,{})
+            if current.get(field) is not None and source.get('as_of','')<old.get('as_of',''):continue
+            if not current:current.update({k:v for k,v in row.items() if k not in ('eps','roe_pct','field_sources')})
+            current[field]=row[field]
+            current.setdefault('field_sources',{})[field]=copy.deepcopy(source)
+            if field=='eps' and 'notes' in current:current['notes']=[n for n in current['notes'] if 'EPS未直接' not in n]
     for year,row in private.items():
         existing=rows.setdefault(year,{})
         sources={**existing.get('field_sources',{}),**row.get('field_sources',{})}
@@ -187,14 +199,24 @@ def rated(data,user,config=None,documents=None):
     if data['symbol'].endswith(('.TW','.TWO')):
         from app.providers.fundamentals import attach as official_attach
         data=official_attach(data,documents)
-        if data.get('kind')=='UNKNOWN' and read('eps:official:'+data['symbol'],{}).get('rows'):
+        if data.get('kind')=='UNKNOWN' and (read('eps:official:'+data['symbol'],{}).get('rows') or read('financial:official:'+data['symbol'],{}).get('rows')):
             data['kind']='STOCK'
+            data['warnings']=[w for w in data.get('warnings',[]) if 'UNKNOWN' not in w]
+        display=read('financial:official:'+data['symbol'],{}).get('company_display','')
+        if display and data.get('name') in (None,data['symbol'],data['symbol'].split('.')[0]):data['name']=display.split(' ',1)[-1]
+    rows=annual_rows(user,data['symbol'],documents)
+    if data['symbol'].endswith(('.TW','.TWO')):
+        from app.providers.trailing import reported_twelve_month_eps
+        known_period=read('fundamentals:index:'+data['symbol'].rsplit('.',1)[1],{}).get(data['symbol'].split('.')[0],{}).get('fields',{}).get('eps',{}).get('period')
+        reported=reported_twelve_month_eps(rows,shared.get('trailing',{}),known_period,local_now().date())
+        if reported:
+            shared=copy.deepcopy(shared)
+            shared.setdefault('trailing',{}).setdefault('eps_ttm',reported)
     if data.get('kind') in ('STOCK','ETF'):
         from app.services.trailing_metrics import attach
         data=attach(data,shared,read('paid:shared:'+data['symbol'],{}),read('ttm:'+user+':'+data['symbol'],{}))
     from app.services.analysis import enrich
     data=enrich(data)
-    rows=annual_rows(user,data['symbol'],documents)
     rating=evaluate(data,config or settings_for(user),rows)
     from app.services.data_quality import report
     return {**data,'rating':rating,'data_quality':report(data,rows,rating,read),
@@ -215,9 +237,10 @@ def _rating_keys(items,user):
     keys+=['annual:shared:'+d['symbol'] for d in items]
     keys+=['paid:shared:'+d['symbol'] for d in items]+['ttm:'+user+':'+d['symbol'] for d in items]
     keys+=['eps:official:'+d['symbol'] for d in items]
+    keys+=['financial:official:'+d['symbol'] for d in items]
     keys+=['annual:query_result:'+d['symbol'] for d in items]
     markets={d['symbol'].rsplit('.',1)[-1] for d in items if d['symbol'].endswith(('.TW','.TWO'))}
-    keys+=['fundamentals:index:'+market for market in sorted(markets)]+['annual:source:finmind','annual:source:sec']
+    keys+=['fundamentals:index:'+market for market in sorted(markets)]+['annual:source:finmind','annual:source:sec','annual:source:mopsfin']
     return list(dict.fromkeys(keys))
 
 

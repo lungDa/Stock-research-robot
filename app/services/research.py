@@ -19,14 +19,15 @@ def shared_us_quote(symbol):
 def annual_only(symbol):
     shared=get('annual:shared:'+symbol,{})
     eps=get('eps:official:'+symbol,{})
-    if not shared.get('rows') and not eps.get('rows'):return None
+    financial=get('financial:official:'+symbol,{})
+    if not shared.get('rows') and not eps.get('rows') and not financial.get('rows'):return None
     us=any(r.get('provenance')=='SEC_10K' for r in shared.get('rows',{}).values())
-    stock=us or bool(eps.get('rows'))
+    stock=us or bool(eps.get('rows')) or bool(financial.get('rows'))
     return enrich({'symbol':symbol,'name':symbol,'kind':'STOCK' if stock else 'UNKNOWN',
         'currency':'USD' if us else 'TWD' if stock else '未提供','price':None,'date':'','history':[],
         **{k:None for k in ('ma20','ma60','adjusted_close','volume_ratio','volatility','eps','roe','pe','yield','expense_ratio')},
         'source':'年度財報共用快取','data_status':'fundamentals_only',
-        'cached_at':time.time(),'updated_at':shared.get('updated_at'),
+        'cached_at':time.time(),'updated_at':financial.get('updated_at') or shared.get('updated_at'),
         'warnings':['行情暫不可用：僅顯示已下載的年度財報；價格、均線與動能缺資料。']})
 
 def research(symbol,refresh=False):

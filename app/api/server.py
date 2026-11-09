@@ -158,6 +158,12 @@ async def ttm_eps_save(symbol:str,request:Request,user=Depends(current_user)):
     try:return save_ttm_eps(user,symbol,json.loads(await limited_body(request,4096)))
     except (ValueError,TypeError) as exc:raise HTTPException(400,str(exc))
 
+@app.put('/ttm-eps-components/{symbol}')
+async def ttm_components_save(symbol:str,request:Request,user=Depends(current_user)):
+    from app.services.annual_data import save_ttm_components
+    try:return save_ttm_components(user,symbol,json.loads(await limited_body(request,16384)))
+    except (ValueError,TypeError) as exc:raise HTTPException(400,str(exc))
+
 @app.patch('/annual-supplement/{symbol}')
 async def annual_supplement_save(symbol:str,request:Request,user=Depends(current_user)):
     from app.services.annual_data import supplement

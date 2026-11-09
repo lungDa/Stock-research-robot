@@ -49,10 +49,12 @@ def test_request_returns_before_network_and_deduplicates(monkeypatch):
 def test_listed_eps_can_queue_without_finmind(monkeypatch):
     monkeypatch.delenv('FINMIND_TOKEN',raising=False)
     assert request_download('2412')['state']=='queued'
-    assert request_download('6488.TWO')['state']=='not_configured'
+    assert request_download('6488.TWO')['state']=='queued'
 
 
 def test_background_batch_stays_within_two_external_requests(monkeypatch):
+    import jobs.refresh_tw_financials as official
+    monkeypatch.setattr(official,'run',Mock(return_value={'official_requests':0,'state':'cached'}))
     import jobs.refresh_eps as eps
     import jobs.refresh_annual as annual
     monkeypatch.setattr(eps,'run',Mock(return_value={'eps_requests':1,'state':'updated'}))
@@ -64,6 +66,8 @@ def test_background_batch_stays_within_two_external_requests(monkeypatch):
 
 
 def test_interrupted_immediate_batch_keeps_durable_request(monkeypatch):
+    import jobs.refresh_tw_financials as official
+    monkeypatch.setattr(official,'run',Mock(return_value={'official_requests':0,'state':'cached'}))
     import jobs.refresh_eps as eps
     monkeypatch.setenv('FINMIND_TOKEN','fake')
     request_download('2412')
@@ -79,6 +83,8 @@ def test_old_running_status_explains_scheduled_recovery():
 
 
 def test_request_endpoints_auth_and_public_background_processing(monkeypatch):
+    import jobs.refresh_tw_financials as official
+    monkeypatch.setattr(official,'run',Mock(return_value={'official_requests':0,'state':'cached'}))
     from fastapi.testclient import TestClient
     from app.api.server import app
     from app.services.watchlist import watches,subscribed

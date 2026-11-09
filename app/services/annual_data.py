@@ -1,5 +1,5 @@
 """個人歷史資料匯入；明示人工資料，不能把季度EPS當完整年度。"""
-import csv,io,math
+import csv,io,math,re
 from urllib.parse import urlparse
 from app.db import put
 from app.providers.market import normalize
@@ -107,6 +107,9 @@ def save_ttm_eps(user,symbol,body):
     try:start=date.fromisoformat(body['period_start']);end=date.fromisoformat(body['period_end'])
     except (KeyError,ValueError,TypeError):raise ValueError('請提供TTM起訖日期')
     if not 330<=(end-start).days<=400 or not 0<=(local_now().date()-end).days<=190:raise ValueError('TTM須涵蓋近一年，期末不可在未來或距今超過190天')
+    if symbol.endswith(('.TW','.TWO')):
+        from app.services.ttm_proof import is_calendar_ttm
+        if not is_calendar_ttm(start,end):raise ValueError('台股TTM須為連續12個月且以季末結束，不接受任意330至400天區間')
     value=body.get('value');source=body.get('source','')
     if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('EPS須為有限數值')
     if not isinstance(source,str):raise ValueError('來源網址須為文字')
@@ -115,5 +118,18 @@ def save_ttm_eps(user,symbol,body):
     row={'value':value,'period_start':str(start),'period_end':str(end),'source':source,
          'basis':'user_verified_TTM_EPS; reported currency per share; system has not verified report',
          'provenance':'user_report_verified','as_of':str(local_now().date())}
+    put('ttm:'+user+':'+symbol,row)
+    return {'symbol':symbol,**row}
+
+
+def save_ttm_components(user,symbol,body):
+    from app.services.ttm_proof import calculate
+    from app.db import get
+    symbol=normalize(symbol)
+    if not re.fullmatch(r'\d{4}\.(TW|TWO)',symbol):raise ValueError('此獲利與股數核對介面限台股個股')
+    code,market=symbol.rsplit('.',1)
+    kind=get('fundamentals:index:'+market,{}).get(code,{}).get('fields',{}).get('kind',{}).get('value')
+    if kind=='ETF' or get('quote:'+symbol,{}).get('kind')=='ETF':raise ValueError('ETF不適用公司每股盈餘計算')
+    row=calculate(body)
     put('ttm:'+user+':'+symbol,row)
     return {'symbol':symbol,**row}

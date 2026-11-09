@@ -11,7 +11,7 @@ def overview():
     from app.services.freshness import local_now
     with Session() as session:
         usage={source:(row.used if (row:=session.get(ProviderBudget,source+':'+str(local_now().date()))) else 0)
-               for source in ('finmind','sec','twse_eps')}
+               for source in ('finmind','sec','twse_eps','mopsfin')}
     states=list(documents_with_prefix('annual:feed:',1000).values())
     from app.services.multifactor import rated_many
     from app.services.research import quotes_for
@@ -32,8 +32,8 @@ def overview():
             'field_coverage_scope':'最多30檔既有行情，以公開預設規則抽樣；不是全市場完整率',
             'source_configured':{'finmind':bool(os.getenv('FINMIND_TOKEN','').strip()),
                                  'sec':bool(os.getenv('SEC_USER_AGENT','').strip())},
-            'daily_provider_requests':{s:{'used':usage[s],'cap':cap} for s,cap in [('finmind',100),('sec',60),('twse_eps',12)]},
-            'source_retry_after_seconds':{s:max(0,round(get('annual:source:'+s,{}).get('next_attempt',0)-now)) for s in ('finmind','sec')},
-            'jobs':{s:get('jobs:'+s,{}) for s in ('annual','fundamentals','maintenance','data_refresh')},
+            'daily_provider_requests':{s:{'used':usage[s],'cap':cap} for s,cap in [('finmind',100),('sec',60),('twse_eps',12),('mopsfin',48)]},
+            'source_retry_after_seconds':{s:max(0,round(get('annual:source:'+s,{}).get('next_attempt',0)-now)) for s in ('finmind','sec','mopsfin')},
+            'jobs':{s:get('jobs:'+s,{}) for s in ('annual','fundamentals','tw_financials','maintenance','data_refresh')},
             'scan':{k:v for k,v in get('scan:latest',{}).items() if k in ('updated_at','attempted','fresh_count','today_count','universe_size')},
             'scan_last_failure_at':get('scan:last_failure',{}).get('updated_at')}

@@ -31,8 +31,9 @@ def report(data,rows,rating,read):
             if metric=='expense_pct':state='unsupported';reason='尚無自動核對年度總費用率的來源；管理費不可替代總費用率'
             elif metric in ('price_ma20','ma20_ma60','volatility'):
                 state='history_missing';reason='行情過舊、歷史不足或價格調整事件；暫停此項判定'
-            elif metric.startswith('eps') and symbol.endswith('.TWO'):
-                state='verification_required';reason='上櫃多年EPS尚缺自動歷史來源；可補登年度財報，後續Q4快照將持續保存'
+            elif tw and metric in ('eps_latest','eps_avg','roe_avg'):
+                state='cooldown' if read('annual:source:mopsfin',{}).get('next_attempt',0)>time.time() else 'queued' if queued else 'missing'
+                reason='官方上市／上櫃全年EPS及ROE待補或來源缺年度；不需FinMind token，請核對官方下載狀態'
             elif metric=='etf_yield' and not tw:
                 state='unsupported';reason='此ETF尚無可核對的完整發放日期來源'
             elif cooling:state='cooldown';reason='資料來源冷卻中，等待下次允許更新'
@@ -49,7 +50,7 @@ def report(data,rows,rating,read):
             if detail:
                 state='available';reason=detail.get('basis','')
             elif key=='eps_ttm':
-                state='verification_required';reason='缺少可核對股數基準的近一年EPS；年度EPS與單季相加均不替代，可於個人設定補登'
+                state='verification_required';reason='缺少同一股數基準的完整近一年EPS；僅接受明確12個月報告值或已核對的獲利與加權股數計算，不加總單季EPS'
             elif key=='paid_yield_pct' and not tw and symbol!='AAPL':
                 state='unsupported';reason='此美股尚未接入已發配息日期來源，增加下載次數無法補齊'
             elif cooling:state='cooldown';reason='來源冷卻中'

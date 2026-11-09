@@ -77,5 +77,33 @@ def taiwan_trailing(symbol,feeds,today):
     a=balance.get((str(start-timedelta(days=1)),'Equity'));b=balance.get((str(end),'Equity'))
     if a is not None and b is not None and min(a,b)>0:
         result['roe_ttm_pct']=point(sum(vals)/((a+b)/2)*100,start,end,'FinMind financial statements + balance sheet','TTM total net income / mean opening and closing total equity')
+        result['roe_ttm_pct']['calculation']={'quarter_ends':expected,'quarter_net_income':vals,
+            'income_total':sum(vals),'opening_equity_date':str(start-timedelta(days=1)),
+            'opening_equity':a,'closing_equity_date':str(end),'closing_equity':b,
+            'mean_equity':(a+b)/2,'scope':'total_consolidated_income_and_equity','currency':'TWD'}
     # No sum of EPS values with unverified share bases.
     return result
+
+
+def reported_twelve_month_eps(rows,trailing,known_period,today):
+    """A reported Jan-Dec EPS qualifies only for that exact still-current TTM window.
+
+    It is never rolled forward or added to other EPS. Reject if a newer known
+    reporting period exists, and never accept a user aggregate as reported EPS.
+    """
+    candidates=[]
+    for year,row in rows.items():
+        source=row.get('field_sources',{}).get('eps',{})
+        if source.get('provenance') not in ('MOPSFIN_annual','TWSE_company_profile','official_Q4'):continue
+        try:
+            end=date(int(year),12,31);start=date(int(year),1,1);value=finite(row['eps'])
+            if value is None or not 0<=(today-end).days<=190:continue
+            if known_period and (int(known_period[:4]),int(known_period[-1]))>(end.year,4):continue
+            newer=[date.fromisoformat(r['period_end']) for r in trailing.values() if isinstance(r,dict) and r.get('period_end')]
+            if any(d>end for d in newer):continue
+        except (TypeError,ValueError,KeyError):continue
+        result=point(value,start,end,source.get('url',''),'reported_full_year_EPS_for_exact_matching_twelve_month_window; not quarterly sum')
+        result.update(provenance=source['provenance'],eps_type='as_reported',
+                      calculation={'method':'direct_reported_twelve_month_value','annual_year':int(year),'no_quarterly_sum':True})
+        candidates.append(result)
+    return max(candidates,key=lambda r:r['period_end']) if candidates else None

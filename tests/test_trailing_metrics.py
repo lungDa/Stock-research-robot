@@ -54,7 +54,9 @@ def test_apple_payable_not_record_date():
 def test_manual_eps_period_and_isolation():
     from app.services.freshness import local_now
     today=local_now().date()
-    body={'confirmed':True,'value':3,'period_start':str(today-timedelta(days=364)),'period_end':str(today),'source':'https://example.com/report'}
+    end=today.replace(day=1,month=((today.month-1)//3)*3+1)-timedelta(days=1)
+    start=date(end.year-1,end.month,end.day)+timedelta(days=1)
+    body={'confirmed':True,'value':3,'period_start':str(start),'period_end':str(end),'source':'https://example.com/report'}
     save_ttm_eps('Ualice','2330',body)
     assert get('ttm:Ualice:2330.TW')['value']==3 and get('ttm:Ubob:2330.TW') is None
     with pytest.raises(ValueError):save_ttm_eps('Ualice','2330',{**body,'period_end':'2099-01-01'})
