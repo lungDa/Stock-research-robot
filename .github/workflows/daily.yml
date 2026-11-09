@@ -38,6 +38,9 @@ jobs:
       - name: Refresh shared fundamentals (two bounded feeds)
         timeout-minutes: 1
         run: python -m jobs.refresh_fundamentals
+      - name: Refresh verified full-year EPS (one TWSE profile)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_eps
       - name: Refresh free annual fundamentals (bounded batch)
         timeout-minutes: 2
         run: python -m jobs.refresh_annual

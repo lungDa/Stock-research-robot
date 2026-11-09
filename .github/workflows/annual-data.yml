@@ -27,6 +27,9 @@ jobs:
         run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
+      - name: Refresh verified full-year EPS (one TWSE profile)
+        timeout-minutes: 1
+        run: python -m jobs.refresh_eps
       - name: Refresh bounded annual batch (no LINE messages)
         timeout-minutes: 2
         run: python -m jobs.refresh_annual
