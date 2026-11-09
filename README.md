@@ -1,5 +1,7 @@
 # 股海燈塔：台股個股財務補強（嚴格核對）
 
+全台股年度現金股利支出自動續補已加入：官方現金流量表備援、公司／年度／單位核對、分批輪替與畫面進度。詳見 [CASH_DIVIDENDS_AUTO.md](CASH_DIVIDENDS_AUTO.md)。全市場分批處理，不代表每檔已驗收齊全。
+
 本次依確認調整近一年EPS：可採近四個完整季度的基本EPS合計，與嚴格TTM分欄標示；詳見 [QUARTERLY_EPS_UPDATE.md](QUARTERLY_EPS_UPDATE.md)。舊版曾丟棄EPS欄位，部署後需執行一次資料續補。
 
 EPS PDF逾時修正見 [EPS_TIMEOUT_FIX.md](EPS_TIMEOUT_FIX.md)：放寬原2秒連線／讀取設定；短暫連線失敗改用漸進冷卻，保留舊成功資料。

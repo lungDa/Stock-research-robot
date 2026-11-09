@@ -114,6 +114,12 @@ with query:
         st.caption(result.get('message','')+f"｜已有資料集 {result.get('available_feeds',0)}/{result.get('total_feeds',0)}；資料集數不代表欄位完整度。")
         source_problem=result.get('official_annual_source',{})
         if source_problem.get('reason'):st.warning(source_problem['reason'])
+        cash=result.get('cash_dividend_status',{})
+        if cash.get('years'):
+            with st.expander(f"年度現金股利支出總額（已有 {cash.get('available_years',0)}/{cash.get('total_years',5)} 年）"):
+                st.dataframe([{'年度':r['year'],'現金股利支出（元）':r['value'],'狀態':r['state'],'說明':r['reason'],
+                    '來源':r.get('source',''),'可重試倒數（秒）':r.get('retry_after_seconds',0)} for r in cash['years']],hide_index=True)
+                st.caption('取完整年度合併現金流量表的實際股利支出；來源金額單位會換算為元。缺欄位不以0代替。')
         official=result.get('official_annual_status',{})
         if official:
             with st.expander('官方年度EPS／ROE下載狀態'):

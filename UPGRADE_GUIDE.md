@@ -10,6 +10,8 @@ PDF逾時修正：完整更新後執行 **Replenish data and clean expired recor
 
 近四季EPS更新：完整更新後，執行一次 **Replenish data and clean expired records**，讓損益表補抓最近兩年的EPS；完成後重新分析2330。新版以`eps_schema`記錄遷移，不需清空資料庫。來源有四個連續完整季度時可計算；來源缺季、限流或未更新時仍待補，不能保證首次查詢即齊。
 
+全台股現金股利支出更新：請完整覆蓋新增模組與工作流程。可單獨執行 **Backfill Taiwan cash-dividend totals**，`symbols`留白為全市場輪替、`years`預設5；既有每日四次續補也已接入。不需新增付費資料來源或清空資料庫。正式來源驗收可執行 **Verify Taiwan cash-dividend source**，預設同時核對上市、上櫃及金融股。
+
 ## 1. 套用檔案
 
 將 ZIP 解壓縮後，開啟 `Stock-research-robot-main` 資料夾，將裡面的內容覆蓋至原專案同名路徑。不要再在 GitHub 專案內多包一層同名資料夾。

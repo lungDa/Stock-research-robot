@@ -1,36 +1,53 @@
 {
-  "release": "Disclosed four-quarter basic EPS sum",
-  "baseline_library_version": 5,
-  "baseline_zip_sha256": "8ef8e7117217d2d86014c8da25189500204693831be7408b0c33184a3cafe75f",
+  "release": "Market-wide automatic Taiwan annual cash-dividend outflow backfill",
+  "baseline_library_version": 6,
+  "baseline_zip_sha256": "1664b409678bf0fe9ee278ae5986e9f15922b6c5db8c2fa0020c4ed8aa5b7155",
   "changed_files_since_previous": [
+    ".github/workflows/annual-data.yml",
+    ".github/workflows/daily.yml",
     "README.md",
     "UPDATE_MANIFEST.json",
     "UPGRADE_GUIDE.md",
     "VALIDATION.md",
-    "app/providers/trailing.py",
+    "app/providers/annual_free.py",
+    "app/providers/mopsfin.py",
+    "app/providers/source_errors.py",
     "app/services/data_quality.py",
     "app/services/multifactor.py",
-    "app/services/trailing_metrics.py",
+    "app/services/operations.py",
+    "app/services/query_fundamentals.py",
     "jobs/refresh_annual.py",
+    "jobs/refresh_data.py",
+    "jobs/refresh_universe.py",
     "streamlit_app.py",
-    "tests/test_pipeline_gaps.py",
+    "tests/test_mopsfin.py",
     "tests/test_tw_supplement.py"
   ],
   "added_files_since_previous": [
-    "QUARTERLY_EPS_UPDATE.md",
-    "tests/test_quarterly_eps_sum.py"
+    ".github/workflows/cash-dividends.yml",
+    ".github/workflows/verify-cash-dividends.yml",
+    "CASH_DIVIDENDS_AUTO.md",
+    "app/providers/cashflow_report.py",
+    "jobs/refresh_cash_dividends.py",
+    "scripts/check_cash_dividends.py",
+    "tests/test_cashflow_report.py"
   ],
   "removed_files_since_previous": [],
   "validation": {
-    "local_pytest": "354 passed; 1 upstream warning",
+    "local_pytest": "388 passed; 1 upstream warning",
+    "final_cashflow_regression": "34 passed",
     "compileall": "passed",
-    "quarter_sum_live_2330": "not verified",
-    "all_fields_complete": "not established"
+    "workflow_yaml_syntax": "11 files passed",
+    "live_official_catalog": "read timeout in this runtime",
+    "live_cross_company_report_contract": "not verified",
+    "deployed": "not performed",
+    "all_stocks_complete": "not established"
   },
   "notes": [
-    "User approved four-quarter EPS sum for simple income check",
-    "Separate metadata and labels; not verified same-share-basis TTM",
-    "Annual EPS rules unchanged; cash-dividend total gap remains",
-    "Refill recently discarded EPS using existing FinMind credentials"
+    "No company-specific numeric seed",
+    "Both TW and TWO markets; default five complete years; persistent bounded market rotation",
+    "Official cash-flow fallback; full company, period, scope and TWD unit validation",
+    "Private values and existing confirmed zero retain priority",
+    "New manual cash-only backfill and two-request source verification workflows"
   ]
 }
