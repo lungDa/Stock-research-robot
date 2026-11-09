@@ -112,6 +112,12 @@ with query:
             st.info('基本面背景更新中；行情已先顯示，完成後將提醒。')
             return
         st.caption(result.get('message','')+f"｜已有資料集 {result.get('available_feeds',0)}/{result.get('total_feeds',0)}；資料集數不代表欄位完整度。")
+        source_problem=result.get('official_annual_source',{})
+        if source_problem.get('reason'):st.warning(source_problem['reason'])
+        official=result.get('official_annual_status',{})
+        if official:
+            with st.expander('官方年度EPS／ROE下載狀態'):
+                st.dataframe([{'欄位':name,'狀態':item.get('status','尚待下載'),'已涵蓋年度':'、'.join(item.get('years',[])),'說明':item.get('reason','')} for name,item in official.items()],hide_index=True)
         failed=[f for f in result.get('feeds',[]) if f.get('state')=='failed']
         if failed:
             with st.expander('資料來源本批未完成原因'):
@@ -149,6 +155,10 @@ with query:
                 '股價日':trailing.get(key,{}).get('price_date',''),'來源':trailing.get(key,{}).get('source',''),
                 '口徑':trailing.get(key,{}).get('basis','缺少可核對的近一年資料')} for key,label in names.items()],hide_index=True)
             st.caption('TTM財報期間與配息365天區間可能不同；多年平均EPS／ROE等個人選股規則仍使用年度資料，不以TTM替代。')
+            evidence={names[key]:value.get('calculation') for key,value in trailing.items() if key in names and value.get('calculation')}
+            if evidence:
+                with st.expander('核對TTM EPS／ROE的計算依據'):
+                    st.json(evidence)
         with st.expander('分類與基本面來源 / 期間'):
             labels={'kind':'商品分類','fund_type':'基金類型','eps':'財報累計EPS（元）','pe':'官方本益比','official_yield':'官方公告殖利率（%）','reported_roe':'報表ROE（小數；僅展示）'}
             details=d.get('fundamental_details',{})
@@ -163,7 +173,18 @@ with query:
             st.write(f"有效資料分數：{rating['score']}｜資料完整度：{rating['coverage']}%")
             if d.get('annual_sources'):
                 with st.expander('歷年基本面與來源（人工匯入另行標示）'):
-                    st.dataframe(d['annual_sources'],hide_index=True)
+                    st.dataframe([{k:v for k,v in row.items() if k!='field_sources'} for row in d['annual_sources']],hide_index=True)
+                    field_sources=[]
+                    for year,row in d.get('annual_rows',{}).items():
+                        for field,source in row.get('field_sources',{}).items():
+                            field_sources.append({'年度':year,'欄位':{'eps':'年度EPS','roe_pct':'年度ROE'}.get(field,field),
+                                '數值':row.get(field),'期間起日':source.get('period_start',row.get('period_start','')),
+                                '期間迄日':source.get('period_end',row.get('period_end','')),
+                                '單位':source.get('unit',''),'來源':source.get('url',''),
+                                '口徑':source.get('basis',''),'資料類型':source.get('provenance','')})
+                    if field_sources:
+                        st.caption('每個欄位的來源與期間（EPS及ROE可能使用不同來源）')
+                        st.dataframe(field_sources,hide_index=True)
                     annual=d.get('annual_rows',{})
                     if annual:
                         labels={'eps':'年度EPS','roe_pct':'ROE（%）','cash_yield_pct':'年度現金殖利率（%）',
@@ -334,8 +355,11 @@ with strategy_tab:
         with st.form('ttm_eps_form'):
             ttm_symbol=st.text_input('近一年EPS代號','2330',key='ttm_symbol')
             from datetime import timedelta
-            ttm_start=st.date_input('TTM期間起日',value=local_now().date()-timedelta(days=364))
-            ttm_end=st.date_input('TTM期間迄日',value=local_now().date())
+            from datetime import date
+            latest_end=local_now().date().replace(day=1,month=((local_now().month-1)//3)*3+1)-timedelta(days=1)
+            latest_start=date(latest_end.year-1,latest_end.month,latest_end.day)+timedelta(days=1)
+            ttm_start=st.date_input('TTM期間起日',value=latest_start)
+            ttm_end=st.date_input('TTM期間迄日',value=latest_end)
             ttm_value=st.number_input('已核對的近一年EPS（報表幣別／股）',value=None,step=0.01)
             ttm_source=st.text_input('近一年EPS官方財報來源HTTPS網址')
             ttm_check=st.checkbox('我已核對近一年起訖期間與股數基準；數值不是單季或預估EPS')
@@ -345,6 +369,55 @@ with strategy_tab:
             elif api('PUT','/ttm-eps/'+ttm_symbol.strip(),json={'confirmed':True,'value':ttm_value,
                 'period_start':str(ttm_start),'period_end':str(ttm_end),'source':ttm_source}):
                 st.session_state.pop('result',None);st.success('TTM EPS已保存，請重新分析。')
+        st.divider()
+        st.subheader('台股TTM EPS：獲利與加權股數核對計算')
+        st.caption('適用於你已核對四個完整單季、普通股可分配損益與同一拆配股基準的情況。程式檢查期間、單位與算式；財報內容及重編股數依據由你核對，不代表系統自動查證。')
+        with st.form('ttm_components_form'):
+            proof_symbol=st.text_input('核對計算股票代號','6488.TWO',key='proof_symbol')
+            from datetime import date,timedelta
+            end=local_now().date().replace(day=1,month=((local_now().month-1)//3)*3+1)-timedelta(days=1)
+            last_q=(end.year*4+(end.month-1)//3)
+            defaults=[]
+            for i in range(3,-1,-1):
+                y,q=divmod(last_q-i,4)
+                start=date(y,q*3+1,1)
+                end_month=(q+1)*3
+                stop=date(y+1,1,1)-timedelta(days=1) if end_month==12 else date(y,end_month+1,1)-timedelta(days=1)
+                defaults.append({'period_start':str(start),'period_end':str(stop),'ordinary_profit':None,
+                    'weighted_average_shares':None,'reported_basic_eps':None,'source':''})
+            proof_frame=pd.DataFrame(defaults)
+            for key in ('ordinary_profit','weighted_average_shares','reported_basic_eps'):proof_frame[key]=proof_frame[key].astype(float)
+            proof_rows=st.data_editor(proof_frame,num_rows='fixed',hide_index=True,key='ttm_components_grid',column_config={
+                'period_start':st.column_config.TextColumn('單季起日'),'period_end':st.column_config.TextColumn('單季迄日'),
+                'ordinary_profit':st.column_config.NumberColumn('普通股可分配損益'),
+                'weighted_average_shares':st.column_config.NumberColumn('加權平均普通股股數',min_value=0.0),
+                'reported_basic_eps':st.column_config.NumberColumn('同基準單季基本EPS（選填）'),
+                'source':st.column_config.TextColumn('該季財報HTTPS來源')})
+            st.caption('損益須歸屬普通股，並已處理特別股等調整；股數須為單季加權平均股數。單季基本EPS為選填，僅用來交叉檢查算式。每季須附財報來源，不能填年初累計損益。')
+            proof_money=st.selectbox('四季損益單位',['元','千元','百萬元'],key='proof_money')
+            proof_shares=st.selectbox('四季股數單位',['股','千股','百萬股'],key='proof_shares')
+            proof_basis_source=st.text_input('同一拆配股基準／重編依據的財報HTTPS網址')
+            proof_basis_date=st.date_input('股數基準核對日期',value=local_now().date())
+            proof_income_checked=st.checkbox('我已核對為歸屬普通股可分配損益，並已處理特別股等調整')
+            proof_shares_checked=st.checkbox('我已核對四季股數均已依同一拆股／配股基準調整，並提供依據')
+            proof_checked=st.checkbox('我已核對股票、四個連續單季、幣別及單位')
+            proof_submit=st.form_submit_button('驗證算式並儲存我的TTM EPS')
+        if proof_submit:
+            quarters=[]
+            for _,row in proof_rows.iterrows():
+                item={'period_start':str(row['period_start']),'period_end':str(row['period_end']),'source':str(row['source'] or '')}
+                for key in ('ordinary_profit','weighted_average_shares','reported_basic_eps'):
+                    item[key]=float(row[key]) if pd.notna(row[key]) else None
+                quarters.append(item)
+            result=api('PUT','/ttm-eps-components/'+proof_symbol.strip(),json={'quarters':quarters,'currency':'TWD',
+                'money_unit':{'元':'TWD','千元':'TWD_THOUSAND','百萬元':'TWD_MILLION'}[proof_money],
+                'share_unit':{'股':'SHARES','千股':'THOUSAND_SHARES','百萬股':'MILLION_SHARES'}[proof_shares],
+                'share_basis_source':proof_basis_source,'share_basis_date':str(proof_basis_date),
+                'ordinary_profit_confirmed':proof_income_checked,'share_basis_confirmed':proof_shares_checked,'confirmed':proof_checked})
+            if result:
+                st.session_state.pop('result',None)
+                st.success(f"核對計算TTM EPS：{result['value']:.4f} 元／股，已保存為你的核對資料。")
+                st.json(result['calculation'])
         st.divider()
         st.subheader('匯入個人年度歷史資料')
         st.info('共用資料已分批下載；仍缺的年度欄位可由官方年報核對後補登或匯入。人工資料不代表系統已自動驗證，只影響你的分級。')
