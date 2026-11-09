@@ -1,46 +1,27 @@
 {
-  "release": "Taiwan runtime source recovery and diagnostics",
-  "baseline_library_version": 3,
-  "baseline_zip_sha256": "7dba9f374fc88d57c1115fa35af076e46b0b71829758b225ab91a54eac7d3297",
+  "release": "EPS PDF timeout and retry policy",
+  "baseline_library_version": 4,
+  "baseline_zip_sha256": "3222f95668a07f929d3a1a58d992c6c7e83f43485f38058bc349561179ea65e0",
   "changed_files_since_previous": [
-    ".github/workflows/annual-data.yml",
-    ".github/workflows/daily.yml",
+    ".github/workflows/diagnose-stock-sources.yml",
     "README.md",
     "UPDATE_MANIFEST.json",
     "UPGRADE_GUIDE.md",
     "VALIDATION.md",
-    "app/providers/fundamentals.py",
     "app/providers/twse_eps.py",
-    "app/services/multifactor.py",
-    "app/services/query_fundamentals.py",
-    "app/services/research.py",
-    "jobs/refresh_data.py",
     "jobs/refresh_eps.py",
-    "jobs/refresh_tw_financials.py",
     "streamlit_app.py"
   ],
   "added_files_since_previous": [
-    ".github/workflows/diagnose-stock-sources.yml",
-    "TW_RUNTIME_RECOVERY.md",
-    "app/providers/source_errors.py",
-    "app/providers/tw_daily.py",
-    "jobs/refresh_tw_prices.py",
-    "scripts/check_stock_sources.py",
-    "tests/test_tw_runtime_recovery.py"
+    "EPS_TIMEOUT_FIX.md",
+    "tests/test_eps_timeout_policy.py"
   ],
   "removed_files_since_previous": [],
   "validation": {
-    "local_pytest": "323 passed; 1 upstream warning",
-    "final_diagnostic_regression": "20 passed",
+    "local_pytest": "331 passed; 1 upstream warning",
     "compileall": "passed",
-    "official_2330_pdf_web_text": "retrieved; transcribed cells tested, not raw PDF contract",
-    "direct_runtime_http": "TWSE and MOPS read timeouts",
-    "deployment": "not performed",
+    "new_timeout_policy_live": "not verified",
+    "MOPS_company_metadata_contract": "unresolved",
     "all_2330_fields_complete": "not established"
-  },
-  "notes": [
-    "No annual EPS substitution for TTM",
-    "No claim that financial cash-dividend totals are complete",
-    "Run Diagnose stock source gaps on deployment network"
-  ]
+  }
 }

@@ -6,6 +6,8 @@
 
 本次正式環境追查：更新後執行 **Replenish data and clean expired records**；若2330仍缺欄位，執行新增 **Diagnose stock source gaps**，輸入 `2330.TW`，保留該步驟JSON輸出。這個診斷最多6次請求，不寫入資料庫、不發送LINE；請勿貼出憑證。詳細界線見 `TW_RUNTIME_RECOVERY.md`。
 
+PDF逾時修正：完整更新後執行 **Replenish data and clean expired records**。舊版已記錄的暫時性逾時，會有一次套用新策略的機會；拒絕與格式錯誤的冷卻不略過。來源仍可能逾時，本版不保證所有欄位齊全。
+
 ## 1. 套用檔案
 
 將 ZIP 解壓縮後，開啟 `Stock-research-robot-main` 資料夾，將裡面的內容覆蓋至原專案同名路徑。不要再在 GitHub 專案內多包一層同名資料夾。

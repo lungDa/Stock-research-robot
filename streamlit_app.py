@@ -121,6 +121,10 @@ with query:
                 pdf=result.get('eps_status',{})
                 st.write('TWSE年度EPS PDF備援：',pdf.get('status','尚待下載'))
                 if pdf.get('reason'):st.caption(pdf['reason'])
+                if pdf.get('status')=='failed' and pdf.get('next_attempt'):
+                    import time
+                    wait=max(0,int(pdf['next_attempt']-time.time()))
+                    st.caption(f'PDF備援約 {wait} 秒後允許下次查詢／排程重試；已有成功資料會保留。')
                 if pdf.get('years'):st.caption('PDF已涵蓋年度：'+'、'.join(pdf['years']))
         if result.get('feeds'):
             with st.expander('各資料集最新期間／行情備援狀態'):
