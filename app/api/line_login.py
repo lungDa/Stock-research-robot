@@ -121,7 +121,9 @@ async def redeem(request:Request):
     handoff=consume('handoff',code)
     if not is_member(handoff['user']):raise HTTPException(403,'帳戶已停用')
     token=secrets.token_urlsafe(48)
-    put('auth:session:'+digest(token),{'user':handoff['user'],'expires':time.time()+600,'stage':'password'})
+    member=get('member:'+handoff['user'],{})
+    stage='setup_password' if member.get('activation_pending') and not member.get('password_hash') else 'password'
+    put('auth:session:'+digest(token),{'user':handoff['user'],'expires':time.time()+600,'stage':stage})
     return {'token':token,'expires_in':600,'stage':'password','name':get('member:'+handoff['user'],{}).get('name','LINE使用者')}
 
 @router.post('/logout')
@@ -164,14 +166,15 @@ async def change_password(request:Request):
     key,session,member=session_info(request)
     data=await body_json(request);new=data.get('new_password','')
     if not isinstance(new,str) or not re.fullmatch(r'[0-9]{8}',new):raise HTTPException(400,'新密碼必須剛好8位半形數字')
-    if session.get('stage') not in ('active','change_password'):raise HTTPException(403,'請先驗證初始密碼')
-    if session.get('password_version')!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新登入')
+    if session.get('stage') not in ('active','change_password','setup_password'):raise HTTPException(403,'請先完成身分及密碼驗證')
+    if session.get('password_version',0)!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新登入')
+    if session.get('stage')=='setup_password' and (not member.get('activation_pending') or member.get('password_hash')):raise HTTPException(403,'帳戶已設定密碼，請重新登入')
     if session.get('stage')=='active':
         old=data.get('current_password','')
         if not isinstance(old,str) or len(old)>128 or not password_matches(old,member.get('password_hash','')):raise HTTPException(403,'目前密碼錯誤')
     elif session.get('stage')!='change_password':raise HTTPException(403,'請先驗證初始密碼')
     if password_matches(new,member.get('password_hash','')):raise HTTPException(400,'新密碼需與目前密碼不同')
-    member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16))
+    member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16),activation_pending=False)
     put('member:'+session['user'],member)
     session.update(stage='active',password_version=member['password_version'],expires=time.time()+12*3600)
     put(key,session)
