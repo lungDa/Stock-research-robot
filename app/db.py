@@ -32,7 +32,9 @@ class ProviderBudget(Base):
     key:Mapped[str]=mapped_column(String(100),primary_key=True)
     used:Mapped[int]=mapped_column(default=0)
     expires_at:Mapped[float]=mapped_column(Float,index=True)
-def init_db(): Base.metadata.create_all(engine)
+def init_db():
+    from app.trading import models  # register paper tables before metadata creation
+    Base.metadata.create_all(engine)
 def put(key,value):
     with Session.begin() as s: s.merge(Document(key=key,payload=json.dumps(value,ensure_ascii=False,allow_nan=False)))
 def get(key,default=None):
