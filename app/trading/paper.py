@@ -40,7 +40,7 @@ def execute(user, client_order_id, symbol, side, quantity, price):
     """
     if not isinstance(client_order_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", client_order_id):
         raise PaperTradeRejected("委託識別碼無效")
-    if not isinstance(symbol, str) or not re.fullmatch(r"[0-9]{4,6}(?:\\.(?:TW|TWO))?", symbol):
+    if not isinstance(symbol, str) or not re.fullmatch(r"[0-9]{4,6}(?:[.](?:TW|TWO))?", symbol):
         raise PaperTradeRejected("股票代號格式錯誤")
     if side not in ("BUY", "SELL") or type(quantity) is not int or not 1 <= quantity <= 1000000:
         raise PaperTradeRejected("買賣方向或股數無效")
