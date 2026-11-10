@@ -526,3 +526,46 @@ if personal and st.session_state.get('is_admin'):
             st.caption(status['field_coverage_scope'])
             st.dataframe([{'欄位':x['label'],'有值檔數':x['known'],'抽樣檔數':x['sampled'],'完整率（%）':x['coverage_pct']} for x in status['field_coverage_sample']],hide_index=True)
             st.caption(f"資料集抽樣 {status['feed_states_sampled']} 筆（上限 {status['feed_sample_limit']}）；成功 {status['feed_ok']}，失敗 {status['feed_failed']}。")
+
+# 模擬交易中心：獨立於研究評級，不執行真實券商委託。
+if personal:
+    with st.expander('🧪 模擬交易中心（僅供測試）', expanded=False):
+        st.warning('所有價格由使用者自行輸入；模擬立即成交，不代表市場成交價。尚未計入交易稅、手續費、滑價或台股交易時段。')
+        if st.button('讀取模擬帳戶', key='paper_refresh'):
+            st.session_state.paper_account=api('GET','/paper/account')
+        paper=st.session_state.get('paper_account')
+        if not paper:
+            st.caption('若尚未開立模擬帳戶，可建立獨立測試資金。')
+            with st.form('paper_create'):
+                capital=st.number_input('模擬初始資金（NT$）',min_value=1000,max_value=100000000,value=1000000,step=10000)
+                create=st.form_submit_button('建立模擬帳戶')
+            if create:
+                if api('POST','/paper/account',json={'starting_cash':capital}):
+                    st.session_state.paper_account=api('GET','/paper/account')
+                    st.rerun()
+        else:
+            st.metric('模擬現金餘額（未扣稅費）',paper['cash'])
+            st.dataframe(paper.get('positions',[]),hide_index=True)
+            if paper.get('halted'):
+                st.error('此模擬帳戶已停止新增委託。')
+            else:
+                with st.form('paper_order'):
+                    order_symbol=st.text_input('台股代號','2330.TW',key='paper_symbol')
+                    order_side=st.selectbox('方向',['BUY','SELL'],format_func=lambda x:'買進' if x=='BUY' else '賣出')
+                    order_qty=st.number_input('股數',min_value=1,max_value=1000000,value=100,step=1)
+                    order_price=st.number_input('假設成交單價（NT$）',min_value=0.0001,value=100.0,step=0.5,format='%.4f')
+                    order_key=st.text_input('委託識別碼（同一筆請勿更換）',max_chars=80,help='重送相同識別碼不會重複成交')
+                    confirm=st.checkbox('我了解這是自填價格的模擬成交，不是實盤委託')
+                    send=st.form_submit_button('執行模擬成交')
+                if send:
+                    if not confirm or not order_key.strip():st.error('請勾選確認並填入唯一委託識別碼')
+                    else:
+                        result=api('POST','/paper/orders',json={'client_order_id':order_key.strip(),'symbol':order_symbol.strip(),
+                            'side':order_side,'quantity':order_qty,'price':str(order_price)})
+                        if result:
+                            st.success('模擬委託已處理：'+result['status']+('（重複識別碼，未再次成交）' if result['duplicate'] else ''))
+                            st.session_state.paper_account=api('GET','/paper/account')
+            if st.button('緊急停止模擬交易',key='paper_halt',disabled=paper.get('halted',False)):
+                if api('POST','/paper/halt'):
+                    st.session_state.paper_account=api('GET','/paper/account')
+                    st.rerun()
