@@ -1,0 +1,50 @@
+name: Personal market top 10
+on:
+  schedule:
+    # UTC +8 = Taipei 11:30 / 19:30; Python checks exchange calendar.
+    - cron: '30 3 * * 1-5'
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: 'morning = previous session close; evening = today close'
+        type: choice
+        options: [morning, evening]
+        default: evening
+      send:
+        description: 'Actually send LINE (unchecked = preview only)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-recommendations
+  cancel-in-progress: false
+jobs:
+  recommend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      RANKING_SLOT: ${{ github.event.schedule == '30 3 * * 1-5' && 'morning' || inputs.slot || 'evening' }}
+      SEND_RANKING: ${{ github.event_name == 'schedule' || inputs.send }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))"
+      - name: Build personal market recommendations
+        shell: bash
+        run: |
+          args=(--slot "$RANKING_SLOT")
+          if [ "$SEND_RANKING" = "true" ]; then args+=(--send); fi
+          python -m jobs.recommend "${args[@]}"
