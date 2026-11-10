@@ -21,7 +21,9 @@ def preauth(user):
 
 def activate(client,user=U,new='12345678'):
     headers=preauth(user)
-    assert client.post('/auth/password/verify',headers=headers,json={'password':'0000'}).json()['stage']=='change_password'
+    assert client.post('/auth/password/verify',headers=headers,json={'password':'0000'}).status_code==403
+    key='auth:session:'+auth.digest(headers['Authorization'].removeprefix('Bearer '))
+    session=get(key);session['stage']='setup_password';put(key,session)
     assert client.post('/auth/password/change',headers=headers,json={'new_password':new}).status_code==200
     return headers
 
@@ -40,7 +42,9 @@ def test_default_then_forced_change_eight_digits(configured):
         assert c.get('/watchlist',headers=h).status_code==403
         assert c.post('/auth/password/change',headers=h,json={'new_password':'12345678'}).status_code==403
         r=c.post('/auth/password/verify',headers=h,json={'password':'0000'})
-        assert r.json()['stage']=='change_password'
+        assert r.status_code==403
+        key='auth:session:'+auth.digest(h['Authorization'].removeprefix('Bearer '))
+        session=get(key);session['stage']='setup_password';put(key,session)
         assert c.get('/watchlist',headers=h).status_code==403
         for bad in ['0000','abcdefgh','123456789','１２３４５６７８']:
             assert c.post('/auth/password/change',headers=h,json={'new_password':bad}).status_code==400
