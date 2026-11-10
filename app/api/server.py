@@ -53,7 +53,11 @@ def watch_remove(symbol:str,user=Depends(current_user)):
     except ValueError as e: raise HTTPException(400,str(e))
 @app.post('/notifications')
 def notifications(body:Notice,user=Depends(current_user)):
-    toggle(user,body.enabled); return {'ok':True}
+    toggle(user,body.enabled)
+    if not body.enabled:
+        from app.services.market_recommendations import enable
+        enable(user,False)
+    return {'ok':True}
 @app.get('/quote/{symbol}')
 async def quote(symbol:str,user=Depends(current_user)):
     try:
@@ -197,3 +201,18 @@ async def assistant_preferences_update(request:Request,user=Depends(current_user
     from app.services.assistant import save
     try:return save(user,json.loads(await limited_body(request,2048)))
     except (ValueError,TypeError):raise HTTPException(400,'助理設定格式錯誤')
+
+
+@app.get('/recommendations/preferences')
+def recommendations_preferences(user=Depends(current_user)):
+    from app.services.market_recommendations import preferences
+    return preferences(user)
+
+@app.put('/recommendations/preferences')
+def recommendations_preferences_update(body:Notice,user=Depends(current_user)):
+    from app.services.market_recommendations import enable
+    return enable(user,body.enabled)
+
+@app.get('/recommendations/latest')
+def recommendations_latest(user=Depends(current_user)):
+    return get('recommendations:latest:'+user,{})

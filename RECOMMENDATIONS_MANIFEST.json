@@ -1,0 +1,14 @@
+{
+  "base_commit": "cf259c40eee089247bfbd871ff9846e12a0db0fa",
+  "files": {
+    "app/services/market_recommendations.py": "2ffe6568cb3e8ce4dc690f2f93cca7fd5b44cf3c3a083087dd33c65a3a104429",
+    "jobs/recommend.py": "68caffdd4f9c4a97bd6607cbdc9b2793f294b16c4b13c8da890e57b5e262b429",
+    ".github/workflows/recommendations.yml": "d505e9eb67e7153a5f8a115f2e80623c26c97949064402702a633a8e268d2ba1",
+    "app/api/server.py": "d7af0e95568452cf9eae326da6755e7a6e35c1ed9d6cdde27bea47da065fe846",
+    "app/channels/commands.py": "4f54ef125380dcdb9f3436db9faa5cd14f16b5dffb50205d5b5d2bda88f1654e",
+    "streamlit_app.py": "8267dfef287c2af59d2e18c4668a51b5229307ccc463cd9f4141e935fbef8bff",
+    "tests/test_recommendations.py": "b7150be3bec3eaee1e941362ad41fe011be6859b6578de99e5e84721b34b97ed",
+    "tests/test_ui_flow.py": "044d4171436071fc45cda14f906a5e85f8c04d8665067905edd586ab86f236ee",
+    "RECOMMENDATIONS_SETUP.md": "52b5ef6d1d013290d15ab4df0d8ee731dcf9835615cd8d54081b40367cebdb5a"
+  }
+}

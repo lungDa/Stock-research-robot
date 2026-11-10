@@ -9,9 +9,9 @@ from app.services import assistant
 from app.db import get
 from app.services.freshness import format_updated_at,quote_note
 from app.channels.assistant_menu import menu,quick_reply,app_url
-HELP='完整功能：查詢股票、追蹤/取消追蹤、我的清單、我的分級、今日重點、存股選股、波段選股、資料狀態、通知設定/開關、盤後摘要開關、只看重要訊號、LINE綁定、個人規則、修改密碼、匯入年度資料。輸入「功能選單」可用按鈕操作。'
+HELP='排名通知開啟／排名通知關閉／排名通知狀態；完整功能：查詢股票、追蹤/取消追蹤、我的清單、我的分級、今日重點、存股選股、波段選股、資料狀態、通知設定/開關、盤後摘要開關、只看重要訊號、LINE綁定、個人規則、修改密碼、匯入年度資料。輸入「功能選單」可用按鈕操作。'
 ALIASES={'台積電':'2330.TW','中華電':'2412.TW','中華電信':'2412.TW','鴻海':'2317.TW','台達電':'2308.TW','聯發科':'2454.TW','元大台灣50':'0050.TW','元大台灣五十':'0050.TW','元大高股息':'0056.TW','國泰永續高股息':'00878.TW','富邦台50':'006208.TW'}
-PRIVATE={'追蹤','取消追蹤','我的清單','我的分級','通知開啟','通知關閉','通知設定','盤後摘要開啟','盤後摘要關閉','只看重要訊號'}
+PRIVATE={'排名通知開啟','排名通知關閉','排名通知狀態','追蹤','取消追蹤','我的清單','我的分級','通知開啟','通知關閉','通知設定','盤後摘要開啟','盤後摘要關閉','只看重要訊號'}
 
 
 def resolve(value):
@@ -39,7 +39,7 @@ def parse(text):
        '開啟通知':'通知開啟','關閉通知':'通知關閉','不要通知':'通知關閉','暫停通知':'通知關閉','通知狀態':'通知設定',
        '只通知重要訊號':'只看重要訊號','開啟盤後摘要':'盤後摘要開啟','關閉盤後摘要':'盤後摘要關閉'}
     if short in synonyms:return synonyms[short],''
-    known={'功能選單','我的清單','我的分級','今日重點','綁定','個人設定','修改密碼','歷史資料','使用說明','通知設定','通知開啟','通知關閉','盤後摘要開啟','盤後摘要關閉','只看重要訊號','資料狀態','存股選股','波段選股','查詢','追蹤','取消追蹤'}
+    known={'排名通知開啟','排名通知關閉','排名通知狀態','功能選單','我的清單','我的分級','今日重點','綁定','個人設定','修改密碼','歷史資料','使用說明','通知設定','通知開啟','通知關閉','盤後摘要開啟','盤後摘要關閉','只看重要訊號','資料狀態','存股選股','波段選股','查詢','追蹤','取消追蹤'}
     if short in known:return short,''
     patterns=[('取消追蹤',r'^(?:請|幫我|我想)?(?:取消追蹤|移除追蹤|移除)\s*(.+?)[。!！]?$'),
               ('追蹤',r'^(?:請|幫我|我想)?(?:新增追蹤|加入追蹤|追蹤)\s*(.+?)[。!！]?$'),
@@ -73,6 +73,11 @@ def handle(user,text):
     if command in ('綁定','個人設定','修改密碼','歷史資料'):
         if command=='綁定':return login_help() if not personal else '你已完成LINE綁定與初始密碼設定。可查看我的清單或開啟個人設定。'+('\n'+app_url() if app_url() else '')
         return {'個人設定':'到網站「評分與通知設定」調整門檻、期間、權重與通知需求。','修改密碼':'到網站「評分與通知設定」最下方修改密碼；需要目前密碼，新密碼為8位數字。','歷史資料':'到網站「評分與通知設定」下載CSV範本並匯入核對過的年度資料。'}[command]+('\n'+app_url() if app_url() else '\n網站網址尚未設定。')
+    if command in ('排名通知開啟','排名通知關閉','排名通知狀態'):
+        from app.services.market_recommendations import enable,preferences
+        if command!='排名通知狀態':enable(user,command=='排名通知開啟')
+        return ('個人排名通知：'+('開啟' if preferences(user)['enabled'] else '關閉')+
+                '。交易日11:30（前一交易日收盤）、19:30（當日收盤）；依個人規則最多10檔。無符合逐輪放寬約10%，最多三輪，必要資料缺漏不算符合。每檔獨立訊息，另有一則摘要；獨立於升降級每日上限。排程可能延遲；可說「排名通知關閉」。')
     if command in ('追蹤','取消追蹤'):
         if not arg:return '請說「幫我追蹤台積電」或「取消追蹤2330」。新增追蹤不會自動開啟通知。'
         symbol=resolve(arg)
@@ -91,6 +96,9 @@ def handle(user,text):
         return f"通知：{'開啟' if user in subscribed() else '關閉'}\n每日最多{c['daily_cap']}則，單檔升降級優先。\n盤後摘要：{'開' if p['daily_brief'] else '關'}；空清單提醒：{'開' if p['empty_reminder'] else '關'}（最多7天一次）。\n可說「只看重要訊號」「盤後摘要開啟」或「通知關閉」。"
     if command in ('通知開啟','通知關閉'):
         toggle(user,command=='通知開啟')
+        if command=='通知關閉':
+            from app.services.market_recommendations import enable
+            enable(user,False)
         return command+'。升降級單檔訊息與盤後助理共用每日上限；可說「通知設定」確認。'
     if command in ('只看重要訊號','盤後摘要開啟','盤後摘要關閉'):
         p=assistant.preferences(user)

@@ -44,6 +44,7 @@ def test_personal_financial_proof_form_renders_and_rejects_empty_input(monkeypat
         elif url.endswith('/watchlist'):body=[]
         elif url.endswith('/strategy'):body=DEFAULT
         elif url.endswith('/assistant/preferences'):body=ASSISTANT_DEFAULT
+        elif url.endswith('/recommendations/preferences'):body={'enabled':False}
         elif url.endswith('/scan'):body={}
         elif '/ttm-eps-components/' in url:
             from app.services.ttm_proof import calculate

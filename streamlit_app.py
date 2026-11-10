@@ -286,8 +286,20 @@ with strategy_tab:
     else:
         from app.services.multifactor import DEFAULT,METRICS
         import copy
+        st.subheader('全市場個人排名通知')
+        ranking_prefs=api('GET','/recommendations/preferences')
+        if ranking_prefs is not None:
+            with st.form('ranking_notifications'):
+                ranking_enabled=st.checkbox('LINE交易日11:30及19:30接收前10名',value=ranking_prefs.get('enabled',False))
+                st.caption('上市＋上櫃個股；11:30採前一交易日收盤，19:30採當日收盤。實際可評估範圍與缺漏數會揭露，不以30檔小批次冒充全市場。')
+                st.caption('依下方個人規則排名。原條件無符合時逐輪放寬約10%，最多三輪；有符合即停止，不湊滿10檔。不修改儲存的規則；必要資料缺漏仍不符合，FCF為正與股利覆蓋條件保留。')
+                st.caption('每時段1則摘要＋最多10則單股訊息，獨立於升降級每日上限；LINE配額不足時停止。GitHub排程可能延遲，非準點保證。')
+                ranking_saved=st.form_submit_button('儲存排名通知')
+            if ranking_saved:
+                if api('PUT','/recommendations/preferences',json={'enabled':ranking_enabled}):st.success('排名通知設定已儲存。')
+        st.divider()
         st.subheader('個人多因子規則')
-        st.caption('設定只影響你的分級與追蹤通知。條件可新增、刪除、停用、調整門檻、期間、權重及必要條件。')
+        st.caption('設定影響你的分級、追蹤通知與全市場排名。條件可新增、刪除、停用、調整門檻、期間、權重及必要條件。')
         if 'strategy_config' not in st.session_state:
             loaded=api('GET','/strategy')
             if isinstance(loaded,dict) and 'stock_rules' in loaded:st.session_state.strategy_config=loaded
