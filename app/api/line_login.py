@@ -124,7 +124,7 @@ async def redeem(request:Request):
     member=get('member:'+handoff['user'],{})
     stage='setup_password' if member.get('activation_pending') and not member.get('password_hash') else 'password'
     put('auth:session:'+digest(token),{'user':handoff['user'],'expires':time.time()+600,'stage':stage})
-    return {'token':token,'expires_in':600,'stage':'password','name':get('member:'+handoff['user'],{}).get('name','LINE使用者')}
+    return {'token':token,'expires_in':600,'stage':stage,'name':member.get('name','LINE使用者')}
 
 @router.post('/logout')
 def logout(request:Request):
@@ -172,7 +172,7 @@ async def change_password(request:Request):
     if session.get('stage')=='active':
         old=data.get('current_password','')
         if not isinstance(old,str) or len(old)>128 or not password_matches(old,member.get('password_hash','')):raise HTTPException(403,'目前密碼錯誤')
-    elif session.get('stage')!='change_password':raise HTTPException(403,'請先驗證初始密碼')
+    elif session.get('stage') not in ('change_password','setup_password'):raise HTTPException(403,'請先完成密碼驗證')
     if password_matches(new,member.get('password_hash','')):raise HTTPException(400,'新密碼需與目前密碼不同')
     member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16),activation_pending=False)
     put('member:'+session['user'],member)
