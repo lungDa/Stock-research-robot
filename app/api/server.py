@@ -19,6 +19,8 @@ from app.api.line_login import router as login_router
 app.include_router(login_router)
 from app.api.public import router as public_router
 app.include_router(public_router)
+from app.trading.api import router as paper_router
+app.include_router(paper_router)
 # 單一程序限制同時向行情商發出請求；免費部署維持一個 worker。
 from app.api.limits import quote_lock
 class Symbol(BaseModel): symbol:str=Field(max_length=25)
