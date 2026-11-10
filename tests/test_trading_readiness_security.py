@@ -14,7 +14,7 @@ from app.services.multifactor import settings_for, save_settings
 
 def test_no_live_broker_routes_exposed():
     """Research API must not silently become an order-execution API."""
-    paths = {route.path for route in app.routes}
+    paths = {route.path for route in app.routes if hasattr(route, 'path')}
     forbidden = ("/orders", "/broker/orders", "/trading/orders", "/trade/execute")
     assert not any(path == name or path.startswith(name + "/") for path in paths for name in forbidden)
 
@@ -34,10 +34,10 @@ def test_users_have_isolated_watchlists_and_strategy_settings():
     assert "2330.TW" not in watches("Ubob")
 
     alice = settings_for("Ualice")
-    alice["buy_score"] = 65
+    alice["buy_score"] = 67
     save_settings("Ualice", alice)
-    assert settings_for("Ualice")["buy_score"] == 65
-    assert settings_for("Ubob")["buy_score"] != 65
+    assert settings_for("Ualice")["buy_score"] == 67
+    assert settings_for("Ubob")["buy_score"] != 67
 
 
 def test_no_implicit_admin_access():
