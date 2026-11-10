@@ -55,7 +55,7 @@ with st.sidebar:
             st.caption('請在2分鐘內開啟；LINE會在新頁面完成登入並返回。')
     elif st.session_state.get('login_stage')=='password':
         st.write('LINE身分：'+st.session_state.get('login_name',''))
-        if st.session_state.get('password_change_required'):st.info('首次登入請輸入預設密碼0000，接著必須修改為8位數字。')
+        if st.session_state.get('password_change_required'):st.info('舊帳戶請驗證原有密碼，再修改為8位數字。')
         with st.form('personal_password'):
             password=st.text_input('個人密碼',type='password',max_chars=8)
             verify=st.form_submit_button('驗證密碼')
@@ -64,7 +64,7 @@ with st.sidebar:
             if result:
                 st.session_state.pop('result',None)
                 st.rerun()
-    elif st.session_state.get('login_stage')=='change_password':
+    elif st.session_state.get('login_stage') in ('change_password','setup_password'):
         st.info('首次綁定完成，請先設定個人8位數字密碼。')
         with st.form('first_password_change'):
             new=st.text_input('新密碼（8位數字）',type='password',max_chars=8)
