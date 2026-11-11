@@ -369,3 +369,19 @@ def admin_role_mutation_denied(target_user:str, request:Request):
     from app.day_trader.admin_stepup import require
     require(request,'role_management')
     raise HTTPException(403,'單一最高管理員模式不允許指派或轉移管理員權限')
+
+
+@app.get('/ai/usage')
+def personal_ai_usage(user=Depends(current_user)):
+    from app.day_trader.ai_usage import usage
+    return {'normal':usage(user),'emergency':usage(user,'emergency')}
+
+@app.get('/admin/ai-usage/{target_user}')
+def admin_ai_usage(target_user:str,request:Request):
+    from app.day_trader.admin_stepup import _identity
+    from app.day_trader.admin_bootstrap import _valid_line_id
+    from app.day_trader.ai_usage import usage
+    _identity(request)
+    if not _valid_line_id(target_user):raise HTTPException(400,'LINE 使用者識別格式錯誤')
+    return {'user':target_user,'normal':usage(target_user),
+            'emergency':usage(target_user,'emergency')}
