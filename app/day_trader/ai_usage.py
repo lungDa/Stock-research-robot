@@ -46,8 +46,10 @@ def _clear_expired(s, user, day):
 def usage(user,kind="normal"):
     from app.day_trader.access_models import UserAILimit
     day=today()
-    with Session() as s:
-        limits=s.get(UserAILimit,user)
+    with Session.begin() as s:
+        limits=s.scalar(select(UserAILimit).where(UserAILimit.user==user).with_for_update())
+        if limits is not None:
+            _clear_expired(s,user,day)
         cap=(limits.emergency_daily_limit if kind=="emergency" else limits.normal_daily_limit) if limits else 0
         used=s.scalar(select(func.count()).select_from(AIUsage).where(
             AIUsage.user==user,AIUsage.day==day,AIUsage.kind==kind,AIUsage.status=="completed")) or 0
@@ -86,7 +88,9 @@ def finish(user,symbol,kind="normal",success=True,day=None):
     """Mark a reserved analysis completed, or release it on execution failure."""
     from sqlalchemy import delete
     day=day or today()
+    from app.day_trader.access_models import UserAILimit
     with Session.begin() as s:
+        s.scalar(select(UserAILimit).where(UserAILimit.user==user).with_for_update())
         criteria=(AIUsage.user==user,AIUsage.day==day,AIUsage.symbol==symbol,
                   AIUsage.kind==kind,AIUsage.status=="reserved")
         lease=s.get(Lease,_lease_key(user,day,symbol,kind))
