@@ -118,6 +118,31 @@ jobs:
                   connection.execute(delete(LoginDevice).where(LoginDevice.session_id == sid))
           if snapshot() != before:
               raise RuntimeError("Baseline table records changed during device-session check")
+          # Test daily AI quota persistence against the isolated Neon branch only.
+          from app.day_trader.ai_usage import AIUsage, reserve, finish, usage
+          from app.day_trader.access_models import UserAILimit
+          quota_user = "U" + sid[:32]
+          try:
+              with engine.begin() as connection:
+                  connection.execute(UserAILimit.__table__.insert().values(
+                      user=quota_user, normal_daily_limit=1, emergency_daily_limit=1))
+              assert reserve(quota_user, "2330.TW") == "reserved"
+              assert reserve(quota_user, "2330.TW") == "pending"
+              assert reserve(quota_user, "2412.TW") == "exhausted"
+              assert finish(quota_user, "2330.TW")
+              assert reserve(quota_user, "2330.TW") == "cached"
+              assert usage(quota_user)["used"] == 1
+              assert usage(quota_user)["remaining"] == 0
+              assert reserve(quota_user, "2412.TW", "emergency") == "reserved"
+              assert finish(quota_user, "2412.TW", "emergency", success=False)
+              assert usage(quota_user, "emergency")["remaining"] == 1
+              print("PASS: Neon AI quota persistence, deduplication, exhaustion and failure release.")
+          finally:
+              with engine.begin() as connection:
+                  connection.execute(AIUsage.__table__.delete().where(AIUsage.user == quota_user))
+                  connection.execute(UserAILimit.__table__.delete().where(UserAILimit.user == quota_user))
+          if snapshot() != before:
+              raise RuntimeError("Baseline records changed during AI quota verification")
           print("PASS: V2.5 schema created; existing table rows and SHA-256 checksums unchanged.")
           print("Total mapped tables:", len(expected_tables))
           print("Table names:", ", ".join(sorted(expected_tables)))
