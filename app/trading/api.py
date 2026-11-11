@@ -16,7 +16,136 @@ class OrderInput(BaseModel):
     side: str
     quantity: int = Field(gt=0, le=1000000)
     price: Decimal = Field(gt=0)
-    asset_type: str = Field(default='STOCK', pattern='^(STOCK|ETF)$')
+    asset_type: str = Field(default='STOCK', pattern='^(STOCK|ETF)
+
+def reject(exc):
+    raise HTTPException(status_code=400, detail=str(exc))
+
+@router.post("/account", status_code=201)
+def open_account(body: AccountInput, user=Depends(current_user)):
+    try:
+        return {"account_id": create_account(user, body.starting_cash), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.get("/account")
+def account(user=Depends(current_user)):
+    try: return {**snapshot(user), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/orders")
+def place_order(body: OrderInput, user=Depends(current_user)):
+    try:
+        return {**execute(user, body.client_order_id, body.symbol,
+                          body.side, body.quantity, body.price, body.asset_type, body.order_mode), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/halt")
+def emergency_stop(user=Depends(current_user)):
+    try: halt(user); return {"halted": True, "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+)
+
+def reject(exc):
+    raise HTTPException(status_code=400, detail=str(exc))
+
+@router.post("/account", status_code=201)
+def open_account(body: AccountInput, user=Depends(current_user)):
+    try:
+        return {"account_id": create_account(user, body.starting_cash), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.get("/account")
+def account(user=Depends(current_user)):
+    try: return {**snapshot(user), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/orders")
+def place_order(body: OrderInput, user=Depends(current_user)):
+    try:
+        return {**execute(user, body.client_order_id, body.symbol,
+                          body.side, body.quantity, body.price), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/halt")
+def emergency_stop(user=Depends(current_user)):
+    try: halt(user); return {"halted": True, "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+class FeeInput(BaseModel):
+    mode: str = Field(pattern="^(STANDARD|CUSTOM)$")
+    discount: Decimal = Field(default=Decimal("1"), gt=0, le=1)
+    minimum_fee: Decimal = Field(default=Decimal("20"), ge=0, le=10000)
+
+@router.put("/fees")
+def set_fees(body: FeeInput, user=Depends(current_user)):
+    try: return {**update_fee_settings(user,body.mode,body.discount,body.minimum_fee),"mode_type":"PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+)
+    order_mode: str = Field(default='REGULAR', pattern='^(REGULAR|ODD_LOT|AFTER_HOURS|DAY_TRADE)
+
+def reject(exc):
+    raise HTTPException(status_code=400, detail=str(exc))
+
+@router.post("/account", status_code=201)
+def open_account(body: AccountInput, user=Depends(current_user)):
+    try:
+        return {"account_id": create_account(user, body.starting_cash), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.get("/account")
+def account(user=Depends(current_user)):
+    try: return {**snapshot(user), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/orders")
+def place_order(body: OrderInput, user=Depends(current_user)):
+    try:
+        return {**execute(user, body.client_order_id, body.symbol,
+                          body.side, body.quantity, body.price, body.asset_type), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/halt")
+def emergency_stop(user=Depends(current_user)):
+    try: halt(user); return {"halted": True, "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+)
+
+def reject(exc):
+    raise HTTPException(status_code=400, detail=str(exc))
+
+@router.post("/account", status_code=201)
+def open_account(body: AccountInput, user=Depends(current_user)):
+    try:
+        return {"account_id": create_account(user, body.starting_cash), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.get("/account")
+def account(user=Depends(current_user)):
+    try: return {**snapshot(user), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/orders")
+def place_order(body: OrderInput, user=Depends(current_user)):
+    try:
+        return {**execute(user, body.client_order_id, body.symbol,
+                          body.side, body.quantity, body.price), "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+@router.post("/halt")
+def emergency_stop(user=Depends(current_user)):
+    try: halt(user); return {"halted": True, "mode": "PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+
+class FeeInput(BaseModel):
+    mode: str = Field(pattern="^(STANDARD|CUSTOM)$")
+    discount: Decimal = Field(default=Decimal("1"), gt=0, le=1)
+    minimum_fee: Decimal = Field(default=Decimal("20"), ge=0, le=10000)
+
+@router.put("/fees")
+def set_fees(body: FeeInput, user=Depends(current_user)):
+    try: return {**update_fee_settings(user,body.mode,body.discount,body.minimum_fee),"mode_type":"PAPER"}
+    except PaperTradeRejected as exc: reject(exc)
+)
 
 def reject(exc):
     raise HTTPException(status_code=400, detail=str(exc))
