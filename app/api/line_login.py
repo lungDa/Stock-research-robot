@@ -167,9 +167,15 @@ async def verify_password(request:Request):
     if session.get('stage')!='password':raise HTTPException(400,'登入階段不符')
     bucket='auth:password-attempt:'+digest(session['user'])+':'+str(int(time.time()//600))
     if not any(claim(bucket+':'+str(i),{'at':time.time()}) for i in range(6)):raise HTTPException(429,'密碼嘗試過多，請10分鐘後重試')
-    if not isinstance(password,str) or len(password)>128 or not password_matches(password,member.get('password_hash','')):raise HTTPException(403,'個人密碼錯誤')
+    if not isinstance(password,str) or len(password)>128 or not password_matches(password,member.get('password_hash','')):
+        if session.get('session_id'):
+            from app.day_trader.login_risk import note_password_failure
+            note_password_failure(session['session_id'])
+        raise HTTPException(403,'個人密碼錯誤')
     forced=member.get('password_change_required',True)
-    session.update(stage='change_password' if forced else 'active',password_version=member.get('password_version',0),expires=time.time()+(600 if forced else 12*3600))
+    from app.day_trader.login_risk import challenge_required
+    risk = bool(session.get('session_id') and not forced and challenge_required(session['user'],session['session_id']))
+    session.update(stage='change_password' if forced else ('risk_otp' if risk else 'active'),password_version=member.get('password_version',0),expires=time.time()+(600 if forced or risk else 12*3600))
     put(key,session)
     if session.get('session_id'):
         from app.api import device_sessions
@@ -228,3 +234,28 @@ def devices_revoke(session_id:str,request:Request):
     if not re.fullmatch(r'[0-9a-f]{64}',session_id):raise HTTPException(400,'裝置識別格式錯誤')
     from app.api import device_sessions
     return {'revoked':device_sessions.revoke(session_id,session['user'])}
+
+
+@router.post('/risk/otp')
+def risk_otp_issue(request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='risk_otp':raise HTTPException(403,'不需要額外驗證')
+    from app.day_trader.login_risk import issue
+    try:return issue(session['user'],session['session_id'])
+    except HTTPException:raise
+    except Exception:raise HTTPException(503,'驗證碼暫時無法發送')
+
+@router.post('/risk/verify')
+async def risk_otp_verify(request:Request):
+    key,session,member=session_info(request)
+    if session.get('stage')!='risk_otp':raise HTTPException(403,'登入階段不符')
+    data=await body_json(request)
+    from app.day_trader.login_risk import verify
+    verify(session['user'],session['session_id'],data.get('code'))
+    session.update(stage='active',expires=time.time()+12*3600)
+    put(key,session)
+    from app.api.device_sessions import extend
+    extend(session['session_id'],session['expires'])
+    from app.day_trader.login_alerts import notify_admin_login
+    notify_admin_login(session['user'],session['session_id'])
+    return {'stage':'active','password_change_required':False}
