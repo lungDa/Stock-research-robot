@@ -29,9 +29,9 @@ def render_ai_review(api, personal, quote):
     kind = st.radio("分析額度類別", ["normal", "emergency"], horizontal=True,
                     format_func=lambda x: "一般" if x == "normal" else "緊急",
                     key="v25_ai_kind")
-    key = f"v25_ai_result:{symbol}:{kind}"
-    remaining = (normal if kind == "normal" else emergency).get("remaining", 0)
-    if st.button("執行 AI 解讀", key="v25_ai_run", disabled=remaining <= 0):
+    day = (normal if kind == "normal" else emergency).get("date", "")
+    key = f"v25_ai_result:{day}:{symbol}:{kind}"
+    if st.button("執行 AI 解讀／查看今日結果", key="v25_ai_run"):
         with st.spinner("AI 正在解讀已取得的量化訊號…"):
             result = api("POST", "/ai/review", json={"symbol": symbol, "kind": kind})
         if result is not None:
