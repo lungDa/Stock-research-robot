@@ -17,6 +17,42 @@ async def lifespan(app):
     provision_designated_admin_from_env()
     yield
 app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
+
+# Persisted maintenance flag survives Render restarts. The middleware runs
+# before authentication, public routes, webhook handlers and background tasks.
+# Fail closed if the flag cannot be read: do not accidentally admit writes.
+@app.middleware('http')
+async def maintenance_gate(request:Request,call_next):
+    from fastapi.responses import JSONResponse
+    path=request.url.path
+    if path in ('/health','/ready','/maintenance/status'):
+        return await call_next(request)
+    try:
+        active=bool(get('system:maintenance',{}).get('enabled',False))
+    except Exception:
+        log.exception('maintenance state unavailable')
+        return JSONResponse(status_code=503,content={'detail':'系統狀態暫不可確認，請稍後再試'})
+    if active:
+        return JSONResponse(status_code=503,content={'detail':'系統維護中，請稍後再試'},
+                            headers={'Retry-After':'300','Cache-Control':'no-store'})
+    return await call_next(request)
+
+@app.get('/maintenance/status')
+def maintenance_status():
+    try:
+        return {'maintenance':bool(get('system:maintenance',{}).get('enabled',False))}
+    except Exception:
+        return {'maintenance':True}
+
+class MaintenanceSwitch(BaseModel):
+    enabled:bool
+
+@app.put('/admin/maintenance')
+def set_maintenance(body:MaintenanceSwitch,user=Depends(current_admin)):
+    # Disable through this route only when maintenance is off. When on, use
+    # the offline operator procedure, avoiding an admin bypass of the gate.
+    put('system:maintenance',{'enabled':body.enabled,'updated_at':time.time(),'by':user})
+    return {'maintenance':body.enabled}
 from app.api.line_login import router as login_router
 app.include_router(login_router)
 from app.api.public import router as public_router
