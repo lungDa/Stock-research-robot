@@ -123,13 +123,22 @@ async def redeem(request:Request):
     token=secrets.token_urlsafe(48)
     member=get('member:'+handoff['user'],{})
     stage='setup_password' if member.get('activation_pending') and not member.get('password_hash') else 'password'
-    put('auth:session:'+digest(token),{'user':handoff['user'],'expires':time.time()+600,'stage':stage})
+    from app.api import device_sessions
+    sid=digest(token); expiry=time.time()+600
+    device_sessions.register(sid,handoff['user'],expiry)
+    put('auth:session:'+sid,{'user':handoff['user'],'expires':expiry,'stage':stage,'session_id':sid})
     return {'token':token,'expires_in':600,'stage':stage,'name':member.get('name','LINE使用者')}
 
 @router.post('/logout')
 def logout(request:Request):
     value=request.headers.get('authorization','').removeprefix('Bearer ')
-    if value:put('auth:session:'+digest(value),{'expires':0})
+    if value:
+        from app.api import device_sessions
+        sid=digest(value)
+        record=get('auth:session:'+sid,{})
+        if record.get('session_id')==sid:
+            device_sessions.revoke(sid,record.get('user',''))
+        put('auth:session:'+sid,{'expires':0})
     return {'ok':True}
 
 def session_info(request):
@@ -137,6 +146,9 @@ def session_info(request):
     key='auth:session:'+digest(token);session=get(key,{})
     if not token or session.get('expires',0)<=time.time() or not is_member(session.get('user','')):raise HTTPException(401,'登入已過期，請重新LINE登入')
     member=get('member:'+session['user'],{})
+    if session.get('session_id'):
+        from app.api import device_sessions
+        if not device_sessions.permitted(session['session_id']):raise HTTPException(401,'裝置登入已撤銷')
     if session.get('stage')=='active' and session.get('password_version')!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新LINE登入')
     return key,session,member
 
@@ -159,6 +171,9 @@ async def verify_password(request:Request):
     forced=member.get('password_change_required',True)
     session.update(stage='change_password' if forced else 'active',password_version=member.get('password_version',0),expires=time.time()+(600 if forced else 12*3600))
     put(key,session)
+    if session.get('session_id'):
+        from app.api import device_sessions
+        device_sessions.extend(session['session_id'],session['expires'])
     return {'stage':session['stage'],'password_change_required':forced}
 
 @router.post('/password/change')
@@ -178,4 +193,31 @@ async def change_password(request:Request):
     put('member:'+session['user'],member)
     session.update(stage='active',password_version=member['password_version'],expires=time.time()+12*3600)
     put(key,session)
+    if session.get('session_id'):
+        from app.api import device_sessions
+        device_sessions.extend(session['session_id'],session['expires'])
     return {'stage':'active','password_change_required':False}
+
+
+@router.get('/devices')
+def devices(request:Request):
+    key,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    from app.api import device_sessions
+    return {'devices':device_sessions.list_devices(session['user'],digest(request.headers.get('authorization','').removeprefix('Bearer ')))}
+
+@router.post('/devices/revoke-others')
+def devices_revoke_others(request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    from app.api import device_sessions
+    current=digest(request.headers.get('authorization','').removeprefix('Bearer '))
+    return {'revoked':device_sessions.revoke_others(session['user'],current)}
+
+@router.post('/devices/{session_id}/revoke')
+def devices_revoke(session_id:str,request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    if not re.fullmatch(r'[0-9a-f]{64}',session_id):raise HTTPException(400,'裝置識別格式錯誤')
+    from app.api import device_sessions
+    return {'revoked':device_sessions.revoke(session_id,session['user'])}
