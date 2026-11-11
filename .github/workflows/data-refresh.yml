@@ -32,4 +32,6 @@ jobs:
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
       - name: Replenish in bounded independent batches
         timeout-minutes: 5
-        run: python -m jobs.refresh_data
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_data
