@@ -13,6 +13,8 @@ log=logging.getLogger(__name__)
 async def lifespan(app):
     init_db()
     settings.users  # 設定錯誤在啟動時顯示
+    from app.day_trader.admin_bootstrap import provision_designated_admin_from_env
+    provision_designated_admin_from_env()
     yield
 app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
 from app.api.line_login import router as login_router
