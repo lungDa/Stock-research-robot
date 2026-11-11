@@ -385,3 +385,28 @@ def admin_ai_usage(target_user:str,request:Request):
     if not _valid_line_id(target_user):raise HTTPException(400,'LINE 使用者識別格式錯誤')
     return {'user':target_user,'normal':usage(target_user),
             'emergency':usage(target_user,'emergency')}
+
+
+# Explicit AI commentary endpoint. Quantitative quote endpoints remain free of AI quota.
+class AIReviewRequest(BaseModel):
+    symbol: str = Field(min_length=1,max_length=25)
+    kind: str = Field(default="normal",pattern="^(normal|emergency)$")
+
+@app.post('/ai/review')
+async def ai_review(body:AIReviewRequest,user=Depends(current_user)):
+    from app.providers.market import normalize
+    from app.services.research import cached_quote
+    from app.services.multifactor import rated
+    from app.day_trader.metered_ai import metered_review
+    try:
+        symbol=normalize(body.symbol)
+        quote=await asyncio.to_thread(cached_quote,symbol)
+        if not quote or quote.get("data_status") in ("stale","fundamentals_only"):
+            raise HTTPException(409,"缺少有效行情資料，請先更新行情；不扣除 AI 額度")
+        rated_quote=await asyncio.to_thread(rated,quote,user)
+        grade=(rated_quote.get("rating") or {}).get("grade")
+        report={"symbol":symbol,"signal":grade or "資料不足",
+                "fundamental_score":None,"technical":None}
+        return await asyncio.to_thread(metered_review,user,report,kind=body.kind,enabled=True)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
