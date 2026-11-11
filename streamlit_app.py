@@ -24,6 +24,17 @@ def api(method,path,**kwargs):
     except requests.RequestException:
         st.error('服務暫時無法連線，請稍後再試。');return None
 
+# Maintenance gate before login, callbacks, public queries or any write controls.
+try:
+    maintenance_response=requests.get(base+'/maintenance/status',timeout=8)
+    maintenance_response.raise_for_status()
+    maintenance_active=bool(maintenance_response.json().get('maintenance',True))
+except (requests.RequestException,ValueError,TypeError):
+    maintenance_active=True
+if maintenance_active:
+    st.warning('系統維護中，暫停登入、查詢與交易操作。請稍後再試。')
+    st.stop()
+
 if st.query_params.get('login_code'):
     code=st.query_params['login_code'];st.query_params.clear()
     result=api('POST','/auth/redeem',json={'code':code})
