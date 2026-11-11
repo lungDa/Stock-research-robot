@@ -7,14 +7,14 @@ from sqlalchemy import select
 
 def test_buy_sell_and_duplicate_idempotency():
     create_account("alice")
-    buy = execute("alice", "order-1", "2330.TW", "BUY", 100, "500")
+    buy = execute("alice", "order-1", "2330.TW", "BUY", 100, "500", order_mode="ODD_LOT")
     assert buy["status"] == "FILLED"
-    assert execute("alice", "order-1", "2330.TW", "BUY", 100, "500")["duplicate"]
+    assert execute("alice", "order-1", "2330.TW", "BUY", 100, "500", order_mode="ODD_LOT")["duplicate"]
     with pytest.raises(PaperTradeRejected):
-        execute("alice", "order-1", "2330.TW", "BUY", 200, "500")
+        execute("alice", "order-1", "2330.TW", "BUY", 200, "500", order_mode="ODD_LOT")
     assert snapshot("alice")["positions"][0]["quantity"] == 100
     assert snapshot("alice")["cash"] == "949929.0000"
-    execute("alice", "order-2", "2330.TW", "SELL", 40, "600")
+    execute("alice", "order-2", "2330.TW", "SELL", 40, "600", order_mode="ODD_LOT")
     assert snapshot("alice")["positions"][0]["quantity"] == 60
     assert snapshot("alice")["cash"] == "973823.0000"
     with Session() as s:
@@ -23,11 +23,11 @@ def test_buy_sell_and_duplicate_idempotency():
 
 def test_tenant_isolation_and_limits():
     create_account("alice"); create_account("bob")
-    execute("alice", "buy1", "0050.TW", "BUY", 100, "100")
+    execute("alice", "buy1", "0050.TW", "BUY", 100, "100", order_mode="ODD_LOT")
     assert snapshot("bob")["positions"] == []
     for args in [("big", "0050.TW", "BUY", 2000, "100"),
                  ("short", "0050.TW", "SELL", 200, "100")]:
-        with pytest.raises(PaperTradeRejected): execute("alice", *args)
+        with pytest.raises(PaperTradeRejected): execute("alice", *args, order_mode="ODD_LOT")
     assert snapshot("alice")["cash"] == "989980.0000"
 
 def test_halt_and_validation():
