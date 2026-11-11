@@ -270,3 +270,38 @@ def admin_bootstrap_verify(body: AdminOTP, user=Depends(current_user)):
     if not verify_initialization_otp(user, body.code):
         raise HTTPException(403, '驗證碼錯誤、過期或初始化不可用')
     return {'initialized': True}
+
+
+# V2.5 sensitive-operation authorization: intentionally separate from initial admin OTP.
+# Call admin_stepup.require(request, scope) in every future sensitive write endpoint.
+class AdminStepUpRequest(BaseModel):
+    scope: str = Field(max_length=40)
+
+class AdminStepUpVerify(AdminStepUpRequest):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+@app.post('/admin/stepup/otp')
+def admin_stepup_issue(body:AdminStepUpRequest, request:Request):
+    from app.day_trader.admin_stepup import issue
+    try:
+        return issue(request, body.scope)
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception('admin step-up delivery failed')
+        raise HTTPException(503, '管理員驗證碼暫時無法發送')
+
+@app.post('/admin/stepup/verify')
+def admin_stepup_verify(body:AdminStepUpVerify, request:Request):
+    from app.day_trader.admin_stepup import verify
+    return verify(request, body.scope, body.code)
+
+@app.get('/admin/stepup/status')
+def admin_stepup_status(request:Request):
+    from app.day_trader.admin_stepup import _identity, _key
+    user, sid, session = _identity(request)
+    state = get(_key(sid), {})
+    remaining = min(state.get('grant_expires', 0), session['expires']) - time.time()
+    return {'authorized': remaining > 0 and state.get('user') == user,
+            'scope': state.get('scope') if remaining > 0 and state.get('user') == user else None,
+            'expires_in': max(0, int(remaining))}
