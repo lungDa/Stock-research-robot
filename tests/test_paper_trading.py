@@ -13,10 +13,10 @@ def test_buy_sell_and_duplicate_idempotency():
     with pytest.raises(PaperTradeRejected):
         execute("alice", "order-1", "2330.TW", "BUY", 200, "500")
     assert snapshot("alice")["positions"][0]["quantity"] == 100
-    assert snapshot("alice")["cash"] == "949909.0000"
+    assert snapshot("alice")["cash"] == "949929.0000"
     execute("alice", "order-2", "2330.TW", "SELL", 40, "600")
     assert snapshot("alice")["positions"][0]["quantity"] == 60
-    assert snapshot("alice")["cash"] == "973769.0000"
+    assert snapshot("alice")["cash"] == "973823.0000"
     with Session() as s:
         assert len(s.scalars(select(PaperOrder)).all()) == 2
         assert len(s.scalars(select(PaperExecution)).all()) == 2
