@@ -218,3 +218,18 @@ def recommendations_preferences_update(body:Notice,user=Depends(current_user)):
 @app.get('/recommendations/latest')
 def recommendations_latest(user=Depends(current_user)):
     return get('recommendations:latest:'+user,{})
+
+@app.get('/four-rankings/latest')
+def four_rankings_latest(user=Depends(current_user)):
+    from app.day_trader.reporting import latest
+    return latest(user)
+
+@app.get('/four-rankings/preferences')
+def four_rankings_preferences(user=Depends(current_user)):
+    from app.day_trader.reporting import preferences
+    return preferences(user)
+
+@app.put('/four-rankings/preferences')
+def four_rankings_preferences_update(body:Notice,user=Depends(current_user)):
+    from app.day_trader.reporting import set_enabled
+    return set_enabled(user,body.enabled)
