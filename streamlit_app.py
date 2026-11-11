@@ -530,7 +530,7 @@ if personal and st.session_state.get('is_admin'):
 # 模擬交易中心：獨立於研究評級，不執行真實券商委託。
 if personal:
     with st.expander('🧪 模擬交易中心（僅供測試）', expanded=False):
-        st.warning('所有價格由使用者自行輸入；模擬立即成交，不代表市場成交價。尚未計入交易稅、手續費、滑價或台股交易時段。')
+        st.warning('自填價格立即模擬成交；已估算一般股票／ETF手續費與賣出交易稅，但尚未支援滑價、當沖優惠稅率、交易時段及特殊商品規則。')
         if st.button('讀取模擬帳戶', key='paper_refresh'):
             st.session_state.paper_account=api('GET','/paper/account')
         paper=st.session_state.get('paper_account')
@@ -544,13 +544,26 @@ if personal:
                     st.session_state.paper_account=api('GET','/paper/account')
                     st.rerun()
         else:
-            st.metric('模擬現金餘額（未扣稅費）',paper['cash'])
+            st.metric('模擬現金餘額（已扣模擬稅費）',paper['cash'])
+            current_fee=paper.get('fee_settings') or {}
+            with st.form('paper_fee_settings'):
+                fee_mode=st.selectbox('手續費模式',['STANDARD','CUSTOM'],index=0 if current_fee.get('mode')!='CUSTOM' else 1,
+                    format_func=lambda x:'標準費率 0.1425%' if x=='STANDARD' else '自訂折扣')
+                fee_discount=st.number_input('手續費折扣倍率（1＝無折扣，0.6＝六折）',
+                    min_value=0.01,max_value=1.0,value=float(current_fee.get('discount','1')),step=0.05)
+                fee_min=st.number_input('最低手續費（元；依券商方案調整）',min_value=0.0,max_value=10000.0,
+                    value=float(current_fee.get('minimum_fee','20')),step=1.0)
+                save_fee=st.form_submit_button('儲存我的模擬手續費設定')
+            if save_fee:
+                if api('PUT','/paper/fees',json={'mode':fee_mode,'discount':str(fee_discount),'minimum_fee':str(fee_min)}):
+                    st.session_state.paper_account=api('GET','/paper/account');st.rerun()
             st.dataframe(paper.get('positions',[]),hide_index=True)
             if paper.get('halted'):
                 st.error('此模擬帳戶已停止新增委託。')
             else:
                 with st.form('paper_order'):
                     order_symbol=st.text_input('台股代號','2330.TW',key='paper_symbol')
+                    asset_type=st.selectbox('商品類別',['STOCK','ETF'],format_func=lambda x:'普通股票' if x=='STOCK' else 'ETF')
                     order_side=st.selectbox('方向',['BUY','SELL'],format_func=lambda x:'買進' if x=='BUY' else '賣出')
                     order_qty=st.number_input('股數',min_value=1,max_value=1000000,value=100,step=1)
                     order_price=st.number_input('假設成交單價（NT$）',min_value=0.0001,value=100.0,step=0.5,format='%.4f')
@@ -561,7 +574,7 @@ if personal:
                     if not confirm or not order_key.strip():st.error('請勾選確認並填入唯一委託識別碼')
                     else:
                         result=api('POST','/paper/orders',json={'client_order_id':order_key.strip(),'symbol':order_symbol.strip(),
-                            'side':order_side,'quantity':order_qty,'price':str(order_price)})
+                            'side':order_side,'quantity':order_qty,'price':str(order_price),'asset_type':asset_type})
                         if result:
                             st.success('模擬委託已處理：'+result['status']+('（重複識別碼，未再次成交）' if result['duplicate'] else ''))
                             st.session_state.paper_account=api('GET','/paper/account')
