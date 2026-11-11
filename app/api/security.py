@@ -21,7 +21,13 @@ def current_user(authorization:str=Header(default='')):
 
 def is_admin(user):
     import os
-    return user in {s.strip() for s in os.getenv('ADMIN_LINE_USER_IDS','').split(',') if s.strip()}
+    legacy = user in {s.strip() for s in os.getenv('ADMIN_LINE_USER_IDS', '').split(',') if s.strip()}
+    if legacy:
+        return True
+    # Once the one-time LINE OTP binding is complete, the designated
+    # lighthouse administrator also inherits all existing admin endpoints.
+    from app.day_trader.admin_bootstrap import admin_identity_matches
+    return admin_identity_matches(user)
 
 
 def current_admin(user=Depends(current_user)):
