@@ -34,6 +34,7 @@ class ProviderBudget(Base):
     expires_at:Mapped[float]=mapped_column(Float,index=True)
 def init_db():
     from app.trading import models, fees  # register paper tables before metadata creation
+    from app.day_trader import access_models  # register V2.5 access-control tables
     Base.metadata.create_all(engine)
 def put(key,value):
     with Session.begin() as s: s.merge(Document(key=key,payload=json.dumps(value,ensure_ascii=False,allow_nan=False)))
