@@ -144,6 +144,11 @@ def test_ui_shows_quarterly_sum_period_method_and_positive_check(monkeypatch):
         else:raise AssertionError('Unexpected request '+url)
         response=Mock(status_code=200);response.json.return_value=body;return response
     monkeypatch.setattr(requests,'request',request)
+    # The UI now probes maintenance before rendering forms. Stub this
+    # separate GET request explicitly; keep production fail-closed behavior.
+    maintenance=Mock(status_code=200)
+    maintenance.json.return_value={'maintenance':False}
+    monkeypatch.setattr(requests,'get',lambda url,**kwargs: maintenance)
     app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
     app.run();app.button(key='FormSubmitter:query-分析').click().run()
     assert not app.exception
