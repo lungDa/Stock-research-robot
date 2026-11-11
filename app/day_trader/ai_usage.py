@@ -3,11 +3,12 @@
 Only completed, distinct symbols consume a day's allowance. Concurrent callers
 receive a pending result rather than launching duplicate model work.
 """
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import String, Integer, UniqueConstraint, select, func, update
 from sqlalchemy.orm import Mapped, mapped_column
-from app.db import Base, Session
+from app.db import Base, Session, Lease
 
 TAIPEI=ZoneInfo("Asia/Taipei")
 
@@ -23,6 +24,24 @@ class AIUsage(Base):
 
 def today():
     return datetime.now(TAIPEI).date().isoformat()
+
+RESERVATION_TTL_SECONDS = 900
+
+def _lease_key(user, day, symbol, kind):
+    return f"ai-quota:{user}:{day}:{kind}:{symbol}"
+
+def _clear_expired(s, user, day):
+    # Called while holding the user's quota row lock.
+    expired = s.scalars(select(AIUsage).where(
+        AIUsage.user == user, AIUsage.day == day,
+        AIUsage.status == "reserved")).all()
+    for row in expired:
+        lease = s.get(Lease, _lease_key(user, day, row.symbol, row.kind))
+        if lease is None or lease.expires_at <= time.time():
+            s.delete(row)
+            if lease is not None:
+                s.delete(lease)
+    s.flush()
 
 def usage(user,kind="normal"):
     from app.day_trader.access_models import UserAILimit
@@ -51,6 +70,7 @@ def reserve(user,symbol,kind="normal"):
         limit=s.scalar(select(UserAILimit).where(UserAILimit.user==user).with_for_update())
         if limit is None:return "no_limit_configured"
         cap=limit.emergency_daily_limit if kind=="emergency" else limit.normal_daily_limit
+        _clear_expired(s, user, day)
         previous=s.scalar(select(AIUsage).where(AIUsage.user==user,AIUsage.day==day,
                                                AIUsage.symbol==symbol,AIUsage.kind==kind))
         if previous:return "cached" if previous.status=="completed" else "pending"
@@ -59,6 +79,7 @@ def reserve(user,symbol,kind="normal"):
             AIUsage.status.in_(("reserved","completed")))) or 0
         if count>=cap:return "exhausted"
         s.add(AIUsage(user=user,day=day,symbol=symbol,kind=kind,status="reserved"))
+        s.add(Lease(key=_lease_key(user,day,symbol,kind),owner="quota",expires_at=time.time()+RESERVATION_TTL_SECONDS))
         return "reserved"
 
 def finish(user,symbol,kind="normal",success=True,day=None):
@@ -68,6 +89,13 @@ def finish(user,symbol,kind="normal",success=True,day=None):
     with Session.begin() as s:
         criteria=(AIUsage.user==user,AIUsage.day==day,AIUsage.symbol==symbol,
                   AIUsage.kind==kind,AIUsage.status=="reserved")
+        lease=s.get(Lease,_lease_key(user,day,symbol,kind))
+        if lease is None or lease.expires_at <= time.time():
+            return False
         if success:
-            return bool(s.execute(update(AIUsage).where(*criteria).values(status="completed")).rowcount)
-        return bool(s.execute(delete(AIUsage).where(*criteria)).rowcount)
+            changed=bool(s.execute(update(AIUsage).where(*criteria).values(status="completed")).rowcount)
+        else:
+            changed=bool(s.execute(delete(AIUsage).where(*criteria)).rowcount)
+        if changed:
+            s.delete(lease)
+        return changed
