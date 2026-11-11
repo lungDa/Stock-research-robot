@@ -35,6 +35,7 @@ class ProviderBudget(Base):
 def init_db():
     from app.trading import models, fees  # register paper tables before metadata creation
     from app.day_trader import access_models  # register V2.5 access-control tables
+    from app.api import device_sessions  # register device session table
     Base.metadata.create_all(engine)
 def put(key,value):
     with Session.begin() as s: s.merge(Document(key=key,payload=json.dumps(value,ensure_ascii=False,allow_nan=False)))
