@@ -344,3 +344,28 @@ def admin_ai_limits_read(target_user:str, request:Request):
         row=session.get(UserAILimit,target_user)
         return {'user':target_user,'normal_daily_limit':row.normal_daily_limit if row else 0,
                 'emergency_daily_limit':row.emergency_daily_limit if row else 0}
+
+
+# Single-superadministrator policy: administrator designation is immutable through
+# public APIs. Sensitive security actions require a device-bound LINE step-up.
+@app.get('/admin/role-policy')
+def admin_role_policy(request:Request):
+    from app.day_trader.admin_stepup import _identity
+    _identity(request)
+    return {'mode':'single_superadmin','delegation_enabled':False,
+            'administrator_transfer_enabled':False}
+
+@app.post('/admin/security/revoke-other-devices')
+def admin_security_revoke_other_devices(request:Request):
+    from app.day_trader.admin_stepup import require, _identity
+    from app.api.device_sessions import revoke_others
+    require(request,'security_settings')
+    user,sid,_=_identity(request)
+    revoked=revoke_others(user,sid)
+    return {'ok':True,'revoked':revoked}
+
+@app.put('/admin/roles/{target_user}')
+def admin_role_mutation_denied(target_user:str, request:Request):
+    from app.day_trader.admin_stepup import require
+    require(request,'role_management')
+    raise HTTPException(403,'單一最高管理員模式不允許指派或轉移管理員權限')
