@@ -405,8 +405,20 @@ async def ai_review(body:AIReviewRequest,user=Depends(current_user)):
             raise HTTPException(409,"缺少有效行情資料，請先更新行情；不扣除 AI 額度")
         rated_quote=await asyncio.to_thread(rated,quote,user)
         grade=(rated_quote.get("rating") or {}).get("grade")
+        rating=rated_quote.get("rating") or {}
+        checks=rating.get("checks") or []
+        # Send only finite, verified factor values; never fabricate missing data.
+        factors=[{"metric":c.get("metric"),"value":c.get("value"),
+                  "passed":c.get("passed"),"threshold":c.get("threshold")}
+                 for c in checks[:24] if c.get("value") is not None]
         report={"symbol":symbol,"signal":grade or "資料不足",
-                "fundamental_score":None,"technical":None}
+                "fundamental_score":rating.get("score"),
+                "technical":{"price":rated_quote.get("price"),
+                             "date":rated_quote.get("date"),
+                             "ma20":rated_quote.get("ma20"),
+                             "ma60":rated_quote.get("ma60")},
+                "factors":factors,"coverage":rating.get("coverage"),
+                "data_status":rated_quote.get("data_status")}
         return await asyncio.to_thread(metered_review,user,report,kind=body.kind,enabled=True)
     except ValueError as exc:
         raise HTTPException(400,str(exc))
