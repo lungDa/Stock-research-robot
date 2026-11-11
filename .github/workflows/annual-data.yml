@@ -29,25 +29,41 @@ jobs:
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
       - name: Refresh official annual EPS and ROE (TWSE and TPEx)
         timeout-minutes: 1
-        run: python -m jobs.refresh_tw_financials
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_tw_financials
       - name: Refresh Taiwan backup daily prices (two symbols maximum)
         timeout-minutes: 1
-        run: python -m jobs.refresh_tw_prices
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_tw_prices
       - name: Refresh verified full-year EPS (one TWSE profile)
         timeout-minutes: 1
-        run: python -m jobs.refresh_eps
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_eps
       - name: Refresh bounded annual batch (no LINE messages)
         timeout-minutes: 2
-        run: python -m jobs.refresh_annual
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_annual
       - name: Backfill Taiwan annual cash-dividend totals (market batches)
         timeout-minutes: 2
-        run: python -m jobs.refresh_cash_dividends
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_cash_dividends
       - name: Continue official historical prices (two months maximum)
         timeout-minutes: 1
-        run: python -m jobs.refresh_history
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_history
       - name: Refresh shared US daily prices (two symbols)
         timeout-minutes: 1
-        run: python -m jobs.refresh_us_prices
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_us_prices
       - name: Refresh verified issuer payment dates (bounded)
         timeout-minutes: 1
-        run: python -m jobs.refresh_paid_dividends
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_paid_dividends
