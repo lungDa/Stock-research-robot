@@ -27,3 +27,11 @@ def is_admin(user):
 def current_admin(user=Depends(current_user)):
     if not is_admin(user):raise HTTPException(403,'僅管理者可查看系統狀態')
     return user
+
+
+def current_lighthouse_admin(user=Depends(current_user)):
+    """V2.5-only administrator guard. Does not trust legacy ADMIN_LINE_USER_IDS."""
+    from app.day_trader.admin_bootstrap import admin_identity_matches
+    if not admin_identity_matches(user):
+        raise HTTPException(403, '尚未完成最高管理員雙重綁定')
+    return user
