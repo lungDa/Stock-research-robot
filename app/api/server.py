@@ -305,3 +305,42 @@ def admin_stepup_status(request:Request):
     return {'authorized': remaining > 0 and state.get('user') == user,
             'scope': state.get('scope') if remaining > 0 and state.get('user') == user else None,
             'expires_in': max(0, int(remaining))}
+
+
+# V2.5 privileged AI quota management. Every mutation enforces the server-side
+# device-bound LINE step-up grant; Streamlit visibility alone is never authority.
+class AdminAILimitUpdate(BaseModel):
+    normal_daily_limit: int = Field(ge=0, le=100000, strict=True)
+    emergency_daily_limit: int = Field(ge=0, le=100000, strict=True)
+
+@app.put('/admin/ai-limits/{target_user}')
+def admin_ai_limits_update(target_user:str, body:AdminAILimitUpdate, request:Request):
+    from app.day_trader.admin_stepup import require
+    require(request, 'ai_limits')
+    from app.day_trader.access_models import UserAILimit
+    from app.db import Session
+    from app.day_trader.admin_bootstrap import _valid_line_id
+    if not _valid_line_id(target_user):
+        raise HTTPException(400, 'LINE 使用者識別格式錯誤')
+    with Session.begin() as session:
+        record=session.get(UserAILimit, target_user)
+        if record is None:
+            record=UserAILimit(user=target_user)
+            session.add(record)
+        record.normal_daily_limit=body.normal_daily_limit
+        record.emergency_daily_limit=body.emergency_daily_limit
+    return {'user':target_user,'normal_daily_limit':body.normal_daily_limit,
+            'emergency_daily_limit':body.emergency_daily_limit}
+
+@app.get('/admin/ai-limits/{target_user}')
+def admin_ai_limits_read(target_user:str, request:Request):
+    from app.day_trader.admin_stepup import _identity
+    _identity(request)
+    from app.day_trader.access_models import UserAILimit
+    from app.db import Session
+    from app.day_trader.admin_bootstrap import _valid_line_id
+    if not _valid_line_id(target_user):raise HTTPException(400, 'LINE 使用者識別格式錯誤')
+    with Session() as session:
+        row=session.get(UserAILimit,target_user)
+        return {'user':target_user,'normal_daily_limit':row.normal_daily_limit if row else 0,
+                'emergency_daily_limit':row.emergency_daily_limit if row else 0}
