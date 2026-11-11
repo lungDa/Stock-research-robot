@@ -83,9 +83,8 @@ jobs:
               return out
 
           before = snapshot()
-          expected_counts = {"documents": 592, "preferences": 1, "provider_budgets": 10, "watchlist": 1, "worker_leases": 0}
-          if {name: value[0] for name, value in before.items()} != expected_counts:
-              raise SystemExit("Baseline counts differ from verified 604 rows; refusing migration.")
+          # Compare the current pre/post snapshots; legitimate data growth is allowed.
+          # snapshot() already requires all five legacy tables and their primary keys.
           print("Baseline row counts:", {name: value[0] for name, value in before.items()})
           # Registers all V2.5 ORM models and creates only missing tables.
           init_db()
