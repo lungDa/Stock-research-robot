@@ -233,3 +233,27 @@ def four_rankings_preferences(user=Depends(current_user)):
 def four_rankings_preferences_update(body:Notice,user=Depends(current_user)):
     from app.day_trader.reporting import set_enabled
     return set_enabled(user,body.enabled)
+
+
+# V2.5: only the predesignated, authenticated LINE user may initialize.
+# No endpoint exists to select/change the designated administrator.
+class AdminOTP(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+@app.post('/admin/bootstrap/otp')
+def admin_bootstrap_send_otp(user=Depends(current_user)):
+    from app.day_trader.admin_bootstrap import issue_initialization_otp
+    try:
+        return issue_initialization_otp(user)
+    except PermissionError:
+        raise HTTPException(403, '無法發送初始化驗證碼')
+    except Exception:
+        log.exception('admin bootstrap LINE delivery failed')
+        raise HTTPException(503, 'LINE 驗證碼暫時無法發送')
+
+@app.post('/admin/bootstrap/verify')
+def admin_bootstrap_verify(body: AdminOTP, user=Depends(current_user)):
+    from app.day_trader.admin_bootstrap import verify_initialization_otp
+    if not verify_initialization_otp(user, body.code):
+        raise HTTPException(403, '驗證碼錯誤、過期或初始化不可用')
+    return {'initialized': True}
