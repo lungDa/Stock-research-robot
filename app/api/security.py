@@ -15,7 +15,11 @@ def current_user(authorization:str=Header(default='')):
     session=get('auth:session:'+digest(token),{})
     member=get('member:'+session.get('user',''),{})
     if (session.get('expires',0)>time.time() and session.get('stage')=='active' and
-        session.get('password_version')==member.get('password_version') and not member.get('password_change_required',True) and is_member(session.get('user',''))):return session['user']
+        session.get('password_version')==member.get('password_version') and not member.get('password_change_required',True) and is_member(session.get('user',''))):
+        if session.get('session_id'):
+            from app.api.device_sessions import permitted
+            if not permitted(session['session_id']):raise HTTPException(403,'裝置登入已撤銷')
+        return session['user']
     raise HTTPException(403,'登入已過期或無效，請重新使用LINE登入')
 
 
