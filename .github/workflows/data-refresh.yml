@@ -19,6 +19,7 @@ jobs:
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
+      ANNUAL_UNIVERSE_BATCH: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
