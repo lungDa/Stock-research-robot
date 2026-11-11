@@ -45,13 +45,15 @@ def status():return {'line_login_ready':ready()}
 @router.post('/line/start')
 async def start(request:Request):
     ensure_ready();data=await body_json(request)
-    # Streamlit轉送流量共用來源IP；每10分鐘最多10次啟動。
+    # Streamlit proxy users may share one source IP. This is a broad abuse
+    # circuit breaker, not a per-person login limit. The one-time ticket,
+    # OAuth state, and password-stage limits provide narrower protections.
     host=request.client.host if request.client else 'unknown'
     bucket='auth:attempt:'+digest(host)+':'+str(int(time.time()//600))
     attempt=None
-    for i in range(10):
+    for i in range(300):
         if claim(bucket+':'+str(i),{'at':time.time()}):attempt=i;break
-    if attempt is None:raise HTTPException(429,'登入嘗試過多，請10分鐘後重試')
+    if attempt is None:raise HTTPException(429,'登入服務暫時繁忙，請10分鐘後重試')
     ticket=secrets.token_urlsafe(32)
     put('auth:start:'+digest(ticket),{'expires':time.time()+120})
     return {'authorize_url':settings.api_public_url.rstrip('/')+'/auth/line/authorize?'+urlencode({'ticket':ticket})}
