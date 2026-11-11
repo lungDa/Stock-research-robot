@@ -14,7 +14,7 @@ def test_paper_account_and_orders_are_user_scoped():
     with TestClient(app) as c:
         assert c.post("/paper/account",headers=a,json={}).status_code==201
         assert c.post("/paper/account",headers=b,json={}).status_code==201
-        payload={"client_order_id":"unique-1","symbol":"2330.TW","side":"BUY","quantity":100,"price":"500"}
+        payload={"client_order_id":"unique-1","symbol":"2330.TW","side":"BUY","quantity":100,"price":"500","order_mode":"ODD_LOT"}
         first=c.post("/paper/orders",headers=a,json=payload)
         assert first.status_code==200,first.text
         duplicate=c.post("/paper/orders",headers=a,json=payload)
