@@ -13,7 +13,7 @@ MAX_OUTPUT=1800
 
 def _sanitize(report):
     if not isinstance(report,dict):raise ValueError("report must be a dict")
-    allowed={k:report[k] for k in ("symbol","technical","fundamental_score","signal") if k in report}
+    allowed={k:report[k] for k in ("symbol","technical","fundamental_score","signal","factors","coverage","data_status") if k in report}
     raw=json.dumps(allowed,ensure_ascii=False,allow_nan=False)
     if len(raw)>MAX_INPUT:raise ValueError("analysis payload too large")
     return raw
