@@ -209,6 +209,9 @@ async def change_password(request:Request):
     if session.get('session_id'):
         from app.api import device_sessions
         device_sessions.extend(session['session_id'],session['expires'])
+        # Revoke every other device on password rotation. Protected API requests
+        # check the persistent revoked flag before accepting the old token.
+        device_sessions.revoke_others(session['user'],session['session_id'])
     return {'stage':'active','password_change_required':False}
 
 
