@@ -64,6 +64,15 @@ with st.sidebar:
             if result:
                 st.session_state.pop('result',None)
                 st.rerun()
+    elif st.session_state.get('login_stage')=='risk_otp':
+        st.warning('偵測到此工作階段曾輸入錯誤密碼，最高管理員須完成 LINE 二次驗證。')
+        if st.button('發送異常登入驗證碼',key='risk_otp_send'):
+            if api('POST','/auth/risk/otp') is not None:st.success('驗證碼已發送，5 分鐘內有效。')
+        with st.form('risk_otp_form'):
+            risk_code=st.text_input('六位數 LINE 驗證碼',type='password',max_chars=6)
+            risk_submit=st.form_submit_button('完成登入安全驗證')
+        if risk_submit:
+            if api('POST','/auth/risk/verify',json={'code':risk_code}) is not None:st.rerun()
     elif st.session_state.get('login_stage') in ('change_password','setup_password'):
         st.info('首次綁定完成，請先設定個人8位數字密碼。')
         with st.form('first_password_change'):
