@@ -82,6 +82,8 @@ with st.sidebar:
 personal=bool(st.session_state.get('personal_active'))
 from app.day_trader.admin_bootstrap_ui import render_admin_bootstrap
 render_admin_bootstrap(api, personal)
+from app.day_trader.security_center_ui import render_security_center
+render_security_center(api, personal, bool(st.session_state.get('is_admin')))
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
 query,watch,screen,strategy_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定'])
 with query:
