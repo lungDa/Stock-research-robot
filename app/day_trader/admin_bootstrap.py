@@ -99,3 +99,40 @@ def verify_initialization_otp(user, otp):
         return True
     finally:
         release_lease("admin:bootstrap:otp:lock", lease)
+
+
+def provision_designated_admin_from_env():
+    """Idempotent, fail-closed provisioning from Render env after DB initialization.
+
+    Never changes an existing designation, even if the env variable changes.
+    Provisioning is not activation: LINE OTP must still be verified.
+    """
+    import os
+    from sqlalchemy.exc import IntegrityError
+    from app.db import get
+    designated = os.getenv("LIGHTHOUSE_BOOTSTRAP_ADMIN_LINE_USER_ID", "").strip()
+    if not designated:
+        return "not_configured"
+    if not _valid_line_id(designated):
+        raise RuntimeError("管理員預先指定 LINE User ID 格式錯誤")
+    member = get("member:" + designated, {})
+    if (not member.get("active") or not member.get("password_hash") or
+        member.get("password_change_required", True) or
+        member.get("activation_pending", True)):
+        raise RuntimeError("指定帳號尚未完成 LINE 註冊及平台密碼設定")
+    with Session.begin() as session:
+        row = session.get(AdminBootstrap, 1)
+        if row is not None:
+            if (not hmac.compare_digest(row.designated_user, designated) or
+                not hmac.compare_digest(row.designated_line_user_id, designated)):
+                raise RuntimeError("最高管理員已預先指定其他帳號；禁止覆寫")
+            return "already_designated"
+        session.add(AdminBootstrap(id=1, designated_user=designated,
+                                   designated_line_user_id=designated,
+                                   initialized=False))
+        try:
+            session.flush()
+        except IntegrityError:
+            # Concurrent startup: fail closed and let a later startup verify.
+            raise RuntimeError("管理員預先指定發生競爭，請重試啟動")
+    return "designated"
