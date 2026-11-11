@@ -16,7 +16,7 @@ class OrderInput(BaseModel):
     side: str
     quantity: int = Field(gt=0, le=1000000)
     price: Decimal = Field(gt=0)
-    asset_type: str = Field(default='STOCK', pattern='^(STOCK|ETF)
+    asset_type: str = Field(default='STOCK', pattern='^(STOCK|ETF)$')
 
 def reject(exc):
     raise HTTPException(status_code=400, detail=str(exc))
