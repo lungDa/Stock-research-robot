@@ -583,3 +583,25 @@ if personal:
                 if api('POST','/paper/halt'):
                     st.session_state.paper_account=api('GET','/paper/account')
                     st.rerun()
+
+if personal:
+    with st.expander('📊 四模式研究排名（綜合／長期／波段／當沖）',expanded=False):
+        opts=api('GET','/four-rankings/preferences') or {}
+        enabled=st.checkbox('加入交易日11:30／19:30 LINE四榜摘要（有有效報告時才推播）',
+                           value=opts.get('enabled',False),key='four_ranking_push')
+        if st.button('儲存四榜通知設定',key='four_rankings_save'):
+            if api('PUT','/four-rankings/preferences',json={'enabled':enabled}):
+                st.success('四榜通知設定已儲存')
+        if st.button('更新四榜研究報告',key='four_rankings_refresh'):
+            st.session_state.four_rankings_report=api('GET','/four-rankings/latest')
+        report=st.session_state.get('four_rankings_report') or {}
+        if not report.get('as_of'):
+            st.info('尚無完整四榜資料。須完成基本面與分鐘K棒資料驗證後才會發布，不以缺漏資料湊榜。')
+        else:
+            st.caption('資料時間：'+str(report['as_of'])+'｜僅供研究，不會觸發委託')
+            tabs=st.tabs(['綜合前10','長期前10','波段前10','當沖前10'])
+            for tab,mode in zip(tabs,['combined','long_term','swing','intraday']):
+                with tab:
+                    rows=report.get('rankings',{}).get(mode,[])
+                    if rows:st.dataframe(rows,hide_index=True,use_container_width=True)
+                    else:st.warning('本模式資料不足，暫不排名')
