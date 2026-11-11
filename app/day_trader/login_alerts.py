@@ -24,10 +24,22 @@ def notify_admin_login(user: str, session_id: str) -> bool:
         "系統目前尚未建立可信任裝置辨識，因此每次新的登入工作階段都會提醒。\n"
         "如果不是本人操作，請立即前往安全管理中心撤銷可疑工作階段。"
     )
+    # Store only delivery status and timestamp, never LINE credentials or OTP.
+    # Notification failures must not invalidate a successfully verified login.
+    from app.db import put
+    from hashlib import sha256
+    key = "auth:admin-login-alert:" + sha256(session_id.encode()).hexdigest()
+    status = "failed"
     try:
         line.push(user, message, secrets.token_hex(16))
+        status = "sent"
         return True
     except Exception:
-        # Notification must not leak session credentials or crash the auth endpoint.
-        log.exception("Administrator login alert delivery failed (session=%s)", session_id[:12])
+        log.exception("Administrator login alert delivery failed")
         return False
+    finally:
+        try:
+            put(key, {"status": status, "at": datetime.now(timezone.utc).isoformat(),
+                      "user": user})
+        except Exception:
+            log.exception("Administrator login alert audit persistence failed")
