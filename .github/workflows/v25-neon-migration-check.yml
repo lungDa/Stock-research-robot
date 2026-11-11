@@ -101,3 +101,5 @@ jobs:
           print("Total mapped tables:", len(expected_tables))
           print("Table names:", ", ".join(sorted(expected_tables)))
           PY
+
+# Explicit one-time migration verification trigger; no production configuration changes.
