@@ -185,6 +185,8 @@ with query:
         else:st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {format_updated_at(d.get('updated_at'))}｜來源 {d['source']}｜種類 {d['kind']}")
         st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
+        from app.day_trader.ai_review_ui import render_ai_review
+        render_ai_review(api, personal, d)
         if len(d['history']) > 1:
             st.line_chart(pd.DataFrame(d['history']).set_index('date'))
         else:
