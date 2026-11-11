@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from app.db import Session
 from app.trading.fees import PaperFeeSetting, fee_breakdown
+from app.trading.tw_rules import validate_order_mode
 from app.trading.models import (PaperAccount, PaperOrder, PaperExecution,
                                 PaperPosition, PaperRiskLimit, PaperAllocation)
 
@@ -34,7 +35,7 @@ def create_account(user, starting_cash="1000000"):
             s.add(PaperAllocation(account_id=a.id, strategy=name, percentage=Decimal(pct)))
         return a.id
 
-def execute(user, client_order_id, symbol, side, quantity, price, asset_type='STOCK'):
+def execute(user, client_order_id, symbol, side, quantity, price, asset_type='STOCK', order_mode='REGULAR'):
     """Immediately settle one simulated fill, atomically and idempotently.
 
     SQLite serializes writes; PostgreSQL row lock protects account cash/positions.
@@ -47,6 +48,8 @@ def execute(user, client_order_id, symbol, side, quantity, price, asset_type='ST
     if side not in ("BUY", "SELL") or type(quantity) is not int or not 1 <= quantity <= 1000000:
         raise PaperTradeRejected("買賣方向或股數無效")
     px = amount(price)
+    try: validate_order_mode(order_mode, quantity, asset_type)
+    except ValueError as exc: raise PaperTradeRejected(str(exc)) from exc
     if asset_type not in ('STOCK','ETF'): raise PaperTradeRejected('商品類別無效')
     with Session.begin() as s:
         a = s.scalar(select(PaperAccount).where(PaperAccount.user == user).with_for_update())
