@@ -64,7 +64,7 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         from app.services.data_queue import requested
         for s in requested():
             if s not in symbols:symbols.append(s)
-    if not explicit:
+    if not explicit and os.getenv('ANNUAL_UNIVERSE_BATCH','').strip() == '1':
         # Cover the whole TWSE/TPEx universe gradually without loading every
         # company/feed pair into one invocation or blocking personal requests.
         from app.providers.universe import load as load_universe
