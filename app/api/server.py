@@ -242,6 +242,17 @@ def four_rankings_preferences_update(body:Notice,user=Depends(current_user)):
 class AdminOTP(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
 
+@app.get('/admin/bootstrap/status')
+def admin_bootstrap_status(user=Depends(current_user)):
+    """Return only the caller's own designation; do not disclose administrator identity."""
+    from app.day_trader.admin_bootstrap import _record, _valid_line_id
+    import hmac
+    row = _record()
+    designated = bool(row and _valid_line_id(user)
+                      and hmac.compare_digest(row['user'], user)
+                      and hmac.compare_digest(row['line_id'], user))
+    return {'designated': designated, 'initialized': bool(row['initialized']) if designated else False}
+
 @app.post('/admin/bootstrap/otp')
 def admin_bootstrap_send_otp(user=Depends(current_user)):
     from app.day_trader.admin_bootstrap import issue_initialization_otp
