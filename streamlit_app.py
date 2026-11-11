@@ -564,6 +564,7 @@ if personal:
                 with st.form('paper_order'):
                     order_symbol=st.text_input('台股代號','2330.TW',key='paper_symbol')
                     asset_type=st.selectbox('商品類別',['STOCK','ETF'],format_func=lambda x:'普通股票' if x=='STOCK' else 'ETF')
+                    order_mode=st.selectbox('交易方式',['REGULAR','ODD_LOT','AFTER_HOURS','DAY_TRADE'],format_func=lambda x:{'REGULAR':'一般整股','ODD_LOT':'盤中零股','AFTER_HOURS':'盤後定價','DAY_TRADE':'當沖（模擬；不核對資格）'}[x])
                     order_side=st.selectbox('方向',['BUY','SELL'],format_func=lambda x:'買進' if x=='BUY' else '賣出')
                     order_qty=st.number_input('股數',min_value=1,max_value=1000000,value=100,step=1)
                     order_price=st.number_input('假設成交單價（NT$）',min_value=0.0001,value=100.0,step=0.5,format='%.4f')
@@ -574,7 +575,7 @@ if personal:
                     if not confirm or not order_key.strip():st.error('請勾選確認並填入唯一委託識別碼')
                     else:
                         result=api('POST','/paper/orders',json={'client_order_id':order_key.strip(),'symbol':order_symbol.strip(),
-                            'side':order_side,'quantity':order_qty,'price':str(order_price),'asset_type':asset_type})
+                            'side':order_side,'quantity':order_qty,'price':str(order_price),'asset_type':asset_type,'order_mode':order_mode})
                         if result:
                             st.success('模擬委託已處理：'+result['status']+('（重複識別碼，未再次成交）' if result['duplicate'] else ''))
                             st.session_state.paper_account=api('GET','/paper/account')
