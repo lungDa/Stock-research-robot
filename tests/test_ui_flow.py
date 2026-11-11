@@ -41,6 +41,7 @@ def test_personal_financial_proof_form_renders_and_rejects_empty_input(monkeypat
     def request(method,url,**kwargs):
         calls.append((method,url))
         if url.endswith('/auth/me'):body={'stage':'active','name':'測試','password_change_required':False,'is_admin':False}
+        elif url.endswith('/admin/bootstrap/status'):body={'designated':False,'initialized':False}
         elif url.endswith('/watchlist'):body=[]
         elif url.endswith('/strategy'):body=DEFAULT
         elif url.endswith('/assistant/preferences'):body=ASSISTANT_DEFAULT
