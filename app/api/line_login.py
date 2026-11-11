@@ -191,6 +191,10 @@ async def change_password(request:Request):
     if password_matches(new,member.get('password_hash','')):raise HTTPException(400,'新密碼需與目前密碼不同')
     member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16),activation_pending=False)
     put('member:'+session['user'],member)
+    # Password rotation invalidates all existing step-up grants, including this device.
+    from app.db import put as _put
+    if session.get('session_id'):
+        _put('admin:stepup:'+session['session_id'], {'grant_expires':0})
     session.update(stage='active',password_version=member['password_version'],expires=time.time()+12*3600)
     put(key,session)
     if session.get('session_id'):
