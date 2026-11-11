@@ -101,6 +101,23 @@ def verify_initialization_otp(user, otp):
         release_lease("admin:bootstrap:otp:lock", lease)
 
 
+def _eligible_bootstrap_member(member):
+    """Accept verified legacy accounts without activation_pending, never pending accounts."""
+    if not isinstance(member, dict):
+        return False
+    if member.get("active") is not True or not isinstance(member.get("password_hash"), str):
+        return False
+    if not member["password_hash"].startswith("scrypt$") or member.get("password_change_required") is not False:
+        return False
+    if member.get("activation_pending") is True:
+        return False
+    if "activation_pending" in member:
+        return member["activation_pending"] is False
+    # Older active accounts did not persist activation_pending. A rotated
+    # password_version is required in addition to the completed password state.
+    return bool(member.get("password_version"))
+
+
 def provision_designated_admin_from_env():
     """Idempotent, fail-closed provisioning from Render env after DB initialization.
 
@@ -116,9 +133,7 @@ def provision_designated_admin_from_env():
     if not _valid_line_id(designated):
         raise RuntimeError("管理員預先指定 LINE User ID 格式錯誤")
     member = get("member:" + designated, {})
-    if (not member.get("active") or not member.get("password_hash") or
-        member.get("password_change_required", True) or
-        member.get("activation_pending", True)):
+    if not _eligible_bootstrap_member(member):
         raise RuntimeError("指定帳號尚未完成 LINE 註冊及平台密碼設定")
     with Session.begin() as session:
         row = session.get(AdminBootstrap, 1)
