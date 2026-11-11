@@ -25,7 +25,7 @@ app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
 async def maintenance_gate(request:Request,call_next):
     from fastapi.responses import JSONResponse
     path=request.url.path
-    if path in ('/health','/ready','/maintenance/status'):
+    if path in ('/health','/ready','/maintenance/status','/admin/maintenance'):
         return await call_next(request)
     try:
         active=bool(get('system:maintenance',{}).get('enabled',False))
@@ -49,8 +49,7 @@ class MaintenanceSwitch(BaseModel):
 
 @app.put('/admin/maintenance')
 def set_maintenance(body:MaintenanceSwitch,user=Depends(current_admin)):
-    # Disable through this route only when maintenance is off. When on, use
-    # the offline operator procedure, avoiding an admin bypass of the gate.
+    # Authenticated administrator can also disable maintenance after validation.
     put('system:maintenance',{'enabled':body.enabled,'updated_at':time.time(),'by':user})
     return {'maintenance':body.enabled}
 from app.api.line_login import router as login_router
