@@ -97,6 +97,27 @@ jobs:
           missing = expected_tables - actual_tables
           if missing:
               raise SystemExit("Missing V2.5 tables: " + ", ".join(sorted(missing)))
+          # Device-session persistence and revocation, performed only on the isolated test branch.
+          from app.api.device_sessions import LoginDevice, register, permitted, revoke
+          from sqlalchemy import delete
+          import secrets
+          sid = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+          test_user = "integration-test-" + sid[:20]
+          expiry = __import__("time").time() + 120
+          try:
+              register(sid, test_user, expiry)
+              if not permitted(sid):
+                  raise RuntimeError("Device session was not persisted")
+              if not revoke(sid, test_user):
+                  raise RuntimeError("Device session revocation failed")
+              if permitted(sid):
+                  raise RuntimeError("Revoked device session still permitted")
+              print("PASS: login_devices persisted and revoked a device session.")
+          finally:
+              with engine.begin() as connection:
+                  connection.execute(delete(LoginDevice).where(LoginDevice.session_id == sid))
+          if snapshot() != before:
+              raise RuntimeError("Baseline table records changed during device-session check")
           print("PASS: V2.5 schema created; existing table rows and SHA-256 checksums unchanged.")
           print("Total mapped tables:", len(expected_tables))
           print("Table names:", ", ".join(sorted(expected_tables)))
