@@ -18,6 +18,11 @@ def test_query_shows_quote_before_enqueue_and_refreshes_after_background(monkeyp
         else:raise AssertionError('Unexpected request '+url)
         response=Mock(status_code=200);response.json.return_value=body;return response
     monkeypatch.setattr(requests,'request',request)
+    # The UI now probes maintenance before rendering forms. Stub this
+    # separate GET request explicitly; keep production fail-closed behavior.
+    maintenance=Mock(status_code=200)
+    maintenance.json.return_value={'maintenance':False}
+    monkeypatch.setattr(requests,'get',lambda url,**kwargs: maintenance)
     app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
     app.run()
     assert not app.exception
@@ -59,6 +64,11 @@ def test_personal_financial_proof_form_renders_and_rejects_empty_input(monkeypat
         else:raise AssertionError('Unexpected request '+url)
         response=Mock(status_code=200);response.json.return_value=body;return response
     monkeypatch.setattr(requests,'request',request)
+    # The UI now probes maintenance before rendering forms. Stub this
+    # separate GET request explicitly; keep production fail-closed behavior.
+    maintenance=Mock(status_code=200)
+    maintenance.json.return_value={'maintenance':False}
+    monkeypatch.setattr(requests,'get',lambda url,**kwargs: maintenance)
     app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
     app.session_state['token']='a'*24
     app.run();assert not app.exception
