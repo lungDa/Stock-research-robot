@@ -174,6 +174,9 @@ async def verify_password(request:Request):
     if session.get('session_id'):
         from app.api import device_sessions
         device_sessions.extend(session['session_id'],session['expires'])
+    if session['stage']=='active' and session.get('session_id'):
+        from app.day_trader.login_alerts import notify_admin_login
+        notify_admin_login(session['user'],session['session_id'])
     return {'stage':session['stage'],'password_change_required':forced}
 
 @router.post('/password/change')
