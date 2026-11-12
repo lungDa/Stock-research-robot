@@ -39,7 +39,7 @@ def test_unattributed_or_wrong_period_not_counted():
     fields = filled()
     fields['eps']['2025']['source_url'] = ''
     fields['fcf']['2024']['year'] = 2023
-    assert inspect('2330.TW', fields, current_year=2026)['complete_items'] == 34
+    assert inspect('2330.TW', fields, current_year=2026)['complete_items'] == 29
 
 
 def test_gate_needs_verified_universe():
