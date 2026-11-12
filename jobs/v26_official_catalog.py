@@ -52,10 +52,15 @@ def refresh(market, now=None, fetcher=fetch_json):
         return {'market': market, 'status': 'cached', 'count': len(old.get('data', {}))}
     try:
         payload = fetcher(ENDPOINTS[market], max_bytes=8 * 1024 * 1024, seconds=18, array=True)
-        data = parse_companies(payload)
+        if not isinstance(payload, dict) or payload.get('complete') is not True:
+            raise ValueError('官方公司名錄下載不完整，不得覆寫有效快取')
+        data = parse_companies(payload.get('records'))
     except Exception as exc:
-        # A failed fetch must not overwrite an older catalog with an empty list.
-        put('v26:catalog:error:' + market, {'at': now, 'error': type(exc).__name__})
+        # Preserve last successful catalog even when the error-log DB write fails.
+        try:
+            put('v26:catalog:error:' + market, {'at': now, 'error': type(exc).__name__})
+        except Exception:
+            pass
         raise
     put(key, {'at': now, 'source': ENDPOINTS[market], 'data': data,
               'scope': 'OFFICIAL_COMPANY_REGISTRY', 'complete': False})
