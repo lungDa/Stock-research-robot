@@ -35,3 +35,22 @@ def test_super_admin_inherits_legacy_admin_access(monkeypatch):
     assert security.is_admin("Ulegacy")
     assert security.is_admin("Usuper")
     assert not security.is_admin("Uother")
+
+
+def test_initialization_push_uses_uuid_retry_key(monkeypatch):
+    import uuid
+    from app.day_trader import admin_bootstrap as bootstrap
+    from app import db
+    user = 'U' + 'a' * 32
+    stored = {}
+    monkeypatch.setattr(bootstrap, '_record', lambda: {'user': user, 'line_id': user, 'initialized': False})
+    monkeypatch.setattr(db, 'acquire_lease', lambda *args, **kwargs: 'lease')
+    monkeypatch.setattr(db, 'release_lease', lambda *args, **kwargs: None)
+    monkeypatch.setattr(db, 'get', lambda key, default=None: stored.get(key, default))
+    monkeypatch.setattr(db, 'put', lambda key, value: stored.__setitem__(key, value))
+    seen = []
+    monkeypatch.setattr(bootstrap.line, 'push', lambda recipient, message, key: seen.append((recipient, message, key)))
+    assert bootstrap.issue_initialization_otp(user)['sent']
+    assert seen[0][0] == user
+    assert str(uuid.UUID(seen[0][2])) == seen[0][2]
+    assert 'digest' in stored['admin:bootstrap:otp']
