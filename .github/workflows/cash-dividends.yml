@@ -35,7 +35,11 @@ jobs:
       - name: Refresh Taiwan market universe
         timeout-minutes: 1
         continue-on-error: true
-        run: python -m jobs.refresh_universe
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_universe
       - name: Backfill annual cash-dividend totals (four requests maximum)
         timeout-minutes: 2
-        run: python -m jobs.refresh_cash_dividends --symbols "$CASH_SYMBOLS" --years "$CASH_YEARS" --max-requests 4
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_cash_dividends --symbols "$CASH_SYMBOLS" --years "$CASH_YEARS" --max-requests 4

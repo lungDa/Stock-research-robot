@@ -24,7 +24,7 @@ def is_member(user):
 def register(user,name):
     record=get('member:'+user)
     if record is None:
-        record={'active':True,'password_hash':password_hash('0000'),'password_change_required':True,'password_version':0}
+        record={'active':True,'password_hash':None,'password_change_required':True,'password_version':0,'activation_pending':True}
         # 首次建檔不覆蓋同時登入已建立的帳戶。
         from app.db import claim
         claim('member:'+user,{**record,'name':str(name)[:100]})

@@ -3,6 +3,7 @@ import time,json
 from datetime import datetime,timezone
 from sqlalchemy import select,delete
 from app.db import init_db,Session,Document,Lease,ProviderBudget,get,put,leased
+from jobs.maintenance_guard import assert_writable
 
 RETENTION={
     'auth:start:':86400,'auth:flow:':86400,'auth:handoff:':86400,'auth:session:':86400,
@@ -15,6 +16,7 @@ RETENTION={
 
 
 def run(batch_size=2000):
+    assert_writable()
     init_db();now=time.time();deleted=0;examined=0
     batch_size=max(1,min(batch_size,2000))
     with leased('maintenance',120) as owned:
@@ -22,6 +24,7 @@ def run(batch_size=2000):
         # Per-prefix cursors prevent recent or malformed entries starving later expired rows.
         cursors=get('maintenance:cursors',{})
         for prefix,retention in RETENTION.items():
+            assert_writable()
             with Session() as s:
                 rows=list(s.scalars(select(Document).where(Document.key.startswith(prefix,autoescape=True),
                     Document.key>cursors.get(prefix,'')).order_by(Document.key).limit(batch_size)))
@@ -30,16 +33,30 @@ def run(batch_size=2000):
                 examined+=1
                 try:value=json.loads(row.payload)
                 except (ValueError,TypeError):continue
-                stamp=value.get('expires',value.get('at'))
-                if type(stamp) in (int,float) and now>stamp+retention:expired.append(row.key)
+                if not isinstance(value,dict):continue
+                expires=value.get('expires')
+                at=value.get('at')
+                # An active session must never be removed, even when its
+                # creation timestamp is old. Prefer explicit expiry over age.
+                if prefix=='auth:session:' and type(expires) not in (int,float):continue
+                if type(expires) in (int,float):
+                    deadline=expires+retention
+                elif type(at) in (int,float):
+                    deadline=at+retention
+                else:
+                    continue
+                if now>deadline:expired.append(row.key)
             if expired:
+                assert_writable()
                 with Session.begin() as s:s.execute(delete(Document).where(Document.key.in_(expired)))
                 deleted+=len(expired)
             cursors[prefix]=rows[-1].key if len(rows)==batch_size else ''
+        assert_writable()
         with Session.begin() as s:
             s.execute(delete(Lease).where(Lease.expires_at<now-86400))
             s.execute(delete(ProviderBudget).where(ProviderBudget.expires_at<now))
         result={'updated_at':datetime.now(timezone.utc).isoformat(),'deleted':deleted,'examined':examined}
+        assert_writable()
         put('maintenance:cursors',cursors);put('jobs:maintenance',result)
         return result
 

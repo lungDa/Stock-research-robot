@@ -24,6 +24,17 @@ def api(method,path,**kwargs):
     except requests.RequestException:
         st.error('服務暫時無法連線，請稍後再試。');return None
 
+# Maintenance gate before login, callbacks, public queries or any write controls.
+try:
+    maintenance_response=requests.get(base+'/maintenance/status',timeout=8)
+    maintenance_response.raise_for_status()
+    maintenance_active=bool(maintenance_response.json().get('maintenance',True))
+except (requests.RequestException,ValueError,TypeError):
+    maintenance_active=True
+if maintenance_active:
+    st.warning('系統維護中，暫停登入、查詢與交易操作。請稍後再試。')
+    st.stop()
+
 if st.query_params.get('login_code'):
     code=st.query_params['login_code'];st.query_params.clear()
     result=api('POST','/auth/redeem',json={'code':code})
@@ -55,7 +66,7 @@ with st.sidebar:
             st.caption('請在2分鐘內開啟；LINE會在新頁面完成登入並返回。')
     elif st.session_state.get('login_stage')=='password':
         st.write('LINE身分：'+st.session_state.get('login_name',''))
-        if st.session_state.get('password_change_required'):st.info('首次登入請輸入預設密碼0000，接著必須修改為8位數字。')
+        if st.session_state.get('password_change_required'):st.info('舊帳戶請驗證原有密碼，再修改為8位數字。')
         with st.form('personal_password'):
             password=st.text_input('個人密碼',type='password',max_chars=8)
             verify=st.form_submit_button('驗證密碼')
@@ -64,7 +75,16 @@ with st.sidebar:
             if result:
                 st.session_state.pop('result',None)
                 st.rerun()
-    elif st.session_state.get('login_stage')=='change_password':
+    elif st.session_state.get('login_stage')=='risk_otp':
+        st.warning('偵測到此工作階段曾輸入錯誤密碼，最高管理員須完成 LINE 二次驗證。')
+        if st.button('發送異常登入驗證碼',key='risk_otp_send'):
+            if api('POST','/auth/risk/otp') is not None:st.success('驗證碼已發送，5 分鐘內有效。')
+        with st.form('risk_otp_form'):
+            risk_code=st.text_input('六位數 LINE 驗證碼',type='password',max_chars=6)
+            risk_submit=st.form_submit_button('完成登入安全驗證')
+        if risk_submit:
+            if api('POST','/auth/risk/verify',json={'code':risk_code}) is not None:st.rerun()
+    elif st.session_state.get('login_stage') in ('change_password','setup_password'):
         st.info('首次綁定完成，請先設定個人8位數字密碼。')
         with st.form('first_password_change'):
             new=st.text_input('新密碼（8位數字）',type='password',max_chars=8)
@@ -80,6 +100,12 @@ with st.sidebar:
     if st.session_state.get('token') and st.button('登出'):
         api('POST','/auth/logout');st.session_state.clear();st.rerun()
 personal=bool(st.session_state.get('personal_active'))
+from app.day_trader.admin_bootstrap_ui import render_admin_bootstrap
+render_admin_bootstrap(api, personal)
+from app.day_trader.security_center_ui import render_security_center
+render_security_center(api, personal, bool(st.session_state.get('is_admin')))
+from app.day_trader.admin_console_ui import render_admin_console
+render_admin_console(api, personal, bool(st.session_state.get('is_admin')))
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
 query,watch,screen,strategy_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定'])
 with query:
@@ -170,6 +196,8 @@ with query:
         else:st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {format_updated_at(d.get('updated_at'))}｜來源 {d['source']}｜種類 {d['kind']}")
         st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
+        from app.day_trader.ai_review_ui import render_ai_review
+        render_ai_review(api, personal, d)
         if len(d['history']) > 1:
             st.line_chart(pd.DataFrame(d['history']).set_index('date'))
         else:
@@ -526,3 +554,82 @@ if personal and st.session_state.get('is_admin'):
             st.caption(status['field_coverage_scope'])
             st.dataframe([{'欄位':x['label'],'有值檔數':x['known'],'抽樣檔數':x['sampled'],'完整率（%）':x['coverage_pct']} for x in status['field_coverage_sample']],hide_index=True)
             st.caption(f"資料集抽樣 {status['feed_states_sampled']} 筆（上限 {status['feed_sample_limit']}）；成功 {status['feed_ok']}，失敗 {status['feed_failed']}。")
+
+# 模擬交易中心：獨立於研究評級，不執行真實券商委託。
+if personal:
+    with st.expander('🧪 模擬交易中心（僅供測試）', expanded=False):
+        st.warning('自填價格立即模擬成交；已估算一般股票／ETF手續費與賣出交易稅，但尚未支援滑價、當沖優惠稅率、交易時段及特殊商品規則。')
+        if st.button('讀取模擬帳戶', key='paper_refresh'):
+            st.session_state.paper_account=api('GET','/paper/account')
+        paper=st.session_state.get('paper_account')
+        if not paper:
+            st.caption('若尚未開立模擬帳戶，可建立獨立測試資金。')
+            with st.form('paper_create'):
+                capital=st.number_input('模擬初始資金（NT$）',min_value=1000,max_value=100000000,value=1000000,step=10000)
+                create=st.form_submit_button('建立模擬帳戶')
+            if create:
+                if api('POST','/paper/account',json={'starting_cash':capital}):
+                    st.session_state.paper_account=api('GET','/paper/account')
+                    st.rerun()
+        else:
+            st.metric('模擬現金餘額（已扣模擬稅費）',paper['cash'])
+            current_fee=paper.get('fee_settings') or {}
+            with st.form('paper_fee_settings'):
+                fee_mode=st.selectbox('手續費模式',['STANDARD','CUSTOM'],index=0 if current_fee.get('mode')!='CUSTOM' else 1,
+                    format_func=lambda x:'標準費率 0.1425%' if x=='STANDARD' else '自訂折扣')
+                fee_discount=st.number_input('手續費折扣倍率（1＝無折扣，0.6＝六折）',
+                    min_value=0.01,max_value=1.0,value=float(current_fee.get('discount','1')),step=0.05)
+                fee_min=st.number_input('最低手續費（元；依券商方案調整）',min_value=0.0,max_value=10000.0,
+                    value=float(current_fee.get('minimum_fee','20')),step=1.0)
+                save_fee=st.form_submit_button('儲存我的模擬手續費設定')
+            if save_fee:
+                if api('PUT','/paper/fees',json={'mode':fee_mode,'discount':str(fee_discount),'minimum_fee':str(fee_min)}):
+                    st.session_state.paper_account=api('GET','/paper/account');st.rerun()
+            st.dataframe(paper.get('positions',[]),hide_index=True)
+            if paper.get('halted'):
+                st.error('此模擬帳戶已停止新增委託。')
+            else:
+                with st.form('paper_order'):
+                    order_symbol=st.text_input('台股代號','2330.TW',key='paper_symbol')
+                    asset_type=st.selectbox('商品類別',['STOCK','ETF'],format_func=lambda x:'普通股票' if x=='STOCK' else 'ETF')
+                    order_mode=st.selectbox('交易方式',['REGULAR','ODD_LOT','AFTER_HOURS','DAY_TRADE'],format_func=lambda x:{'REGULAR':'一般整股','ODD_LOT':'盤中零股','AFTER_HOURS':'盤後定價','DAY_TRADE':'當沖（模擬；不核對資格）'}[x])
+                    order_side=st.selectbox('方向',['BUY','SELL'],format_func=lambda x:'買進' if x=='BUY' else '賣出')
+                    order_qty=st.number_input('股數',min_value=1,max_value=1000000,value=100,step=1)
+                    order_price=st.number_input('假設成交單價（NT$）',min_value=0.0001,value=100.0,step=0.5,format='%.4f')
+                    order_key=st.text_input('委託識別碼（同一筆請勿更換）',max_chars=80,help='重送相同識別碼不會重複成交')
+                    confirm=st.checkbox('我了解這是自填價格的模擬成交，不是實盤委託')
+                    send=st.form_submit_button('執行模擬成交')
+                if send:
+                    if not confirm or not order_key.strip():st.error('請勾選確認並填入唯一委託識別碼')
+                    else:
+                        result=api('POST','/paper/orders',json={'client_order_id':order_key.strip(),'symbol':order_symbol.strip(),
+                            'side':order_side,'quantity':order_qty,'price':str(order_price),'asset_type':asset_type,'order_mode':order_mode})
+                        if result:
+                            st.success('模擬委託已處理：'+result['status']+('（重複識別碼，未再次成交）' if result['duplicate'] else ''))
+                            st.session_state.paper_account=api('GET','/paper/account')
+            if st.button('緊急停止模擬交易',key='paper_halt',disabled=paper.get('halted',False)):
+                if api('POST','/paper/halt'):
+                    st.session_state.paper_account=api('GET','/paper/account')
+                    st.rerun()
+
+if personal:
+    with st.expander('📊 四模式研究排名（綜合／長期／波段／當沖）',expanded=False):
+        opts=api('GET','/four-rankings/preferences') or {}
+        enabled=st.checkbox('加入交易日11:30／19:30 LINE四榜摘要（有有效報告時才推播）',
+                           value=opts.get('enabled',False),key='four_ranking_push')
+        if st.button('儲存四榜通知設定',key='four_rankings_save'):
+            if api('PUT','/four-rankings/preferences',json={'enabled':enabled}):
+                st.success('四榜通知設定已儲存')
+        if st.button('更新四榜研究報告',key='four_rankings_refresh'):
+            st.session_state.four_rankings_report=api('GET','/four-rankings/latest')
+        report=st.session_state.get('four_rankings_report') or {}
+        if not report.get('as_of'):
+            st.info('尚無完整四榜資料。須完成基本面與分鐘K棒資料驗證後才會發布，不以缺漏資料湊榜。')
+        else:
+            st.caption('資料時間：'+str(report['as_of'])+'｜僅供研究，不會觸發委託')
+            tabs=st.tabs(['綜合前10','長期前10','波段前10','當沖前10'])
+            for tab,mode in zip(tabs,['combined','long_term','swing','intraday']):
+                with tab:
+                    rows=report.get('rankings',{}).get(mode,[])
+                    if rows:st.dataframe(rows,hide_index=True,use_container_width=True)
+                    else:st.warning('本模式資料不足，暫不排名')

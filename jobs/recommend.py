@@ -63,6 +63,16 @@ def run(slot,dry_run=True,now=None):
             report={**rank(items,settings_for(user),today),'coverage':coverage,'target_date':str(target),'date':str(today),'slot':slot,'slot_label':'11:30' if slot=='morning' else '19:30','universe_partial':partial,'generated_at':now.isoformat()}
             texts=messages(report);put('recommendations:'+('preview:' if dry_run else 'latest:')+user,report)
             remaining=deliver(user,key,texts,dry_run,remaining)
+            # Independent opt-in four-mode outbox; never alter existing ranking.
+            from app.day_trader.reporting import preferences as four_preferences, latest as four_latest, summary as four_summary
+            if four_preferences(user).get('enabled'):
+                four_report=four_latest(user)
+                if four_report.get('as_of')==str(target):
+                    four_text=four_summary(four_report)
+                    if four_text:
+                        four_key=f'four_rankings:outbox:{today}:{slot}:{user}'
+                        remaining=deliver(user,four_key,[four_text],dry_run,remaining)
+
             reports.append({'matched':report['matched'],'round':report['round'],'coverage':coverage,'messages':len(texts)})
         return {'status':'preview' if dry_run else 'sent','reports':reports}
 

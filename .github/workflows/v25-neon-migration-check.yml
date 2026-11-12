@@ -1,0 +1,150 @@
+name: V2.5 Neon isolated migration check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/day-trader-integration
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v25-neon-migration-check
+  cancel-in-progress: false
+
+jobs:
+  migration:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[run-v25-migration]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.NEON_V25_TEST_DATABASE_URL }}
+      EXPECTED_TEST_HOST: ${{ vars.NEON_V25_TEST_HOST }}
+    steps:
+      - name: Checkout selected development revision
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install database dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify isolated test host and preserve existing records
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from urllib.parse import urlsplit
+          from sqlalchemy import create_engine, inspect, text
+
+          url = os.environ.get("DATABASE_URL", "")
+          expected = os.environ.get("EXPECTED_TEST_HOST", "").strip().lower()
+          if not url or not expected:
+              raise SystemExit("Configure NEON_V25_TEST_DATABASE_URL secret and NEON_V25_TEST_HOST variable first.")
+          parsed = urlsplit(url)
+          host = (parsed.hostname or "").lower()
+          if parsed.scheme not in ("postgresql", "postgres", "postgresql+psycopg"):
+              raise SystemExit("Only PostgreSQL URLs are permitted.")
+          if host != expected or not host.endswith(".neon.tech"):
+              raise SystemExit("Database host does not match explicitly configured test host.")
+          # Hard stop for the known production endpoint, including direct/pooled variants.
+          if host.split(".")[0].removesuffix("-pooler") == "ep-steep-night-a14wn335":
+              raise SystemExit("Refusing to modify production database.")
+          if parsed.path != "/neondb":
+              raise SystemExit("Unexpected database name; expected neondb.")
+          if "sslmode=require" not in parsed.query:
+              raise SystemExit("Require sslmode=require for Neon connection.")
+          os.environ["DATABASE_URL"] = url
+          from app.db import Base, engine, init_db
+          original = ("documents", "preferences", "provider_budgets", "watchlist", "worker_leases")
+
+          def snapshot():
+              out = {}
+              with engine.connect() as connection:
+                  for name in original:
+                      columns = inspect(connection).get_columns(name, schema="public")
+                      if not columns:
+                          raise RuntimeError("Missing baseline table: " + name)
+                      primary = inspect(connection).get_pk_constraint(name, schema="public")["constrained_columns"]
+                      if not primary:
+                          raise RuntimeError("Missing primary key on " + name)
+                      order = ", ".join('"' + col.replace('"','""') + '"' for col in primary)
+                      rows = connection.execute(text('SELECT * FROM "' + name + '" ORDER BY ' + order)).mappings()
+                      digest = hashlib.sha256()
+                      count = 0
+                      for row in rows:
+                          digest.update(json.dumps(dict(row), sort_keys=True, default=str, ensure_ascii=False).encode())
+                          digest.update(b"\\n")
+                          count += 1
+                      out[name] = (count, digest.hexdigest())
+              return out
+
+          before = snapshot()
+          # Compare the current pre/post snapshots; legitimate data growth is allowed.
+          # snapshot() already requires all five legacy tables and their primary keys.
+          print("Baseline row counts:", {name: value[0] for name, value in before.items()})
+          # Registers all V2.5 ORM models and creates only missing tables.
+          init_db()
+          after = snapshot()
+          if before != after:
+              raise SystemExit("Existing table data changed during migration check.")
+          expected_tables = set(Base.metadata.tables)
+          actual_tables = set(inspect(engine).get_table_names(schema="public"))
+          missing = expected_tables - actual_tables
+          if missing:
+              raise SystemExit("Missing V2.5 tables: " + ", ".join(sorted(missing)))
+          # Device-session persistence and revocation, performed only on the isolated test branch.
+          from app.api.device_sessions import LoginDevice, register, permitted, revoke
+          from sqlalchemy import delete
+          import secrets
+          sid = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+          test_user = "integration-test-" + sid[:20]
+          expiry = __import__("time").time() + 120
+          try:
+              register(sid, test_user, expiry)
+              if not permitted(sid):
+                  raise RuntimeError("Device session was not persisted")
+              if not revoke(sid, test_user):
+                  raise RuntimeError("Device session revocation failed")
+              if permitted(sid):
+                  raise RuntimeError("Revoked device session still permitted")
+              print("PASS: login_devices persisted and revoked a device session.")
+          finally:
+              with engine.begin() as connection:
+                  connection.execute(delete(LoginDevice).where(LoginDevice.session_id == sid))
+          if snapshot() != before:
+              raise RuntimeError("Baseline table records changed during device-session check")
+          # Test daily AI quota persistence against the isolated Neon branch only.
+          from app.day_trader.ai_usage import AIUsage, reserve, finish, usage
+          from app.day_trader.access_models import UserAILimit
+          quota_user = "U" + sid[:32]
+          try:
+              with engine.begin() as connection:
+                  connection.execute(UserAILimit.__table__.insert().values(
+                      user=quota_user, normal_daily_limit=1, emergency_daily_limit=1))
+              assert reserve(quota_user, "2330.TW") == "reserved"
+              assert reserve(quota_user, "2330.TW") == "pending"
+              assert reserve(quota_user, "2412.TW") == "exhausted"
+              assert finish(quota_user, "2330.TW")
+              assert reserve(quota_user, "2330.TW") == "cached"
+              assert usage(quota_user)["used"] == 1
+              assert usage(quota_user)["remaining"] == 0
+              assert reserve(quota_user, "2412.TW", "emergency") == "reserved"
+              assert finish(quota_user, "2412.TW", "emergency", success=False)
+              assert usage(quota_user, "emergency")["remaining"] == 1
+              print("PASS: Neon AI quota persistence, deduplication, exhaustion and failure release.")
+          finally:
+              with engine.begin() as connection:
+                  connection.execute(AIUsage.__table__.delete().where(AIUsage.user == quota_user))
+                  connection.execute(UserAILimit.__table__.delete().where(UserAILimit.user == quota_user))
+          if snapshot() != before:
+              raise RuntimeError("Baseline records changed during AI quota verification")
+          print("PASS: V2.5 schema created; existing table rows and SHA-256 checksums unchanged.")
+          print("Total mapped tables:", len(expected_tables))
+          print("Table names:", ", ".join(sorted(expected_tables)))
+          PY
+
+# Explicit one-time migration verification trigger; no production configuration changes.

@@ -46,3 +46,16 @@ def test_quote_failure_keeps_health_alive(monkeypatch):
     with TestClient(app) as c:
         assert c.get('/quote/AAPL',headers=A).status_code==503
         assert c.get('/health').status_code==200
+
+def test_maintenance_blocks_public_private_and_webhook(monkeypatch):
+    import app.api.server as server
+    original_get=server.get
+    monkeypatch.setattr(server,'get',lambda key,default=None: {'enabled':True} if key=='system:maintenance' else original_get(key,default))
+    with TestClient(app) as c:
+        assert c.get('/health').status_code==200
+        assert c.get('/maintenance/status').json()=={'maintenance':True}
+        for path in ('/public/scan','/watchlist','/quote/2412'):
+            response=c.get(path)
+            assert response.status_code==503
+        assert c.post('/line/webhook',json={'events':[]}).status_code==503
+        assert c.post('/auth/line/start',json={}).status_code==503

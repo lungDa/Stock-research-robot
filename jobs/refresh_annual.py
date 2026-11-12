@@ -64,8 +64,23 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         from app.services.data_queue import requested
         for s in requested():
             if s not in symbols:symbols.append(s)
+    if not explicit and os.getenv('ANNUAL_UNIVERSE_BATCH','').strip() == '1':
+        # Cover the whole TWSE/TPEx universe gradually without loading every
+        # company/feed pair into one invocation or blocking personal requests.
+        from app.providers.universe import load as load_universe
+        try:
+            universe=sorted(set(s for s in load_universe() if s.endswith(('.TW','.TWO'))))
+        except Exception:
+            universe=[]
+        if universe:
+            start=int(get('annual:universe_cursor',{'value':0}).get('value',0))%len(universe)
+            batch=[universe[(start+i)%len(universe)] for i in range(min(12,len(universe)))]
+            put('annual:universe_cursor',{'value':(start+len(batch))%len(universe)})
+            for s in batch:
+                if s not in symbols:
+                    symbols.append(s)
     if not symbols:
-        print('年度資料：尚無追蹤清單或ANNUAL_SYMBOLS，略過。');return
+        print('年度資料：尚無追蹤清單或可用市場母體，略過。');return
     symbols=sorted(symbols)
     # Cursor across symbol/feed pairs prevents one slow company starving others.
     tasks=[]

@@ -45,13 +45,15 @@ def status():return {'line_login_ready':ready()}
 @router.post('/line/start')
 async def start(request:Request):
     ensure_ready();data=await body_json(request)
-    # Streamlit轉送流量共用來源IP；每10分鐘最多10次啟動。
+    # Streamlit proxy users may share one source IP. This is a broad abuse
+    # circuit breaker, not a per-person login limit. The one-time ticket,
+    # OAuth state, and password-stage limits provide narrower protections.
     host=request.client.host if request.client else 'unknown'
     bucket='auth:attempt:'+digest(host)+':'+str(int(time.time()//600))
     attempt=None
-    for i in range(10):
+    for i in range(300):
         if claim(bucket+':'+str(i),{'at':time.time()}):attempt=i;break
-    if attempt is None:raise HTTPException(429,'登入嘗試過多，請10分鐘後重試')
+    if attempt is None:raise HTTPException(429,'登入服務暫時繁忙，請10分鐘後重試')
     ticket=secrets.token_urlsafe(32)
     put('auth:start:'+digest(ticket),{'expires':time.time()+120})
     return {'authorize_url':settings.api_public_url.rstrip('/')+'/auth/line/authorize?'+urlencode({'ticket':ticket})}
@@ -121,13 +123,24 @@ async def redeem(request:Request):
     handoff=consume('handoff',code)
     if not is_member(handoff['user']):raise HTTPException(403,'帳戶已停用')
     token=secrets.token_urlsafe(48)
-    put('auth:session:'+digest(token),{'user':handoff['user'],'expires':time.time()+600,'stage':'password'})
-    return {'token':token,'expires_in':600,'stage':'password','name':get('member:'+handoff['user'],{}).get('name','LINE使用者')}
+    member=get('member:'+handoff['user'],{})
+    stage='setup_password' if member.get('activation_pending') and not member.get('password_hash') else 'password'
+    from app.api import device_sessions
+    sid=digest(token); expiry=time.time()+600
+    device_sessions.register(sid,handoff['user'],expiry)
+    put('auth:session:'+sid,{'user':handoff['user'],'expires':expiry,'stage':stage,'session_id':sid})
+    return {'token':token,'expires_in':600,'stage':stage,'name':member.get('name','LINE使用者')}
 
 @router.post('/logout')
 def logout(request:Request):
     value=request.headers.get('authorization','').removeprefix('Bearer ')
-    if value:put('auth:session:'+digest(value),{'expires':0})
+    if value:
+        from app.api import device_sessions
+        sid=digest(value)
+        record=get('auth:session:'+sid,{})
+        if record.get('session_id')==sid:
+            device_sessions.revoke(sid,record.get('user',''))
+        put('auth:session:'+sid,{'expires':0})
     return {'ok':True}
 
 def session_info(request):
@@ -135,6 +148,9 @@ def session_info(request):
     key='auth:session:'+digest(token);session=get(key,{})
     if not token or session.get('expires',0)<=time.time() or not is_member(session.get('user','')):raise HTTPException(401,'登入已過期，請重新LINE登入')
     member=get('member:'+session['user'],{})
+    if session.get('session_id'):
+        from app.api import device_sessions
+        if not device_sessions.permitted(session['session_id']):raise HTTPException(401,'裝置登入已撤銷')
     if session.get('stage')=='active' and session.get('password_version')!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新LINE登入')
     return key,session,member
 
@@ -153,10 +169,22 @@ async def verify_password(request:Request):
     if session.get('stage')!='password':raise HTTPException(400,'登入階段不符')
     bucket='auth:password-attempt:'+digest(session['user'])+':'+str(int(time.time()//600))
     if not any(claim(bucket+':'+str(i),{'at':time.time()}) for i in range(6)):raise HTTPException(429,'密碼嘗試過多，請10分鐘後重試')
-    if not isinstance(password,str) or len(password)>128 or not password_matches(password,member.get('password_hash','')):raise HTTPException(403,'個人密碼錯誤')
+    if not isinstance(password,str) or len(password)>128 or not password_matches(password,member.get('password_hash','')):
+        if session.get('session_id'):
+            from app.day_trader.login_risk import note_password_failure
+            note_password_failure(session['session_id'])
+        raise HTTPException(403,'個人密碼錯誤')
     forced=member.get('password_change_required',True)
-    session.update(stage='change_password' if forced else 'active',password_version=member.get('password_version',0),expires=time.time()+(600 if forced else 12*3600))
+    from app.day_trader.login_risk import challenge_required
+    risk = bool(session.get('session_id') and not forced and challenge_required(session['user'],session['session_id']))
+    session.update(stage='change_password' if forced else ('risk_otp' if risk else 'active'),password_version=member.get('password_version',0),expires=time.time()+(600 if forced or risk else 12*3600))
     put(key,session)
+    if session.get('session_id'):
+        from app.api import device_sessions
+        device_sessions.extend(session['session_id'],session['expires'])
+    if session['stage']=='active' and session.get('session_id'):
+        from app.day_trader.login_alerts import notify_admin_login
+        notify_admin_login(session['user'],session['session_id'])
     return {'stage':session['stage'],'password_change_required':forced}
 
 @router.post('/password/change')
@@ -164,15 +192,75 @@ async def change_password(request:Request):
     key,session,member=session_info(request)
     data=await body_json(request);new=data.get('new_password','')
     if not isinstance(new,str) or not re.fullmatch(r'[0-9]{8}',new):raise HTTPException(400,'新密碼必須剛好8位半形數字')
-    if session.get('stage') not in ('active','change_password'):raise HTTPException(403,'請先驗證初始密碼')
-    if session.get('password_version')!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新登入')
+    if session.get('stage') not in ('active','change_password','setup_password'):raise HTTPException(403,'請先完成身分及密碼驗證')
+    if session.get('password_version',0)!=member.get('password_version',0):raise HTTPException(401,'密碼已變更，請重新登入')
+    if session.get('stage')=='setup_password' and (not member.get('activation_pending') or member.get('password_hash')):raise HTTPException(403,'帳戶已設定密碼，請重新登入')
     if session.get('stage')=='active':
         old=data.get('current_password','')
         if not isinstance(old,str) or len(old)>128 or not password_matches(old,member.get('password_hash','')):raise HTTPException(403,'目前密碼錯誤')
-    elif session.get('stage')!='change_password':raise HTTPException(403,'請先驗證初始密碼')
+    elif session.get('stage') not in ('change_password','setup_password'):raise HTTPException(403,'請先完成密碼驗證')
     if password_matches(new,member.get('password_hash','')):raise HTTPException(400,'新密碼需與目前密碼不同')
-    member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16))
+    member.update(password_hash=password_hash(new),password_change_required=False,password_version=secrets.token_hex(16),activation_pending=False)
     put('member:'+session['user'],member)
+    # Password rotation invalidates all existing step-up grants, including this device.
+    from app.db import put as _put
+    if session.get('session_id'):
+        _put('admin:stepup:'+session['session_id'], {'grant_expires':0})
     session.update(stage='active',password_version=member['password_version'],expires=time.time()+12*3600)
     put(key,session)
+    if session.get('session_id'):
+        from app.api import device_sessions
+        device_sessions.extend(session['session_id'],session['expires'])
+        # Revoke every other device on password rotation. Protected API requests
+        # check the persistent revoked flag before accepting the old token.
+        device_sessions.revoke_others(session['user'],session['session_id'])
+    return {'stage':'active','password_change_required':False}
+
+
+@router.get('/devices')
+def devices(request:Request):
+    key,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    from app.api import device_sessions
+    return {'devices':device_sessions.list_devices(session['user'],digest(request.headers.get('authorization','').removeprefix('Bearer ')))}
+
+@router.post('/devices/revoke-others')
+def devices_revoke_others(request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    from app.api import device_sessions
+    current=digest(request.headers.get('authorization','').removeprefix('Bearer '))
+    return {'revoked':device_sessions.revoke_others(session['user'],current)}
+
+@router.post('/devices/{session_id}/revoke')
+def devices_revoke(session_id:str,request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='active':raise HTTPException(403,'請先完成密碼驗證')
+    if not re.fullmatch(r'[0-9a-f]{64}',session_id):raise HTTPException(400,'裝置識別格式錯誤')
+    from app.api import device_sessions
+    return {'revoked':device_sessions.revoke(session_id,session['user'])}
+
+
+@router.post('/risk/otp')
+def risk_otp_issue(request:Request):
+    _,session,_=session_info(request)
+    if session.get('stage')!='risk_otp':raise HTTPException(403,'不需要額外驗證')
+    from app.day_trader.login_risk import issue
+    try:return issue(session['user'],session['session_id'])
+    except HTTPException:raise
+    except Exception:raise HTTPException(503,'驗證碼暫時無法發送')
+
+@router.post('/risk/verify')
+async def risk_otp_verify(request:Request):
+    key,session,member=session_info(request)
+    if session.get('stage')!='risk_otp':raise HTTPException(403,'登入階段不符')
+    data=await body_json(request)
+    from app.day_trader.login_risk import verify
+    verify(session['user'],session['session_id'],data.get('code'))
+    session.update(stage='active',expires=time.time()+12*3600)
+    put(key,session)
+    from app.api.device_sessions import extend
+    extend(session['session_id'],session['expires'])
+    from app.day_trader.login_alerts import notify_admin_login
+    notify_admin_login(session['user'],session['session_id'])
     return {'stage':'active','password_change_required':False}
