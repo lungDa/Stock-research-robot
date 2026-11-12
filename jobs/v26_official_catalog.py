@@ -75,6 +75,8 @@ def run():
         except Exception as exc:
             results.append({'market': market, 'status': 'failed',
                             'error': type(exc).__name__})
+    if any(item['status'] == 'failed' for item in results):
+        raise RuntimeError('Official company registry refresh failed: ' + repr(results))
     return results
 
 
