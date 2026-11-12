@@ -3,7 +3,7 @@
 Never infer verified six-factor completeness from the older three-field diagnostic.
 """
 import time
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.api.security import current_user
 from app.db import get
 
@@ -43,3 +43,12 @@ def summary(user=Depends(current_user)):
         },
         'note': 'Neon目前只有三欄診斷快照；六項財務指標的來源與年度尚未逐項核對，不顯示全市場六項完整率。',
     }
+
+@router.get('/stock/{symbol}')
+def stock(symbol: str, user=Depends(current_user)):
+    from app.providers.market import normalize
+    from app.services.v26_coverage_adapter import read_stock
+    try:
+        return read_stock(normalize(symbol))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
