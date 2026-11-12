@@ -49,6 +49,18 @@ def render(api, personal, is_admin):
         st.session_state.v26_coverage_symbol = symbol.strip().upper()
     target = st.session_state.get('v26_coverage_symbol')
     if target:
+        coverage = api('GET', '/coverage/stock/' + target)
+        if coverage and coverage.get('scope') == 'SIX_FACTOR_PERIOD_VERIFIED':
+            st.markdown('#### 六項財報欄位完整率（Neon 初步檢查）')
+            st.metric('已具備必要欄位與來源的項目', f"{coverage.get('complete_items', 0)} / {coverage.get('expected_items', 31)}")
+            st.caption('此為暫定資料覆蓋率，尚未通過官方來源交叉驗證，不代表正式完整率。')
+            missing = coverage.get('missing_years') or {}
+            st.dataframe(pd.DataFrame([
+                {'財務指標': FIELDS.get(field, field),
+                 '缺漏年度': '、'.join(map(str, years)) if years else '無',
+                 '狀態': '待補／待核對' if years else '欄位初步齊全'}
+                for field, years in missing.items()
+            ]), use_container_width=True, hide_index=True)
         # This endpoint is already protected by the application's session token.
         result = api('GET', '/quote/' + target)
         if result:
