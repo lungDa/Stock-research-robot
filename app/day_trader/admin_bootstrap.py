@@ -8,6 +8,7 @@ import hmac
 import re
 import secrets
 import time
+import uuid
 from datetime import datetime, timezone
 from sqlalchemy import update
 from app.db import Session
@@ -61,7 +62,7 @@ def issue_initialization_otp(user):
             "expires": time.time() + OTP_TTL_SECONDS, "attempts": 0, "user": user})
         try:
             line.push(row["line_id"], "股海燈塔管理員初始化驗證碼：" + otp +
-                      "（5分鐘內有效，請勿轉傳）", secrets.token_hex(16))
+                      "（5分鐘內有效，請勿轉傳）", str(uuid.uuid4()))
         except Exception:
             # Failed delivery must not leave a live challenge that blocks retries.
             put("admin:bootstrap:otp", {"expires": 0, "attempts": MAX_ATTEMPTS})

@@ -307,7 +307,24 @@ def admin_bootstrap_send_otp(user=Depends(current_user)):
         import requests
         if isinstance(exc, requests.HTTPError) and exc.response is not None:
             status = exc.response.status_code
-            log.warning('admin bootstrap LINE push rejected: status=%s', status)
+            # Classify only known error shapes; do not log raw LINE response bodies.
+            category = 'unspecified'
+            if status == 400:
+                try:
+                    body = exc.response.json()
+                    if isinstance(body, dict):
+                        message = str(body.get('message', '')).lower()
+                        details = body.get('details', [])
+                        fields = ' '.join(str(d.get('property', '')) for d in details if isinstance(d, dict)).lower() if isinstance(details, list) else ''
+                        if 'retry' in message or 'retry' in fields:
+                            category = 'retry_key'
+                        elif fields == 'to' or 'recipient' in message:
+                            category = 'recipient'
+                        elif 'messages' in fields:
+                            category = 'message_payload'
+                except (ValueError, TypeError, AttributeError):
+                    pass
+            log.warning('admin bootstrap LINE push rejected: status=%s category=%s', status, category)
             if status == 401:
                 raise HTTPException(503, 'LINE 推播授權失敗（401），請檢查 Render 的 LINE Messaging API Channel Access Token。')
             if status == 403:
@@ -315,7 +332,8 @@ def admin_bootstrap_send_otp(user=Depends(current_user)):
             if status == 429:
                 raise HTTPException(503, 'LINE 推播頻率或額度受限（429），請稍後重試。')
             if status == 400:
-                raise HTTPException(503, 'LINE 拒絕推播請求（400），請檢查管理員 LINE User ID 與官方帳號是否相符。')
+                hints = {'retry_key': 'LINE 推播重試識別碼格式遭拒（400）。', 'recipient': 'LINE 推播收件者參數遭拒（400）。', 'message_payload': 'LINE 推播訊息格式遭拒（400）。'}
+                raise HTTPException(503, hints.get(category, 'LINE 拒絕推播請求（400）。') + '請查看 Render Logs 的安全錯誤分類。')
             raise HTTPException(503, 'LINE 推播服務回傳錯誤（HTTP ' + str(status) + '），請查看 Render Logs。')
         if isinstance(exc, requests.Timeout):
             log.warning('admin bootstrap LINE push timed out')
