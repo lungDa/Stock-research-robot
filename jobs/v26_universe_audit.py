@@ -8,6 +8,7 @@ import time
 
 MAX_AGE_SECONDS = 8 * 86400
 from app.db import get, get_many, init_db, put
+CLASSIFICATION_TTL = 8 * 86400
 
 SYMBOL = re.compile(r'^\d{4}\.(TW|TWO)$')
 
@@ -38,7 +39,11 @@ def audit(markets, quotes, now=None):
             if code in seen_codes and seen_codes[code] != market:
                 issues.append(code + ':跨市場重複代號')
             seen_codes[code] = market
-            kind = quotes.get(symbol, {}).get('kind', 'UNKNOWN')
+            classification = quotes.get(symbol, {})
+            kind = classification.get('kind', 'UNKNOWN')
+            stamp = classification.get('classification_at')
+            if kind == 'STOCK' and (type(stamp) not in (int, float) or not 0 <= now - stamp <= CLASSIFICATION_TTL or not classification.get('classification_source')):
+                kind = 'UNKNOWN'
             if kind == 'STOCK':
                 if symbol in included:
                     issues.append(symbol + ':重複代號')
@@ -56,8 +61,20 @@ def audit(markets, quotes, now=None):
             'symbols': sorted(included)}
 
 
+def invalidate_snapshot(reason):
+    put('v26:universe:verified_symbols', {'at': time.time(), 'verified': False, 'symbols': [], 'reason': str(reason)[:200]})
+
+
 def run():
     init_db()
+    try:
+        return _run_audit()
+    except Exception as exc:
+        invalidate_snapshot(type(exc).__name__)
+        raise
+
+
+def _run_audit():
     markets = {m: get('universe:small:' + m, {}) for m in ('TW', 'TWO')}
     candidates = sorted({row.get('symbol') for state in markets.values()
                          for row in state.get('rows', [])
@@ -67,14 +84,28 @@ def run():
         keys = ['quote:' + symbol for symbol in candidates[start:start + 80]]
         docs = get_many(keys)
         quotes.update({symbol: docs.get('quote:' + symbol, {}) for symbol in candidates[start:start + 80]})
+    for market in ('TW', 'TWO'):
+        record = get('official:catalog:' + market, {})
+        if not isinstance(record, dict):
+            continue
+        at, source = record.get('at'), record.get('source')
+        if type(at) not in (int, float) or not 0 <= time.time() - at <= CLASSIFICATION_TTL or not source:
+            continue
+        data = record.get('data', {})
+        if not isinstance(data, dict):
+            continue
+        for code, item in data.items():
+            symbol = str(code) + '.' + market
+            if symbol in quotes and isinstance(item, dict) and item.get('kind') in ('STOCK', 'ETF', 'OTHER'):
+                quotes[symbol] = {'kind': item['kind'], 'classification_at': at, 'classification_source': source}
     result = audit(markets, quotes)
     summary = {k: v for k, v in result.items() if k != 'symbols'}
     summary['at'] = time.time()
     # A complete market source alone is insufficient evidence of stock kind.
-    put('v26:universe:audit', summary)
     put('v26:universe:verified_symbols', {'at': summary['at'],
         'verified': result['verified'],
         'symbols': result['symbols'] if result['verified'] else []})
+    put('v26:universe:audit', summary)
     return summary
 
 
