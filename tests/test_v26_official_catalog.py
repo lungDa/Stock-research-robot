@@ -34,8 +34,17 @@ def test_success_persists_provenance(monkeypatch):
     monkeypatch.setattr(catalog, 'get', lambda key, default=None: {})
     monkeypatch.setattr(catalog, 'put', lambda key, value: writes.update({key: value}))
     catalog.refresh('TWO', now=1800000000,
-                    fetcher=lambda *args, **kwargs: [{'公司代號': '6488', '公司名稱': '環球晶'}])
+                    fetcher=lambda *args, **kwargs: {'records': [{'公司代號': '6488', '公司名稱': '環球晶'}], 'complete': True})
     record = writes['official:catalog:TWO']
     assert record['source'] == catalog.ENDPOINTS['TWO']
     assert record['scope'] == 'OFFICIAL_COMPANY_REGISTRY'
     assert record['complete'] is False
+
+def test_truncated_registry_rejected(monkeypatch):
+    writes = {}
+    monkeypatch.setattr(catalog, 'get', lambda key, default=None: {})
+    monkeypatch.setattr(catalog, 'put', lambda key, value: writes.update({key: value}))
+    with pytest.raises(ValueError, match='不完整'):
+        catalog.refresh('TW', now=1800000000,
+                        fetcher=lambda *args, **kwargs: {'records': [{'公司代號': '2330'}], 'complete': False})
+    assert 'official:catalog:TW' not in writes
