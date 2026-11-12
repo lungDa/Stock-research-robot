@@ -5,20 +5,27 @@ flag alone. Classification must be independently supported for every row.
 """
 import re
 import time
+
+MAX_AGE_SECONDS = 8 * 86400
 from app.db import get, get_many, init_db, put
 
 SYMBOL = re.compile(r'^\d{4}\.(TW|TWO)$')
 
 
-def audit(markets, quotes):
+def audit(markets, quotes, now=None):
+    now = time.time() if now is None else now
     issues = []
     included = {}
+    seen_codes = {}
     counts = {'TW': 0, 'TWO': 0}
     excluded = {'ETF': 0, 'OTHER': 0, 'UNKNOWN': 0}
     for market in ('TW', 'TWO'):
         state = markets.get(market, {})
         if state.get('complete') is not True or not state.get('rows'):
             issues.append(market + ':母體來源未確認完整')
+        stamp = state.get('at')
+        if type(stamp) not in (int, float) or not 0 <= now - stamp <= MAX_AGE_SECONDS:
+            issues.append(market + ':母體來源過期或缺少時間戳記')
         for row in state.get('rows', []):
             if not isinstance(row, dict):
                 issues.append(market + ':無效列')
@@ -27,6 +34,10 @@ def audit(markets, quotes):
             if not SYMBOL.fullmatch(symbol) or not symbol.endswith('.' + market):
                 issues.append(market + ':非四碼普通股候選或市場別不一致:' + symbol)
                 continue
+            code = symbol.split('.')[0]
+            if code in seen_codes and seen_codes[code] != market:
+                issues.append(code + ':跨市場重複代號')
+            seen_codes[code] = market
             kind = quotes.get(symbol, {}).get('kind', 'UNKNOWN')
             if kind == 'STOCK':
                 if symbol in included:
@@ -61,8 +72,9 @@ def run():
     summary['at'] = time.time()
     # A complete market source alone is insufficient evidence of stock kind.
     put('v26:universe:audit', summary)
-    if result['verified']:
-        put('v26:universe:verified_symbols', {'at': summary['at'], 'symbols': result['symbols']})
+    put('v26:universe:verified_symbols', {'at': summary['at'],
+        'verified': result['verified'],
+        'symbols': result['symbols'] if result['verified'] else []})
     return summary
 
 
