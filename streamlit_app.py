@@ -46,9 +46,11 @@ if st.session_state.get('browser_logout_pending'):
     st.info('正在清除登入狀態…')
     st.stop()
 
-if not st.session_state.get('token') and not st.query_params.get('login_code'):
+# Keep the browser bridge mounted in authenticated tabs too. Otherwise a
+# newly opened tab cannot request the token from an already logged-in tab.
+if not st.query_params.get('login_code'):
     restored=browser_session(command='read',key='browser_session_read')
-    if isinstance(restored,dict) and restored.get('token'):
+    if not st.session_state.get('token') and isinstance(restored,dict) and restored.get('token'):
         st.session_state.token=restored['token']
         st.rerun()
 
