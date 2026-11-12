@@ -21,6 +21,7 @@ def audit(markets, quotes, now=None, official_codes=None):
     seen_codes = {}
     counts = {'TW': 0, 'TWO': 0}
     excluded = {'ETF': 0, 'OTHER': 0, 'UNKNOWN': 0}
+    check_official = official_codes is not None
     official_codes = official_codes or {}
     for market in ('TW', 'TWO'):
         state = markets.get(market, {})
@@ -29,7 +30,7 @@ def audit(markets, quotes, now=None, official_codes=None):
         stamp = state.get('at')
         if type(stamp) not in (int, float) or not 0 <= now - stamp <= MAX_AGE_SECONDS:
             issues.append(market + ':母體來源過期或缺少時間戳記')
-        if market not in official_codes:
+        if check_official and market not in official_codes:
             issues.append(market + ':缺少官方公司名錄，無法核對數量')
         for row in state.get('rows', []):
             if not isinstance(row, dict):
