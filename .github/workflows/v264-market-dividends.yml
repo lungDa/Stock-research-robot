@@ -25,5 +25,9 @@ jobs:
         run: |
           python -c "import os; assert os.getenv('DATABASE_URL','').startswith(('postgres','postgresql')), 'DATABASE_URL missing'"
           python -m jobs.maintenance_guard
+      - name: Refresh official TWSE and TPEx company registries
+        run: python -m jobs.v26_official_catalog
+      - name: Verify official ordinary-stock universe
+        run: python -m jobs.v26_universe_audit
       - name: Scan next verified ordinary-stock batch
         run: python -m jobs.v264_market_dividend_backfill

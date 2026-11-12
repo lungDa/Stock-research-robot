@@ -83,4 +83,7 @@ def run():
 
 
 if __name__ == '__main__':
-    print(json.dumps(run(), ensure_ascii=False))
+    result = run()
+    print(json.dumps(result, ensure_ascii=False))
+    if result.get('state') == 'blocked_unverified_universe':
+        raise SystemExit(2)

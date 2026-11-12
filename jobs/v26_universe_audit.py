@@ -88,39 +88,61 @@ def run():
 
 
 def _run_audit():
-    markets = {m: get('universe:small:' + m, {}) for m in ('TW', 'TWO')}
-    candidates = sorted({row.get('symbol') for state in markets.values()
-                         for row in state.get('rows', [])
-                         if isinstance(row, dict) and SYMBOL.fullmatch(str(row.get('symbol', '')))})
-    quotes = {}
-    for start in range(0, len(candidates), 80):
-        keys = ['quote:' + symbol for symbol in candidates[start:start + 80]]
-        docs = get_many(keys)
-        quotes.update({symbol: docs.get('quote:' + symbol, {}) for symbol in candidates[start:start + 80]})
-    official_codes = {}
+    """Official registries are the authoritative company universe.
+
+    The legacy universe:small feed is not a complete ordinary-stock census.
+    Accept only fresh official company registries with a fully attributable
+    source and valid company codes; never fill unknowns from market quotes.
+    """
+    now = time.time()
+    markets = {}
+    issues = []
+    all_symbols = []
+    seen = set()
+    counts = {}
     for market in ('TW', 'TWO'):
         record = get('official:catalog:' + market, {})
+        source = ENDPOINTS[market]
         if not isinstance(record, dict):
+            issues.append(market + ':官方名錄缺失')
             continue
-        at, source = record.get('at'), record.get('source')
-        if (type(at) not in (int, float) or not 0 <= time.time() - at <= CLASSIFICATION_TTL
-                or source != ENDPOINTS[market] or record.get('scope') != 'OFFICIAL_COMPANY_REGISTRY'):
+        stamp = record.get('at')
+        if (record.get('source') != source
+                or record.get('scope') != 'OFFICIAL_COMPANY_REGISTRY'
+                or type(stamp) not in (int, float)
+                or not 0 <= now - stamp <= CLASSIFICATION_TTL):
+            issues.append(market + ':官方名錄來源不符或已過期')
             continue
-        data = record.get('data', {})
-        if not isinstance(data, dict):
+        data = record.get('data')
+        if not isinstance(data, dict) or not data:
+            issues.append(market + ':官方名錄為空')
             continue
-        official_codes[market] = set(data)
+        symbols = []
         for code, item in data.items():
             symbol = str(code) + '.' + market
-            if symbol in quotes and isinstance(item, dict) and item.get('kind') in ('STOCK', 'ETF', 'OTHER'):
-                quotes[symbol] = {'kind': item['kind'], 'classification_at': at, 'classification_source': source}
-    result = audit(markets, quotes, official_codes=official_codes)
-    summary = {k: v for k, v in result.items() if k != 'symbols'}
-    summary['at'] = time.time()
-    # A complete market source alone is insufficient evidence of stock kind.
-    put('v26:universe:verified_symbols', {'at': summary['at'],
-        'verified': result['verified'],
-        'symbols': result['symbols'] if result['verified'] else []})
+            if (not SYMBOL.fullmatch(symbol) or
+                    not isinstance(item, dict) or
+                    item.get('kind') != 'STOCK' or
+                    not isinstance(item.get('name'), str) or
+                    not item['name'].strip() or
+                    code in seen):
+                issues.append(market + ':官方名錄包含無效或重複公司代號')
+                continue
+            seen.add(code)
+            symbols.append(symbol)
+        counts[market] = len(symbols)
+        all_symbols.extend(symbols)
+        markets[market] = {'at': stamp, 'source': source, 'count': len(symbols)}
+    verified = not issues and len(markets) == 2 and bool(all_symbols)
+    summary = {'at': now, 'verified': verified,
+               'scope': 'TW_TWO_ORDINARY_STOCKS',
+               'market_counts': counts, 'stock_count': len(all_symbols),
+               'issues_count': len(issues), 'issue_samples': issues[:30],
+               'catalogs': markets, 'method': 'OFFICIAL_COMPANY_REGISTRY'}
+    put('v26:universe:verified_symbols',
+        {'at': now, 'verified': verified,
+         'symbols': sorted(all_symbols) if verified else [],
+         'method': 'OFFICIAL_COMPANY_REGISTRY'})
     put('v26:universe:audit', summary)
     return summary
 

@@ -46,12 +46,10 @@ jobs:
       - name: Refresh official TWSE and TPEx company registries
         if: steps.window.outputs.run != 'false'
         timeout-minutes: 2
-        continue-on-error: true
         run: python -m jobs.v26_official_catalog
       - name: Audit listed and OTC ordinary-stock universe
         if: steps.window.outputs.run != 'false'
         timeout-minutes: 2
-        continue-on-error: true
         run: python -m jobs.v26_universe_audit
       - name: Update partial market completeness diagnostic
         if: steps.window.outputs.run != 'false'
