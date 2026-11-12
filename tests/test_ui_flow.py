@@ -54,6 +54,7 @@ def test_personal_financial_proof_form_renders_and_rejects_empty_input(monkeypat
         elif url.endswith('/recommendations/preferences'):body={'enabled':False}
         elif url.endswith('/four-rankings/preferences'):body={'enabled':False}
         elif url.endswith('/scan'):body={}
+        elif url.endswith('/coverage/summary'):body={'universe':{'verified':False},'three_field_diagnostic':{'fresh':False},'note':'尚待核對'}
         elif '/ttm-eps-components/' in url:
             from app.services.ttm_proof import calculate
             response=Mock(status_code=400)
