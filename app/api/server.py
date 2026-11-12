@@ -17,6 +17,8 @@ async def lifespan(app):
     provision_designated_admin_from_env()
     yield
 app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
+from app.api.v26_coverage import router as coverage_router
+app.include_router(coverage_router)
 
 # Persisted maintenance flag survives Render restarts. The middleware runs
 # before authentication, public routes, webhook handlers and background tasks.
