@@ -36,9 +36,10 @@ if maintenance_active:
     st.warning('系統維護中，暫停登入、查詢與交易操作。請稍後再試。')
     st.stop()
 
-# Browser bridge must finish restoring before rendering authenticated controls.
+# Browser restoration is non-blocking: public quotes and analysis remain available
+# while the optional personal session is being recovered.
 if st.session_state.get('browser_logout_pending'):
-    cleared=browser_session(command='clear')
+    cleared=browser_session(command='clear',key='browser_session_clear')
     if cleared is None:
         st.session_state.clear()
         st.rerun()
@@ -46,10 +47,7 @@ if st.session_state.get('browser_logout_pending'):
     st.stop()
 
 if not st.session_state.get('token') and not st.query_params.get('login_code'):
-    restored=browser_session(command='read')
-    if isinstance(restored,dict) and restored.get('pending'):
-        st.info('正在檢查瀏覽器登入狀態…')
-        st.stop()
+    restored=browser_session(command='read',key='browser_session_read')
     if isinstance(restored,dict) and restored.get('token'):
         st.session_state.token=restored['token']
         st.rerun()
