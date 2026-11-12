@@ -86,6 +86,9 @@ jobs:
           existing = set(inspect(engine).get_table_names(schema="public"))
           if not set(legacy).issubset(existing):
               raise SystemExit("FAIL CLOSED: missing legacy tables")
+          from app.trading import models, fees
+          from app.day_trader import access_models, ai_usage
+          from app.api import device_sessions
           if len(Base.metadata.tables) != 17:
               raise SystemExit("FAIL CLOSED: unexpected V2.5 model table count")
           print("Preflight passed. Legacy counts:", {k: v[0] for k, v in before.items()})
