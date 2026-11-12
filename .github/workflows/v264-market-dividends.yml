@@ -1,0 +1,29 @@
+name: V2.6.4 Verified market paid-dividend backfill
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15,45 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  market-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Check database and maintenance state
+        run: |
+          python -c "import os; assert os.getenv('DATABASE_URL','').startswith(('postgres','postgresql')), 'DATABASE_URL missing'"
+          python -m jobs.maintenance_guard
+      - name: Scan next verified ordinary-stock batch
+        run: python -m jobs.v264_market_dividend_backfill
