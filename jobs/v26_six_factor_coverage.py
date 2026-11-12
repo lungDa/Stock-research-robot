@@ -69,5 +69,5 @@ def market_summary(results, universe_verified):
     return {'verified': eligible, 'stock_count': len(rows),
             'fully_complete_stocks': complete,
             'complete_stock_ratio': round(complete / len(rows), 4) if rows else 0,
-            'gate_eligible': eligible and complete / len(rows) >= .95,
+            'gate_eligible': False,  # Requires verified universe identity, snapshot age and exact stock-set reconciliation.
             'note': '尚須檢查母體快照有效期、全數股票處理完成及資料來源新鮮度'}
