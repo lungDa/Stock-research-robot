@@ -1,0 +1,25 @@
+name: V2.6.3 Verify and backfill 2330 paid dividends
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  verify-2330:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate Neon connection configuration
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Missing PostgreSQL DATABASE_URL'"
+      - name: Verify existing values and backfill bounded missing periods
+        run: python -m jobs.v263_backfill_2330
