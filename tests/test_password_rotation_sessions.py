@@ -60,3 +60,20 @@ def test_rejected_password_change_does_not_revoke_other_device(monkeypatch):
         assert response.status_code == 403
         assert device_sessions.permitted(digest("rotation-failed-other"))
         assert client.get("/watchlist", headers=other).status_code == 200
+
+def test_active_password_rotation_preserves_absolute_expiry(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "login_channel_id", "configured")
+    with TestClient(app) as client:
+        headers = login(USER, "rotation-fixed-expiry")
+        sid = digest("rotation-fixed-expiry")
+        before = get("auth:session:" + sid)["expires"]
+        response = client.post("/auth/password/change", headers=headers,
+            json={"current_password": "12345678", "new_password": "87654321"})
+        assert response.status_code == 200, response.text
+        assert get("auth:session:" + sid)["expires"] == before
+        from app.db import Session
+        with Session() as db:
+            row = db.get(device_sessions.LoginDevice, sid)
+            assert row.expires_at == before
+        assert client.get("/auth/me", headers=headers).status_code == 200
