@@ -72,3 +72,14 @@ def test_audit_exception_revokes_old_snapshot(monkeypatch):
     assert writes[0][0] == 'v26:universe:verified_symbols'
     assert writes[0][1]['verified'] is False
     assert writes[0][1]['symbols'] == []
+
+def test_official_count_reconciliation_rejects_missing_company():
+    markets = {'TW': {'at': NOW, 'complete': True, 'rows': [{'symbol': '2330.TW'}]},
+               'TWO': {'at': NOW, 'complete': True, 'rows': [{'symbol': '6488.TWO'}]}}
+    quotes = {s: {'kind': 'STOCK', 'classification_at': NOW,
+                  'classification_source': 'official-test'}
+              for s in ('2330.TW', '6488.TWO')}
+    assert audit(markets, quotes, now=NOW,
+                 official_codes={'TW': {'2330', '2317'}, 'TWO': {'6488'}})['verified'] is False
+    assert audit(markets, quotes, now=NOW,
+                 official_codes={'TW': {'2330'}, 'TWO': {'6488'}})['verified'] is True
