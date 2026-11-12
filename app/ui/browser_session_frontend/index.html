@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><script>
+const KEY="lighthouse:auth:v2", CHANNEL="lighthouse:auth:tabs:v2";
+const channel=new BroadcastChannel(CHANNEL);
+const qs=new URLSearchParams(location.search);
+let last=null;
+function read(){try{return JSON.parse(sessionStorage.getItem(KEY)||"null")}catch{return null}}
+function emit(value){const v=JSON.stringify(value);if(v!==last){last=v;parent.postMessage({isStreamlitMessage:true,type:"streamlit:setComponentValue",value:value},"*")}}
+function save(value){if(value&&value.token){sessionStorage.setItem(KEY,JSON.stringify({token:value.token,at:Date.now()}))}else{sessionStorage.removeItem(KEY)}}
+function broadcast(value){channel.postMessage({kind:"sync",value:value||null})}
+channel.onmessage=(event)=>{if(!event.data||event.data.kind!=="sync")return;save(event.data.value);emit(event.data.value||null)};
+window.addEventListener("message",(event)=>{if(event.source!==parent||!event.data||event.data.type!=="streamlit:render")return;
+ const args=event.data.args||{};
+ if(args.command==="set"&&args.token){const value={token:args.token};save(value);broadcast(value);emit(value)}
+ else if(args.command==="clear"){save(null);broadcast(null);emit(null)}
+ else if(args.command==="read"){emit(read());if(!read())channel.postMessage({kind:"request"})}
+ parent.postMessage({isStreamlitMessage:true,type:"streamlit:setFrameHeight",height:0},"*");
+});
+channel.addEventListener("message",(event)=>{if(event.data&&event.data.kind==="request"){const v=read();if(v)broadcast(v)}});
+parent.postMessage({isStreamlitMessage:true,type:"streamlit:componentReady",apiVersion:1},"*");
+parent.postMessage({isStreamlitMessage:true,type:"streamlit:setFrameHeight",height:0},"*");
+</script></body></html>
