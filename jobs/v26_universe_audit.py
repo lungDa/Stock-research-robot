@@ -14,13 +14,14 @@ CLASSIFICATION_TTL = 8 * 86400
 SYMBOL = re.compile(r'^\d{4}\.(TW|TWO)$')
 
 
-def audit(markets, quotes, now=None):
+def audit(markets, quotes, now=None, official_codes=None):
     now = time.time() if now is None else now
     issues = []
     included = {}
     seen_codes = {}
     counts = {'TW': 0, 'TWO': 0}
     excluded = {'ETF': 0, 'OTHER': 0, 'UNKNOWN': 0}
+    official_codes = official_codes or {}
     for market in ('TW', 'TWO'):
         state = markets.get(market, {})
         if state.get('complete') is not True or not state.get('rows'):
@@ -28,6 +29,8 @@ def audit(markets, quotes, now=None):
         stamp = state.get('at')
         if type(stamp) not in (int, float) or not 0 <= now - stamp <= MAX_AGE_SECONDS:
             issues.append(market + ':母體來源過期或缺少時間戳記')
+        if market not in official_codes:
+            issues.append(market + ':缺少官方公司名錄，無法核對數量')
         for row in state.get('rows', []):
             if not isinstance(row, dict):
                 issues.append(market + ':無效列')
@@ -55,6 +58,14 @@ def audit(markets, quotes, now=None):
                 excluded[kind if kind in ('ETF', 'OTHER') else 'UNKNOWN'] += 1
                 if kind not in ('ETF', 'OTHER'):
                     issues.append(symbol + ':尚未確認商品分類')
+    for market, codes in official_codes.items():
+        actual = {symbol.split('.')[0] for symbol in included if symbol.endswith('.' + market)}
+        missing = set(codes) - actual
+        extra = actual - set(codes)
+        if missing:
+            issues.append(market + ':官方公司名錄缺漏' + str(len(missing)) + '檔')
+        if extra:
+            issues.append(market + ':不在官方公司名錄' + str(len(extra)) + '檔')
     return {'verified': not issues and bool(included),
             'scope': 'TW_TWO_ORDINARY_STOCKS', 'market_counts': counts,
             'excluded': excluded, 'stock_count': len(included),
@@ -85,6 +96,7 @@ def _run_audit():
         keys = ['quote:' + symbol for symbol in candidates[start:start + 80]]
         docs = get_many(keys)
         quotes.update({symbol: docs.get('quote:' + symbol, {}) for symbol in candidates[start:start + 80]})
+    official_codes = {}
     for market in ('TW', 'TWO'):
         record = get('official:catalog:' + market, {})
         if not isinstance(record, dict):
@@ -96,11 +108,12 @@ def _run_audit():
         data = record.get('data', {})
         if not isinstance(data, dict):
             continue
+        official_codes[market] = set(data)
         for code, item in data.items():
             symbol = str(code) + '.' + market
             if symbol in quotes and isinstance(item, dict) and item.get('kind') in ('STOCK', 'ETF', 'OTHER'):
                 quotes[symbol] = {'kind': item['kind'], 'classification_at': at, 'classification_source': source}
-    result = audit(markets, quotes)
+    result = audit(markets, quotes, official_codes=official_codes)
     summary = {k: v for k, v in result.items() if k != 'symbols'}
     summary['at'] = time.time()
     # A complete market source alone is insufficient evidence of stock kind.
