@@ -177,7 +177,7 @@ async def verify_password(request:Request):
     forced=member.get('password_change_required',True)
     from app.day_trader.login_risk import challenge_required
     risk = bool(session.get('session_id') and not forced and challenge_required(session['user'],session['session_id']))
-    session.update(stage='change_password' if forced else ('risk_otp' if risk else 'active'),password_version=member.get('password_version',0),expires=time.time()+(600 if forced or risk else 12*3600))
+    session.update(stage='change_password' if forced else ('risk_otp' if risk else 'active'),password_version=member.get('password_version',0),expires=time.time()+(600 if forced or risk else 24*3600))
     put(key,session)
     if session.get('session_id'):
         from app.api import device_sessions
@@ -206,7 +206,7 @@ async def change_password(request:Request):
     from app.db import put as _put
     if session.get('session_id'):
         _put('admin:stepup:'+session['session_id'], {'grant_expires':0})
-    session.update(stage='active',password_version=member['password_version'],expires=time.time()+12*3600)
+    session.update(stage='active',password_version=member['password_version'],expires=time.time()+24*3600)
     put(key,session)
     if session.get('session_id'):
         from app.api import device_sessions
@@ -257,7 +257,7 @@ async def risk_otp_verify(request:Request):
     data=await body_json(request)
     from app.day_trader.login_risk import verify
     verify(session['user'],session['session_id'],data.get('code'))
-    session.update(stage='active',expires=time.time()+12*3600)
+    session.update(stage='active',expires=time.time()+24*3600)
     put(key,session)
     from app.api.device_sessions import extend
     extend(session['session_id'],session['expires'])
