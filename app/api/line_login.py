@@ -206,7 +206,11 @@ async def change_password(request:Request):
     from app.db import put as _put
     if session.get('session_id'):
         _put('admin:stepup:'+session['session_id'], {'grant_expires':0})
-    session.update(stage='active',password_version=member['password_version'],expires=time.time()+24*3600)
+    # A password rotation must not renew an already active login's absolute TTL.
+    # Initial password setup and mandatory password rotation complete authentication
+    # and therefore start their own 24-hour verified session.
+    expiry = session['expires'] if session['stage']=='active' else time.time()+24*3600
+    session.update(stage='active',password_version=member['password_version'],expires=expiry)
     put(key,session)
     if session.get('session_id'):
         from app.api import device_sessions
