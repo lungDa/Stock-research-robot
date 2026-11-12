@@ -295,11 +295,36 @@ def admin_bootstrap_send_otp(user=Depends(current_user)):
     from app.day_trader.admin_bootstrap import issue_initialization_otp
     try:
         return issue_initialization_otp(user)
-    except PermissionError:
-        raise HTTPException(403, '無法發送初始化驗證碼')
-    except Exception:
+    except PermissionError as exc:
+        # Safe, actionable status without disclosing any designated LINE identity.
+        reason = str(exc)
+        if reason == '驗證碼已發送，請稍後重試':
+            raise HTTPException(429, '驗證碼已發送，請等待5分鐘後再試；若已收到請直接輸入。')
+        if reason == '驗證程序忙碌':
+            raise HTTPException(429, '驗證程序忙碌，請稍後重試。')
+        raise HTTPException(403, '無法發送初始化驗證碼，請確認登入帳號是否為預先指定的管理員。')
+    except Exception as exc:
+        import requests
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            status = exc.response.status_code
+            log.warning('admin bootstrap LINE push rejected: status=%s', status)
+            if status == 401:
+                raise HTTPException(503, 'LINE 推播授權失敗（401），請檢查 Render 的 LINE Messaging API Channel Access Token。')
+            if status == 403:
+                raise HTTPException(503, 'LINE 推播遭拒（403），請檢查官方帳號權限及收件帳號。')
+            if status == 429:
+                raise HTTPException(503, 'LINE 推播頻率或額度受限（429），請稍後重試。')
+            if status == 400:
+                raise HTTPException(503, 'LINE 拒絕推播請求（400），請檢查管理員 LINE User ID 與官方帳號是否相符。')
+            raise HTTPException(503, 'LINE 推播服務回傳錯誤（HTTP ' + str(status) + '），請查看 Render Logs。')
+        if isinstance(exc, requests.Timeout):
+            log.warning('admin bootstrap LINE push timed out')
+            raise HTTPException(503, 'LINE 推播連線逾時，請稍後重試；如已收到驗證碼可直接輸入。')
+        if isinstance(exc, RuntimeError) and str(exc) == 'LINE token 未設定':
+            log.warning('admin bootstrap LINE token missing')
+            raise HTTPException(503, 'LINE 推播尚未設定 Channel Access Token，請檢查 Render 環境變數。')
         log.exception('admin bootstrap LINE delivery failed')
-        raise HTTPException(503, 'LINE 驗證碼暫時無法發送')
+        raise HTTPException(503, 'LINE 驗證碼暫時無法發送，請查看 Render Logs。')
 
 @app.post('/admin/bootstrap/verify')
 def admin_bootstrap_verify(body: AdminOTP, user=Depends(current_user)):
