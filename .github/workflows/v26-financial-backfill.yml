@@ -43,7 +43,7 @@ jobs:
             exit 0
           fi
           exit "$status"
-      - name: Refresh official annual EPS and ROE (bounded)
+      - name: Update partial market completeness diagnostic\n        if: steps.window.outputs.run != 'false'\n        timeout-minutes: 2\n        continue-on-error: true\n        run: python -m jobs.v26_market_coverage\n      - name: Refresh official annual EPS and ROE (bounded)
         if: steps.window.outputs.run != 'false'
         timeout-minutes: 2
         run: python -m jobs.refresh_tw_financials
