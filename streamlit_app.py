@@ -1,6 +1,7 @@
 """只透過 API 存取使用者資料；個人金鑰只保存在目前 session。"""
 import os,requests,pandas as pd
 import streamlit as st
+from app.ui.browser_session import browser_session
 from app.services.freshness import format_updated_at,quote_note
 st.set_page_config(page_title='股海燈塔',page_icon='🌊',layout='wide')
 st.title('🌊 股海燈塔')
@@ -35,13 +36,33 @@ if maintenance_active:
     st.warning('系統維護中，暫停登入、查詢與交易操作。請稍後再試。')
     st.stop()
 
+# Browser restoration is non-blocking: public quotes and analysis remain available
+# while the optional personal session is being recovered.
+if st.session_state.get('browser_logout_pending'):
+    cleared=browser_session(command='clear',key='browser_session_clear')
+    if cleared is None:
+        st.session_state.clear()
+        st.rerun()
+    st.info('正在清除登入狀態…')
+    st.stop()
+
+if not st.session_state.get('token') and not st.query_params.get('login_code'):
+    restored=browser_session(command='read',key='browser_session_read')
+    if isinstance(restored,dict) and restored.get('token'):
+        st.session_state.token=restored['token']
+        st.rerun()
+
 if st.query_params.get('login_code'):
     code=st.query_params['login_code'];st.query_params.clear()
     result=api('POST','/auth/redeem',json={'code':code})
     if result:
         st.session_state.clear()
         st.session_state.token=result['token'];st.session_state.login_name=result.get('name','LINE使用者')
+        st.session_state.browser_token_needs_sync=True
         st.rerun()
+
+if st.session_state.get('token') and st.session_state.pop('browser_token_needs_sync',False):
+    browser_session(command='set',token=st.session_state.token)
 
 st.session_state.personal_active=False
 if st.session_state.get('token'):
@@ -52,7 +73,8 @@ if st.session_state.get('token'):
         st.session_state.is_admin=info.get('is_admin',False)
         st.session_state.personal_active=info['stage']=='active'
     else:
-        st.session_state.clear()
+        st.session_state.browser_logout_pending=True
+        st.rerun()
 
 with st.sidebar:
     if not st.session_state.get('token'):
@@ -98,7 +120,7 @@ with st.sidebar:
     else:
         st.write('已登入：'+st.session_state.get('login_name','LINE使用者'))
     if st.session_state.get('token') and st.button('登出'):
-        api('POST','/auth/logout');st.session_state.clear();st.rerun()
+        api('POST','/auth/logout');st.session_state.browser_logout_pending=True;st.rerun()
 personal=bool(st.session_state.get('personal_active'))
 from app.day_trader.admin_bootstrap_ui import render_admin_bootstrap
 render_admin_bootstrap(api, personal)
