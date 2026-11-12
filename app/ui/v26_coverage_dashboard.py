@@ -27,7 +27,20 @@ def render(api, personal, is_admin):
     a.metric('上市普通股完整率', '待連線')
     b.metric('上櫃普通股完整率', '待連線')
     c.metric('全市場回補進度', '待連線')
-    st.info('全市場母體核對、完整率彙總與回補工作狀態尚未提供經驗證的 API，因此暫不顯示百分比。')
+    summary = api('GET', '/coverage/summary')
+    if summary:
+        universe = summary.get('universe') or {}
+        diagnostic = summary.get('three_field_diagnostic') or {}
+        counts = universe.get('counts') or {}
+        if universe.get('verified'):
+            a.metric('上市普通股數量（已核對）', counts.get('TW', '待核對'))
+            b.metric('上櫃普通股數量（已核對）', counts.get('TWO', '待核對'))
+        if diagnostic.get('fresh') and diagnostic.get('coverage_ratio') is not None:
+            st.metric('三欄財報診斷覆蓋率（非六項完整率）', f"{diagnostic['coverage_ratio'] * 100:.2f}%")
+            st.caption(f"已知欄位 {diagnostic.get('known_fields')} / {diagnostic.get('expected_fields')}；母體 {diagnostic.get('stock_count')} 檔")
+        st.info(summary.get('note', '六項完整率尚待核對。'))
+    else:
+        st.warning('Neon 統計 API 暫不可用；不顯示推估數字。')
 
     with st.form('v26_coverage_lookup'):
         symbol = st.text_input('個股代號（僅供既有資料查詢）', value='2330')
