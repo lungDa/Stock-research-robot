@@ -47,7 +47,7 @@ def run():
     markets = [get('universe:small:' + market, {}) for market in ('TW', 'TWO')]
     complete = all(m.get('complete') is True and m.get('rows') for m in markets)
     symbols = sorted({row.get('symbol') for m in markets for row in m.get('rows', [])
-                      if isinstance(row, dict) and re.fullmatch(r'\\d{4}\\.(TW|TWO)', str(row.get('symbol', '')))})
+                      if isinstance(row, dict) and re.fullmatch(r'\d{4}\.(TW|TWO)', str(row.get('symbol', '')))})
     if not symbols:
         return {'state': 'no_universe', 'verified': False}
     total_known = 0
