@@ -95,7 +95,17 @@ def run(symbols=None,max_requests=2,years=5):
                     checked+=1
                     state=records.get(f'cashflow:state:{symbol}:{year}',{})
                     known=records.get('annual:shared:'+symbol,{}).get('rows',{}).get(str(year),{}).get('cash_dividends_paid')
-                    if type(known) in (int,float) and known>=0:continue
+                    # A value alone is not a verified annual paid-dividend total.
+                    # Require source, unit, full-year period and explicit basis.
+                    shared_row=records.get('annual:shared:'+symbol,{}).get('rows',{}).get(str(year),{})
+                    proof=(shared_row.get('field_sources') or {}).get('cash_dividends_paid') or {}
+                    verified=(type(known) in (int,float) and known>=0
+                              and isinstance(proof,dict)
+                              and str(proof.get('url','')).startswith('https://')
+                              and proof.get('unit')=='TWD'
+                              and proof.get('period_end')==f'{year}-12-31'
+                              and bool(proof.get('basis')))
+                    if verified:continue
                     if now<state.get('next_attempt',0):continue
                     if symbol.split('.')[0] in {s.split('.')[0] for s in candidates}:continue
                     candidates.append(symbol);chosen+=1
