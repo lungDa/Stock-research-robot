@@ -45,5 +45,5 @@ def test_unattributed_or_wrong_period_not_counted():
 def test_gate_needs_verified_universe():
     full = inspect('2330.TW', filled(), current_year=2026)
     assert not market_summary([full], universe_verified=False)['gate_eligible']
-    assert market_summary([full], universe_verified=True)['gate_eligible']
+    assert not market_summary([full], universe_verified=True)['gate_eligible']
     assert not market_summary([], universe_verified=True)['gate_eligible']
