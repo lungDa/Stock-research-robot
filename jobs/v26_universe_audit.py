@@ -8,6 +8,7 @@ import time
 
 MAX_AGE_SECONDS = 8 * 86400
 from app.db import get, get_many, init_db, put
+from jobs.v26_official_catalog import ENDPOINTS
 CLASSIFICATION_TTL = 8 * 86400
 
 SYMBOL = re.compile(r'^\d{4}\.(TW|TWO)$')
@@ -89,7 +90,8 @@ def _run_audit():
         if not isinstance(record, dict):
             continue
         at, source = record.get('at'), record.get('source')
-        if type(at) not in (int, float) or not 0 <= time.time() - at <= CLASSIFICATION_TTL or not source:
+        if (type(at) not in (int, float) or not 0 <= time.time() - at <= CLASSIFICATION_TTL
+                or source != ENDPOINTS[market] or record.get('scope') != 'OFFICIAL_COMPANY_REGISTRY'):
             continue
         data = record.get('data', {})
         if not isinstance(data, dict):
