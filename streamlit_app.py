@@ -75,7 +75,8 @@ if st.session_state.get('token'):
         st.session_state.is_admin=info.get('is_admin',False)
         st.session_state.personal_active=info['stage']=='active'
     else:
-        st.session_state.clear()
+        st.session_state.browser_logout_pending=True
+        st.rerun()
 
 with st.sidebar:
     if not st.session_state.get('token'):
