@@ -119,12 +119,11 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
     count=0; touched=set(); failures=0
     skipped_source_cooldown=0; skipped_feed_cooldown=0; skipped_budget=0
     def download(url,params=None,headers=None):
-        nonlocal count
+        nonlocal count, skipped_budget
         if count>=max_requests or time.monotonic()-started>=seconds:raise StopIteration
         from app.services.data_queue import source_slot
         source='finmind' if url==FINMIND else 'sec'
         if not source_slot(source,100 if source=='finmind' else 60):
-            nonlocal skipped_budget
             skipped_budget+=1
             raise StopIteration
         count+=1
