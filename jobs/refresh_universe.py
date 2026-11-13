@@ -53,6 +53,7 @@ def build():
     rows = []
     partial = False
     backup=None
+    market_status={}
     for market in ('TW', 'TWO'):
         key = 'universe:small:' + market
         prior = get(key)
@@ -88,6 +89,18 @@ def build():
                         print(f'{market}母體暫不可用，本次不涵蓋該市場：{type(exc).__name__}')
                         partial = True
                         continue
+        # An incomplete official snapshot may be supplemented by a verified
+        # complete master list, but never labelled complete merely by count.
+        if not part.get('complete',False):
+            if backup is None:backup=finmind_backup()
+            if backup.get(market):
+                merged={row['symbol']:row for row in part['rows']}
+                merged.update({row['symbol']:row for row in backup[market]})
+                part={'at':time.time(),'rows':list(merged.values()),'complete':True,
+                      'source':'official_partial_plus_FinMind_verified_master'}
+                put(key,part)
+        market_status[market]={'count':len(part['rows']),'complete':bool(part.get('complete')),
+                               'source':part.get('source','official_snapshot')}
         rows.extend(part['rows'])
         partial |= not part.get('complete', False)
     if not rows:
@@ -99,8 +112,8 @@ def build():
         writer=csv.DictWriter(f,fieldnames=['symbol','name']);writer.writeheader();writer.writerows(rows)
     temp.replace(out)
     put('universe:scope', {'partial':partial, 'count':len(rows), 'market':'TW/TWO',
-                          'updated_at':time.time()})
+                          'updated_at':time.time(),'markets':market_status})
     print(f'台股候選母體{len(rows)}檔；部分涵蓋={partial}；美股本階段不主動掃描')
-    return {'state':'partial' if partial else 'finished','market_symbols':len(rows),'market_complete':not partial}
+    return {'state':'partial' if partial else 'finished','market_symbols':len(rows),'market_complete':not partial,'markets':market_status}
 
 if __name__ == '__main__': build()
