@@ -87,7 +87,8 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
                 if s not in symbols:
                     symbols.append(s)
     if not symbols:
-        print('年度資料：尚無追蹤清單或可用市場母體，略過。');return
+        print('年度資料：尚無追蹤清單或可用市場母體，略過。')
+        return {'state':'partial','reason':'no_symbols','annual_requests':0,'updated_symbols':0,'failed_feeds':0}
     # FinMind company financial statements are not applicable to ETF/fund
     # securities or alphanumeric exchange codes. Keep ordinary 4-digit shares.
     def eligible(symbol):
@@ -113,7 +114,16 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             quote=get('quote:'+s,{})
             if quote.get('kind')!='ETF':tasks.extend((s,m) for m in SEC_CONCEPTS)
     if not tasks:
-        print('年度資料：未設定來源憑證／識別資訊，或僅有不支援的ETF；不發請求。');return
+        tw_count=sum(s.endswith(('.TW','.TWO')) for s in symbols)
+        us_count=sum('.' not in s for s in symbols)
+        reason=('missing_finmind_token' if tw_count and not token else
+                'missing_sec_user_agent' if us_count and not sec_agent else
+                'no_supported_source_tasks')
+        print('年度資料未建立查詢任務：'+reason+'；不輸出憑證內容。')
+        return {'state':'partial','reason':reason,'annual_requests':0,
+                'updated_symbols':0,'failed_feeds':0,
+                'eligible_tw_symbols':tw_count,'eligible_us_symbols':us_count,
+                'finmind_configured':bool(token),'sec_configured':bool(sec_agent)}
     # Round-robin across companies, then feeds; retain the persisted cursor.
     tasks=sorted(tasks,key=lambda pair:((list(TW_DATASETS).index(pair[1]) if pair[1] in TW_DATASETS else list(SEC_CONCEPTS).index(pair[1])),pair[0]))
     count=0; touched=set(); failures=0
