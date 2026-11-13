@@ -86,6 +86,33 @@ def taiwan_trailing(symbol,feeds,today):
     return result
 
 
+def quarterly_eps_evidence(records, code, quarter_ends):
+    """Reject ambiguous quarter EPS, cumulative labels, and conflicting duplicates.
+
+    The caller must independently establish the latest four contiguous quarter
+    ends. Identical duplicate provider rows are safe to deduplicate.
+    """
+    selected={}
+    for row in records:
+        if str(row.get('stock_id'))!=code or row.get('type')!='EPS':
+            continue
+        day=str(row.get('date',''))
+        if day not in quarter_ends:
+            continue
+        label=str(row.get('origin_name',''))
+        if any(marker in label for marker in ('稀釋','累計','年初至今','YTD','Diluted','diluted')):
+            return None
+        value=finite(row.get('value'))
+        if value is None:
+            return None
+        if day in selected and selected[day]!=value:
+            return None
+        selected[day]=value
+    if any(day not in selected for day in quarter_ends):
+        return None
+    return [selected[day] for day in quarter_ends]
+
+
 def taiwan_eps_four_quarters(symbol,records,today):
     """Explicit quarterly sum, separate from verified/report-issued TTM EPS."""
     code=symbol.split('.')[0]
@@ -101,11 +128,9 @@ def taiwan_eps_four_quarters(symbol,records,today):
     for offset in range(3,-1,-1):
         y,n=divmod(end.year*4+q-offset,4)
         expected.append(f'{y}-{("03-31","06-30","09-30","12-31")[n]}')
-    # EPS is the provider's basic EPS tag. Reject explicit diluted labels.
-    if any('稀釋' in str(r.get('origin_name','')) for r in relevant if r.get('type')=='EPS' and r['date'] in expected):return None
-    values=tw_series(relevant,code)
-    quarterly=[values.get((d,'EPS')) for d in expected]
-    if any(v is None for v in quarterly):return None
+    # Require unambiguous basic per-quarter values, not YTD/cumulative EPS.
+    quarterly=quarterly_eps_evidence(relevant,code,expected)
+    if quarterly is None:return None
     try:total=math.fsum(quarterly)
     except OverflowError:return None
     if not math.isfinite(total):return None

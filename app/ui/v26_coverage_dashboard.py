@@ -22,7 +22,7 @@ def render(api, personal, is_admin):
         st.info('請先完成 LINE 登入及個人密碼驗證，才能查看此頁面。')
         return
 
-    st.caption('V2.6.2 介面預覽｜正式全市場完整率尚未接入 Neon；不以示範數字冒充真實統計。')
+    st.caption('六項資料完整率為 Neon 初步診斷，未完成官方來源交叉驗證；不以示範數字冒充正式統計。')
     a, b, c = st.columns(3)
     a.metric('上市普通股完整率', '待連線')
     b.metric('上櫃普通股完整率', '待連線')
@@ -30,6 +30,13 @@ def render(api, personal, is_admin):
     summary = api('GET', '/coverage/summary')
     if summary:
         universe = summary.get('universe') or {}
+        six = summary.get('six_factor_provisional') or {}
+        if six.get('fresh') and six.get('coverage_ratio') is not None:
+            st.metric('六項指標初步資料覆蓋率（未驗證）', f"{six['coverage_ratio'] * 100:.2f}%")
+            st.caption(f"已辨識 {six.get('known_items')} / {six.get('expected_items')} 個必要年度欄位；母體 {six.get('stock_count')} 檔；非正式完整率。")
+            gaps = six.get('missing_by_factor') or {}
+            if gaps:
+                st.dataframe(pd.DataFrame([{'指標': FIELDS.get(k, k), '缺漏年度欄位數': v} for k, v in gaps.items()]), hide_index=True, use_container_width=True)
         diagnostic = summary.get('three_field_diagnostic') or {}
         counts = universe.get('counts') or {}
         if universe.get('verified'):

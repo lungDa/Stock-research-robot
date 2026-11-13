@@ -57,15 +57,36 @@ def relaxed(config,round_):
     return c
 
 def rank(items,config,today):
+    """Fill up to ten slots by relaxation tier, preserving strict-first priority."""
+    chosen = {}
+    eligible = 0
+    last_round = 0
+    last_rules = config['stock_rules']
     for round_ in range(4):
-        c=relaxed(config,round_);ranked=[];eligible=0
-        for data,rows in items:
-            r=evaluate(data,c,rows,today=today)
-            if r['checks'] and all(x['passed'] is not None for x in r['checks'] if x['required']):eligible+=1
-            if r['grade'] in ('買','強力買') and not any(x['required'] and x['passed'] is not True for x in r['checks']):ranked.append({**data,'rating':r})
-        ranked.sort(key=lambda d:(-d['rating']['score'],-d['rating']['coverage'],d['symbol']))
-        if ranked or round_==3 or not eligible:
-            return {'items':ranked[:10],'matched':len(ranked),'round':round_,'eligible':eligible,'rules':c['stock_rules'],'original_config_hash':config_hash(config)}
+        c = relaxed(config, round_)
+        last_rules = c['stock_rules']
+        last_round = round_
+        for data, rows in items:
+            symbol = data['symbol']
+            if symbol in chosen or data.get('kind') != 'STOCK':
+                continue
+            r = evaluate(data, c, rows, today=today)
+            required = [x for x in r['checks'] if x['required']]
+            if round_ == 0 and required and all(x['passed'] is not None for x in required):
+                eligible += 1
+            if r['grade'] not in ('買', '強力買'):
+                continue
+            if any(x['passed'] is not True for x in required):
+                continue
+            chosen[symbol] = {**data, 'rating': r, 'relaxation_round': round_}
+        if len(chosen) >= 10:
+            break
+    ranked = sorted(chosen.values(), key=lambda d: (
+        d['relaxation_round'], -d['rating']['score'],
+        -d['rating']['coverage'], d['symbol']))
+    return {'items': ranked[:10], 'matched': len(chosen), 'round': last_round,
+            'eligible': eligible, 'rules': last_rules,
+            'original_config_hash': config_hash(config)}
 
 def collect(symbols,snapshots,target,user,deadline):
     from app.providers.taiwan_official import build_result
@@ -98,13 +119,13 @@ def collect(symbols,snapshots,target,user,deadline):
 
 def messages(report):
     stats=report['coverage'];round_=report['round'];items=report['items']
-    summary=(f"股海燈塔｜個人規則排名 {report['slot_label']}\n行情日 {report['target_date']}（收盤，非即時）\n母體 {stats['universe']}檔｜個股行情 {stats['stock_quotes']}檔\n必要資料足夠 {report['eligible']}檔｜符合 {report['matched']}檔｜列出 {len(items)}檔\n"+('母體來源部分涵蓋；' if report['universe_partial'] else '')+'資料缺漏者不算符合；排名限目前可評估範圍。\n'+(f'原條件無符合，採第{round_}輪放寬（每輪約10%）。\n' if round_ else '採原始個人規則。\n'))
+    summary=(f"股海燈塔｜個人規則排名 {report['slot_label']}\n行情日 {report['target_date']}（收盤，非即時）\n母體 {stats['universe']}檔｜個股行情 {stats['stock_quotes']}檔\n必要資料足夠 {report['eligible']}檔｜符合 {report['matched']}檔｜列出 {len(items)}檔\n"+('母體來源部分涵蓋；' if report['universe_partial'] else '')+'資料缺漏者不算符合；排名限目前可評估範圍。\n'+(f'為補足前10名，逐輪放寬至第{round_}輪（每輪約10%）；原條件符合者優先。\n' if round_ else '採原始個人規則。\n'))
     if not items:summary+='目前無可推薦個股，不以缺資料或未達標股票湊數。\n'
     summary+='本次門檻（期間不變）：\n'+'\n'.join(f"{METRICS[r['metric']]} {r['op']} {r['threshold']:g}（{r['years']}年，{'必要' if r['required'] else '加分'}）" for r in report['rules'] if r['enabled'])
     summary+='\n同分依資料完整度、股票代號排序。規則篩選非報酬預測。'
     result=[summary]
     for i,d in enumerate(items,1):
         r=d['rating'];missing=[x['label'] for x in r['checks'] if x['passed'] is None]
-        result.append(f"第{i}名｜{d['name']}（{d['symbol']}）\n{r['grade']}｜分數 {r['score']}｜完整度 {r['coverage']}%\n收盤日 {d['date']}｜TWD {d['price']:.2f}\n"+(f'採第{round_}輪放寬條件。\n' if round_ else '符合原始規則。\n')+('加分項缺漏：'+'、'.join(missing)+'\n' if missing else '')+'依個人多因子規則篩選，非報酬保證。')
+        result.append(f"第{i}名｜{d['name']}（{d['symbol']}）\n{r['grade']}｜分數 {r['score']}｜完整度 {r['coverage']}%\n收盤日 {d['date']}｜TWD {d['price']:.2f}\n"+(f'採第{d["relaxation_round"]}輪放寬條件。\n' if d['relaxation_round'] else '符合原始規則。\n')+('加分項缺漏：'+'、'.join(missing)+'\n' if missing else '')+'依個人多因子規則篩選，非報酬保證。')
     if any(len(m)>4900 for m in result):raise ValueError('排名訊息過長，停止發送')
     return result

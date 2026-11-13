@@ -18,6 +18,12 @@ def reply(token,text):
     message={'type':'text','text':text[:4900]} if isinstance(text,str) else text
     send('reply',{'replyToken':token,'messages':[message]})
 def push(user,text,key): send('push',{'to':user,'messages':[{'type':'text','text':text[:4900]}]},key)
+def push_message(user,message,key):
+    """Push one immutable LINE message object using the existing retry-key path."""
+    if not isinstance(message,dict) or message.get('type') not in ('text','flex'):
+        raise ValueError('不支援的 LINE 訊息格式')
+    send('push',{'to':user,'messages':[message]},key)
+
 def quota():
     headers={'Authorization':'Bearer '+settings.line_token}
     base='https://api.line.me/v2/bot/message/'

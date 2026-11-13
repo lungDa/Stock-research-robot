@@ -37,7 +37,7 @@ def compact(dataset, records, code):
 def run(symbols=None,max_requests=8,seconds=48,query=False):
     from app.db import leased
     init_db()
-    with leased('annual:worker',180) as owned:
+    with leased('annual:worker',60) as owned:
         if not owned:return {'state':'busy','annual_requests':0,'updated_symbols':0,'failed_feeds':0}
         result=_run(symbols,max_requests,seconds,query)
         if not query:
@@ -74,13 +74,36 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             universe=[]
         if universe:
             start=int(get('annual:universe_cursor',{'value':0}).get('value',0))%len(universe)
-            batch=[universe[(start+i)%len(universe)] for i in range(min(12,len(universe)))]
-            put('annual:universe_cursor',{'value':(start+len(batch))%len(universe)})
+            # Half the market batch follows the partial-coverage priority
+            # snapshot; the other half remains a full-market round robin.
+            # This avoids starving stocks absent from the diagnostic snapshot.
+            from app.services.annual_priority import choose_market_batch
+            snapshot=get('v27:priority:six_factor_provisional',{})
+            if snapshot.get('scope') != 'SIX_FACTOR_PROVISIONAL':
+                snapshot=get('v26:priority:partial',{})
+            batch, advanced=choose_market_batch(universe,start,snapshot,now=now)
+            put('annual:universe_cursor',{'value':(start+advanced)%len(universe)})
             for s in batch:
                 if s not in symbols:
                     symbols.append(s)
     if not symbols:
-        print('年度資料：尚無追蹤清單或可用市場母體，略過。');return
+        print('年度資料：尚無追蹤清單或可用市場母體，略過。')
+        return {'state':'partial','reason':'no_symbols','annual_requests':0,'updated_symbols':0,'failed_feeds':0}
+    # FinMind company financial statements are not applicable to ETF/fund
+    # securities or alphanumeric exchange codes. Keep ordinary 4-digit shares.
+    def eligible(symbol):
+        if not symbol.endswith(('.TW', '.TWO')):
+            return True
+        code = symbol.split('.')[0]
+        if not re.fullmatch(r'\d{4}', code):
+            return False
+        quote = get('quote:' + symbol, {})
+        if quote.get('kind') in ('ETF', 'ETN', 'FUND'):
+            return False
+        return True
+    symbols = [symbol for symbol in symbols if eligible(symbol)]
+    if not symbols:
+        return {'annual_requests': 0, 'updated_symbols': 0, 'failed_feeds': 0, 'state': 'no_eligible_symbols'}
     symbols=sorted(symbols)
     # Cursor across symbol/feed pairs prevents one slow company starving others.
     tasks=[]
@@ -91,30 +114,52 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             quote=get('quote:'+s,{})
             if quote.get('kind')!='ETF':tasks.extend((s,m) for m in SEC_CONCEPTS)
     if not tasks:
-        print('年度資料：未設定來源憑證／識別資訊，或僅有不支援的ETF；不發請求。');return
+        tw_count=sum(s.endswith(('.TW','.TWO')) for s in symbols)
+        us_count=sum('.' not in s for s in symbols)
+        reason=('missing_finmind_token' if tw_count and not token else
+                'missing_sec_user_agent' if us_count and not sec_agent else
+                'no_supported_source_tasks')
+        print('年度資料未建立查詢任務：'+reason+'；不輸出憑證內容。')
+        return {'state':'partial','reason':reason,'annual_requests':0,
+                'updated_symbols':0,'failed_feeds':0,
+                'eligible_tw_symbols':tw_count,'eligible_us_symbols':us_count,
+                'finmind_configured':bool(token),'sec_configured':bool(sec_agent)}
     # Round-robin across companies, then feeds; retain the persisted cursor.
     tasks=sorted(tasks,key=lambda pair:((list(TW_DATASETS).index(pair[1]) if pair[1] in TW_DATASETS else list(SEC_CONCEPTS).index(pair[1])),pair[0]))
+    # Network time budget starts after market/watchlist discovery and task construction.
+    # Otherwise slow database reads can consume the entire budget before the first HTTP request.
+    started=time.monotonic()
     count=0; touched=set(); failures=0
+    skipped_source_cooldown=0; skipped_feed_cooldown=0; skipped_budget=0
     def download(url,params=None,headers=None):
-        nonlocal count
+        nonlocal count, skipped_budget
         if count>=max_requests or time.monotonic()-started>=seconds:raise StopIteration
         from app.services.data_queue import source_slot
         source='finmind' if url==FINMIND else 'sec'
-        if not source_slot(source,100 if source=='finmind' else 60):raise StopIteration
+        if not source_slot(source,100 if source=='finmind' else 60):
+            skipped_budget+=1
+            raise StopIteration
         count+=1
         return fetch_json(url,params,headers=headers,max_bytes=1048576,seconds=6)
     cursor_key='annual:query_cursor:'+symbols[0] if query else 'annual:cursor'
     cursor=get(cursor_key,{'value':0})['value']%len(tasks)
+    scanned=0
     for offset in range(len(tasks)):
         if count>=max_requests or time.monotonic()-started>=seconds:break
         i=(cursor+offset)%len(tasks); symbol,feed=tasks[i]
-        source='finmind' if symbol.endswith(('.TW','.TWO')) else 'sec'
-        if now<get('annual:source:'+source,{}).get('next_attempt',0):continue
-        statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
+        scanned+=1
+        # Move past cooling feeds so a subsequent run reaches other companies.
         put(cursor_key,{'value':(i+1)%len(tasks)})
+        source='finmind' if symbol.endswith(('.TW','.TWO')) else 'sec'
+        if now<get('annual:source:'+source,{}).get('next_attempt',0):
+            skipped_source_cooldown+=1
+            continue
+        statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
         eps_migration=source=='finmind' and feed==TW_DATASETS[0] and state.get('eps_schema',0)<TW_EPS_SCHEMA
         migration=eps_migration or (feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
-        if now<state.get('next_attempt',0) and not migration:continue
+        if now<state.get('next_attempt',0) and not migration:
+            skipped_feed_cooldown+=1
+            continue
         if eps_migration:
             # Old versions discarded EPS. Refill recent quarters first without
             # erasing older financial rows or requesting eleven years again.
@@ -198,7 +243,15 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             'fund_profile':profile,
             'status':'partial','notes':['分批補齊；無資料不補零。美股EPS以USD/股計，台股以TWD/股計。',
                 'ETF不套用公司EPS與ROE；費用率與完整配息仍須可核對來源。']})
-    summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures}
+    summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures,
+        'skipped_source_cooldown':skipped_source_cooldown,
+        'skipped_feed_cooldown':skipped_feed_cooldown,
+        'skipped_budget':skipped_budget,'scanned_tasks':scanned,'total_tasks':len(tasks),
+        'state':('partial' if failures or (count==0 and (skipped_source_cooldown or skipped_feed_cooldown or skipped_budget)) else 'finished')}
+    if count==0:
+        summary['reason']=('source_cooldown' if skipped_source_cooldown else
+            'feed_cooldown' if skipped_feed_cooldown else
+            'daily_request_budget' if skipped_budget else 'no_due_tasks')
     print(summary)
     return summary
 

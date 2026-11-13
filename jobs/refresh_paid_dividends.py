@@ -48,11 +48,13 @@ def run():
     symbols+= [s for user in member_users() for s in watches(user)]
     from app.services.data_queue import requested
     symbols+=list(requested())
+    result={'state':'finished','paid_requests':0,'updated_symbols':0,'failed_feeds':0}
     for symbol,url in SOURCES.items():
         if symbol not in symbols:continue
         now=time.time();key='paid:state:'+symbol
         if now<get(key,{}).get('next_attempt',0):continue
         put(key,{'next_attempt':now+86400})
+        result['paid_requests']+=1
         try:
             start=time.monotonic();chunks=[];size=0
             with requests.get(url,timeout=(2,2),stream=True,allow_redirects=False) as response:
@@ -64,9 +66,14 @@ def run():
                     chunks.append(chunk)
             data=parse_apple(b''.join(chunks).decode('utf-8-sig'))
             put('paid:shared:'+symbol,{**data,'source':url,'fetched_at':now})
+            result['updated_symbols']+=1
             print({'paid_dividend_symbol':symbol,'records':len(data['payments'])})
-        except Exception:print('配息日期來源未完成，保留舊資料：'+symbol)
+        except Exception:
+            result['failed_feeds']+=1
+            result['state']='partial'
+            print('配息日期來源未完成，保留舊資料：'+symbol)
         break  # one HTTP request total, no immediate retries
+    return result
 
 
 if __name__=='__main__':run()

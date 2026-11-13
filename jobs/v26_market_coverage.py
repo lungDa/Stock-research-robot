@@ -8,6 +8,8 @@ import re
 import time
 from app.db import get, get_many, put, init_db
 from app.services.freshness import local_now
+from app.services.data_queue import prioritize_missing
+from app.services.v26_coverage_adapter import from_documents, PREFIXES
 
 FIELDS = ('eps', 'roe_pct', 'cash_dividends_paid')
 
@@ -51,9 +53,23 @@ def run():
     if not symbols:
         return {'state': 'no_universe', 'verified': False}
     total_known = 0
+    six_known = 0
+    six_expected = 0
+    six_missing = {}
+    six_priority = []
     priority = []
-    for offset in range(0, len(symbols), 20):
-        batch = symbols[offset:offset + 20]
+    completed_symbols = []
+    previous = get('v26:priority:partial', {})
+    previous_waiting = previous.get('waiting_since', {}) if isinstance(previous, dict) else {}
+    if not isinstance(previous_waiting, dict):
+        previous_waiting = {}
+    # Bound each invocation and rotate through the market across schedules.
+    # Partial snapshots must never be presented as whole-market coverage.
+    batch_limit = 80
+    cursor = int(get('v26:coverage:cursor', {'value': 0}).get('value', 0)) % len(symbols)
+    selected = (symbols[cursor:] + symbols[:cursor])[:batch_limit]
+    for offset in range(0, len(selected), 20):
+        batch = selected[offset:offset + 20]
         keys = [f'{prefix}{symbol}' for symbol in batch for prefix in
                 ('financial:official:', 'annual:shared:', 'eps:official:',
                  'cashflow:official:', 'quote:')]
@@ -64,23 +80,82 @@ def run():
             quote = docs.get('quote:' + symbol, {})
             if quote.get('kind') == 'ETF':
                 continue
+            six = from_documents(symbol, docs, current_year=local_now().year)
+            six_known += six['complete_items']
+            six_expected += six['expected_items']
+            for field, gaps in six['missing_years'].items():
+                six_missing[field] = six_missing.get(field, 0) + len(gaps)
+            if six['complete_items'] < six['expected_items']:
+                six_priority.append({'symbol': symbol,
+                    'missing_fields': six['expected_items'] - six['complete_items'],
+                    'requested_at': previous_waiting.get(symbol, now)})
             status = inspect(symbol, docs, years)
             total_known += status['known']
             # A partial EPS/ROE history is useful for prioritization, but is
             # not proof that a stock meets the user's multi-factor criteria.
-            priority.append((status['coverage'], symbol))
-    priority.sort(key=lambda pair: (pair[0] == 1, -pair[0], pair[1]))
-    count = len(priority)
+            if not status['missing']:
+                completed_symbols.append(symbol)
+            else:
+                priority.append({'symbol': symbol,
+                                 'missing_fields': len(status['missing']),
+                                 'requested_at': previous_waiting.get(symbol, now)})
+    # A rotating 80-stock sample can legitimately miss all newly updated stocks.
+    # Verify the last cash-dividend worker's concrete writes separately, without
+    # counting them twice or claiming the sample covers the entire market.
+    last_cash = get('jobs:cash_dividends', {})
+    cash_samples = last_cash.get('updated_samples', [])
+    cash_checked = 0
+    cash_verified = 0
+    cash_missing = []
+    if isinstance(cash_samples, list):
+        samples = [item for item in cash_samples[:20]
+                   if isinstance(item, dict)
+                   and re.fullmatch(r'\d{4}\.(TW|TWO)', str(item.get('symbol', '')))
+                   and str(item.get('year', '')).isdigit()]
+        sample_keys = list(dict.fromkeys('cashflow:official:' + item['symbol'] for item in samples))
+        sample_docs = {}
+        for i in range(0, len(sample_keys), 80):
+            sample_docs.update(get_many(sample_keys[i:i + 80]))
+        for item in samples:
+            cash_checked += 1
+            row = sample_docs.get('cashflow:official:' + item['symbol'], {}).get('rows', {}).get(str(item['year']), {})
+            if number(row.get('cash_dividends_paid')):
+                cash_verified += 1
+            else:
+                cash_missing.append(item['symbol'] + ':' + str(item['year']))
+    put('v26:coverage:cursor', {'value': (cursor + len(selected)) % len(symbols)})
+    priority = prioritize_missing(priority, now=now)
+    six_priority = prioritize_missing(six_priority, now=now)
+    count = len(priority) + len(completed_symbols)
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
-               'market_symbols': count, 'years': years, 'fields': list(FIELDS),
+               'market_symbols': count, 'universe_symbols': len(symbols), 'batch_complete': len(selected) == len(symbols), 'years': years, 'fields': list(FIELDS),
                'known_fields': total_known, 'expected_fields': count * 15,
+               'last_cash_write_checked': cash_checked,
+               'last_cash_write_verified': cash_verified,
+               'last_cash_write_missing': cash_missing,
                'partial_coverage_ratio': round(total_known / (count * 15), 4) if count else 0,
                'verified': False,
                'note': '僅EPS/ROE/現金股利支出三欄診斷；不含FCF、營收CAGR、殖利率與十年配息，不能觸發95%切換'}
     put('v26:coverage:diagnostic', summary)
+    put('v27:coverage:six_factor_provisional', {
+        'at': now, 'scope': 'SIX_FACTOR_PROVISIONAL', 'verified': False,
+        'market_complete': complete and len(selected) == len(symbols), 'stock_count': count,
+        'known_items': six_known, 'expected_items': six_expected,
+        'coverage_ratio': round(six_known / six_expected, 4) if six_expected else 0,
+        'missing_by_factor': six_missing,
+        'note': '六項指標既有資料初步診斷；未完成官方來源交叉核對，不能用於95%切換。',
+    })
+    put('v27:priority:six_factor_provisional', {
+        'at': now, 'scope': 'SIX_FACTOR_PROVISIONAL',
+        'symbols': [row['symbol'] for row in six_priority],
+        'waiting_since': {row['symbol']: row['requested_at'] for row in six_priority},
+        'verified': False,
+    })
     # Keep a bounded snapshot. The worker rotates through this list and its
     # own checkpoint; this is not yet the full six-factor priority engine.
-    put('v26:priority:partial', {'at': now, 'symbols': [s for _, s in priority],
+    put('v26:priority:partial', {'at': now,
+                                  'symbols': [row['symbol'] for row in priority] + sorted(completed_symbols),
+                                  'waiting_since': {row['symbol']: row['requested_at'] for row in priority},
                                   'scope': 'THREE_FIELD_DIAGNOSTIC'})
     return summary
 
