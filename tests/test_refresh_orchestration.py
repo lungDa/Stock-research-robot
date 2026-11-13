@@ -12,7 +12,7 @@ def test_step_timeout_is_recorded_and_later_steps_continue():
          patch.object(refresh_data, "leased") as leased, \
          patch.object(refresh_data.subprocess, "run", side_effect=[
              subprocess.TimeoutExpired("one", 1),
-             subprocess.CompletedProcess([], 0, stdout='{"state":"finished"}\\n', stderr=""),
+             subprocess.CompletedProcess([], 0, stdout='{"state":"finished"}\n', stderr=""),
          ]):
         from contextlib import contextmanager
         @contextmanager
