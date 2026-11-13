@@ -13,10 +13,20 @@ def config():
 def item(symbol='2412.TW',eps=2):
     return ({'symbol':symbol,'name':symbol,'kind':'STOCK','price':100,'date':'2026-11-09','data_status':'partial','currency':'TWD'}, {'2025':{'eps':eps}})
 
+def test_fill_to_ten_without_demoting_strict_matches():
+    c=config()
+    items=[item(f'{1000+i}.TW', 1.2 if i<3 else .85) for i in range(12)]
+    r=m.rank(items,c,DAY)
+    assert len(r['items'])==10
+    assert [d['relaxation_round'] for d in r['items'][:3]]==[0,0,0]
+    assert all(d['relaxation_round']>0 for d in r['items'][3:])
+    assert len({d['symbol'] for d in r['items']})==10
+
+
 def test_only_relax_when_zero_and_never_mutate():
     c=config();old=copy.deepcopy(c)
     r=m.rank([item(eps=1.01),item('2330.TW',.95)],c,DAY)
-    assert r['round']==0 and r['matched']==1
+    assert r['round']==3 and r['matched']==2
     r=m.rank([item(eps=.95)],c,DAY)
     assert r['round']==1 and r['matched']==1 and r['rules'][0]['threshold']==.9
     assert c==old
