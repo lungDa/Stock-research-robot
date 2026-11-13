@@ -56,6 +56,7 @@ def run():
     six_known = 0
     six_expected = 0
     six_missing = {}
+    six_priority = []
     priority = []
     completed_symbols = []
     previous = get('v26:priority:partial', {})
@@ -79,6 +80,10 @@ def run():
             six_expected += six['expected_items']
             for field, gaps in six['missing_years'].items():
                 six_missing[field] = six_missing.get(field, 0) + len(gaps)
+            if six['complete_items'] < six['expected_items']:
+                six_priority.append({'symbol': symbol,
+                    'missing_fields': six['expected_items'] - six['complete_items'],
+                    'requested_at': previous_waiting.get(symbol, now)})
             status = inspect(symbol, docs, years)
             total_known += status['known']
             # A partial EPS/ROE history is useful for prioritization, but is
@@ -90,6 +95,7 @@ def run():
                                  'missing_fields': len(status['missing']),
                                  'requested_at': previous_waiting.get(symbol, now)})
     priority = prioritize_missing(priority, now=now)
+    six_priority = prioritize_missing(six_priority, now=now)
     count = len(priority) + len(completed_symbols)
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
                'market_symbols': count, 'years': years, 'fields': list(FIELDS),
@@ -105,6 +111,12 @@ def run():
         'coverage_ratio': round(six_known / six_expected, 4) if six_expected else 0,
         'missing_by_factor': six_missing,
         'note': '六項指標既有資料初步診斷；未完成官方來源交叉核對，不能用於95%切換。',
+    })
+    put('v27:priority:six_factor_provisional', {
+        'at': now, 'scope': 'SIX_FACTOR_PROVISIONAL',
+        'symbols': [row['symbol'] for row in six_priority],
+        'waiting_since': {row['symbol']: row['requested_at'] for row in six_priority},
+        'verified': False,
     })
     # Keep a bounded snapshot. The worker rotates through this list and its
     # own checkpoint; this is not yet the full six-factor priority engine.
