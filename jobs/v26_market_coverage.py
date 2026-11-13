@@ -8,6 +8,7 @@ import re
 import time
 from app.db import get, get_many, put, init_db
 from app.services.freshness import local_now
+from app.services.data_queue import prioritize_missing
 
 FIELDS = ('eps', 'roe_pct', 'cash_dividends_paid')
 
@@ -52,6 +53,10 @@ def run():
         return {'state': 'no_universe', 'verified': False}
     total_known = 0
     priority = []
+    previous = get('v26:priority:partial', {})
+    previous_waiting = previous.get('waiting_since', {}) if isinstance(previous, dict) else {}
+    if not isinstance(previous_waiting, dict):
+        previous_waiting = {}
     for offset in range(0, len(symbols), 20):
         batch = symbols[offset:offset + 20]
         keys = [f'{prefix}{symbol}' for symbol in batch for prefix in
@@ -68,8 +73,11 @@ def run():
             total_known += status['known']
             # A partial EPS/ROE history is useful for prioritization, but is
             # not proof that a stock meets the user's multi-factor criteria.
-            priority.append((status['coverage'], symbol))
-    priority.sort(key=lambda pair: (pair[0] == 1, -pair[0], pair[1]))
+            if status['missing']:
+                priority.append({'symbol': symbol,
+                                 'missing_fields': len(status['missing']),
+                                 'requested_at': previous_waiting.get(symbol, now)})
+    priority = prioritize_missing(priority, now=now)
     count = len(priority)
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
                'market_symbols': count, 'years': years, 'fields': list(FIELDS),
@@ -80,7 +88,9 @@ def run():
     put('v26:coverage:diagnostic', summary)
     # Keep a bounded snapshot. The worker rotates through this list and its
     # own checkpoint; this is not yet the full six-factor priority engine.
-    put('v26:priority:partial', {'at': now, 'symbols': [s for _, s in priority],
+    put('v26:priority:partial', {'at': now,
+                                  'symbols': [row['symbol'] for row in priority],
+                                  'waiting_since': {row['symbol']: row['requested_at'] for row in priority},
                                   'scope': 'THREE_FIELD_DIAGNOSTIC'})
     return summary
 
