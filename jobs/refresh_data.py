@@ -33,7 +33,7 @@ def run():
             try:
                 proc = subprocess.run(
                     [sys.executable, "-m", "jobs.refresh_step", name],
-                    capture_output=True, text=True, timeout=STEP_TIMEOUT,
+                    capture_output=True, text=True, timeout=(90 if name == 'cash_dividends' else STEP_TIMEOUT),
                     check=False,
                 )
                 if proc.stdout:
@@ -58,8 +58,8 @@ def run():
                     except (ValueError, IndexError):
                         entry = {"state": "failed", "reason": "missing structured result"}
             except subprocess.TimeoutExpired:
-                entry = {"state": "timeout", "timeout_seconds": STEP_TIMEOUT}
-                print(f"TIMEOUT {name} after {STEP_TIMEOUT}s", flush=True)
+                entry = {"state": "timeout", "timeout_seconds": (90 if name == 'cash_dividends' else STEP_TIMEOUT)}
+                print(f"TIMEOUT {name} after {entry['timeout_seconds']}s", flush=True)
             except Exception as exc:
                 entry = {"state": "failed", "reason": type(exc).__name__}
                 print(f"FAILED {name}: {type(exc).__name__}", flush=True)
