@@ -99,6 +99,30 @@ def run():
                 priority.append({'symbol': symbol,
                                  'missing_fields': len(status['missing']),
                                  'requested_at': previous_waiting.get(symbol, now)})
+    # A rotating 80-stock sample can legitimately miss all newly updated stocks.
+    # Verify the last cash-dividend worker's concrete writes separately, without
+    # counting them twice or claiming the sample covers the entire market.
+    last_cash = get('jobs:cash_dividends', {})
+    cash_samples = last_cash.get('updated_samples', [])
+    cash_checked = 0
+    cash_verified = 0
+    cash_missing = []
+    if isinstance(cash_samples, list):
+        samples = [item for item in cash_samples[:20]
+                   if isinstance(item, dict)
+                   and re.fullmatch(r'\d{4}\.(TW|TWO)', str(item.get('symbol', '')))
+                   and str(item.get('year', '')).isdigit()]
+        sample_keys = list(dict.fromkeys('cashflow:official:' + item['symbol'] for item in samples))
+        sample_docs = {}
+        for i in range(0, len(sample_keys), 80):
+            sample_docs.update(get_many(sample_keys[i:i + 80]))
+        for item in samples:
+            cash_checked += 1
+            row = sample_docs.get('cashflow:official:' + item['symbol'], {}).get('rows', {}).get(str(item['year']), {})
+            if number(row.get('cash_dividends_paid')):
+                cash_verified += 1
+            else:
+                cash_missing.append(item['symbol'] + ':' + str(item['year']))
     put('v26:coverage:cursor', {'value': (cursor + len(selected)) % len(symbols)})
     priority = prioritize_missing(priority, now=now)
     six_priority = prioritize_missing(six_priority, now=now)
@@ -106,6 +130,9 @@ def run():
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
                'market_symbols': count, 'universe_symbols': len(symbols), 'batch_complete': len(selected) == len(symbols), 'years': years, 'fields': list(FIELDS),
                'known_fields': total_known, 'expected_fields': count * 15,
+               'last_cash_write_checked': cash_checked,
+               'last_cash_write_verified': cash_verified,
+               'last_cash_write_missing': cash_missing,
                'partial_coverage_ratio': round(total_known / (count * 15), 4) if count else 0,
                'verified': False,
                'note': '僅EPS/ROE/現金股利支出三欄診斷；不含FCF、營收CAGR、殖利率與十年配息，不能觸發95%切換'}
