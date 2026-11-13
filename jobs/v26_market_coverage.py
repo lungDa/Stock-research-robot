@@ -63,8 +63,13 @@ def run():
     previous_waiting = previous.get('waiting_since', {}) if isinstance(previous, dict) else {}
     if not isinstance(previous_waiting, dict):
         previous_waiting = {}
-    for offset in range(0, len(symbols), 20):
-        batch = symbols[offset:offset + 20]
+    # Bound each invocation and rotate through the market across schedules.
+    # Partial snapshots must never be presented as whole-market coverage.
+    batch_limit = 80
+    cursor = int(get('v26:coverage:cursor', {'value': 0}).get('value', 0)) % len(symbols)
+    selected = (symbols[cursor:] + symbols[:cursor])[:batch_limit]
+    for offset in range(0, len(selected), 20):
+        batch = selected[offset:offset + 20]
         keys = [f'{prefix}{symbol}' for symbol in batch for prefix in
                 ('financial:official:', 'annual:shared:', 'eps:official:',
                  'cashflow:official:', 'quote:')]
@@ -94,11 +99,12 @@ def run():
                 priority.append({'symbol': symbol,
                                  'missing_fields': len(status['missing']),
                                  'requested_at': previous_waiting.get(symbol, now)})
+    put('v26:coverage:cursor', {'value': (cursor + len(selected)) % len(symbols)})
     priority = prioritize_missing(priority, now=now)
     six_priority = prioritize_missing(six_priority, now=now)
     count = len(priority) + len(completed_symbols)
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
-               'market_symbols': count, 'years': years, 'fields': list(FIELDS),
+               'market_symbols': count, 'universe_symbols': len(symbols), 'batch_complete': len(selected) == len(symbols), 'years': years, 'fields': list(FIELDS),
                'known_fields': total_known, 'expected_fields': count * 15,
                'partial_coverage_ratio': round(total_known / (count * 15), 4) if count else 0,
                'verified': False,
@@ -106,7 +112,7 @@ def run():
     put('v26:coverage:diagnostic', summary)
     put('v27:coverage:six_factor_provisional', {
         'at': now, 'scope': 'SIX_FACTOR_PROVISIONAL', 'verified': False,
-        'market_complete': complete, 'stock_count': count,
+        'market_complete': complete and len(selected) == len(symbols), 'stock_count': count,
         'known_items': six_known, 'expected_items': six_expected,
         'coverage_ratio': round(six_known / six_expected, 4) if six_expected else 0,
         'missing_by_factor': six_missing,
