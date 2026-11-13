@@ -45,11 +45,13 @@ def run():
                 else:
                     try:
                         value = json.loads(proc.stdout.strip().splitlines()[-1])
-                        state = "partial" if isinstance(value, dict) and (
+                        state = "partial" if value is None else "finished"
+                        if isinstance(value, dict) and (
                             value.get("state") in ("failed", "partial", "busy", "limited", "cooldown")
                             or value.get("failed_feeds", 0)
                             
-                        ) else "finished"
+                        ):
+                            state = "partial"
                         if name == "fundamentals" and isinstance(value, list) and any(
                             isinstance(row, dict) and str(row.get("status", "")).startswith("failed:") for row in value
                         ):
