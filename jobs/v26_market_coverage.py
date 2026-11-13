@@ -9,6 +9,7 @@ import time
 from app.db import get, get_many, put, init_db
 from app.services.freshness import local_now
 from app.services.data_queue import prioritize_missing
+from app.services.v26_coverage_adapter import from_documents, PREFIXES
 
 FIELDS = ('eps', 'roe_pct', 'cash_dividends_paid')
 
@@ -52,6 +53,9 @@ def run():
     if not symbols:
         return {'state': 'no_universe', 'verified': False}
     total_known = 0
+    six_known = 0
+    six_expected = 0
+    six_missing = {}
     priority = []
     completed_symbols = []
     previous = get('v26:priority:partial', {})
@@ -70,6 +74,11 @@ def run():
             quote = docs.get('quote:' + symbol, {})
             if quote.get('kind') == 'ETF':
                 continue
+            six = from_documents(symbol, docs, current_year=local_now().year)
+            six_known += six['complete_items']
+            six_expected += six['expected_items']
+            for field, gaps in six['missing_years'].items():
+                six_missing[field] = six_missing.get(field, 0) + len(gaps)
             status = inspect(symbol, docs, years)
             total_known += status['known']
             # A partial EPS/ROE history is useful for prioritization, but is
@@ -89,6 +98,14 @@ def run():
                'verified': False,
                'note': '僅EPS/ROE/現金股利支出三欄診斷；不含FCF、營收CAGR、殖利率與十年配息，不能觸發95%切換'}
     put('v26:coverage:diagnostic', summary)
+    put('v27:coverage:six_factor_provisional', {
+        'at': now, 'scope': 'SIX_FACTOR_PROVISIONAL', 'verified': False,
+        'market_complete': complete, 'stock_count': count,
+        'known_items': six_known, 'expected_items': six_expected,
+        'coverage_ratio': round(six_known / six_expected, 4) if six_expected else 0,
+        'missing_by_factor': six_missing,
+        'note': '六項指標既有資料初步診斷；未完成官方來源交叉核對，不能用於95%切換。',
+    })
     # Keep a bounded snapshot. The worker rotates through this list and its
     # own checkpoint; this is not yet the full six-factor priority engine.
     put('v26:priority:partial', {'at': now,
