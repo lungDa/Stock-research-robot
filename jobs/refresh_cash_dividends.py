@@ -93,7 +93,7 @@ def run(symbols=None,max_requests=2,years=5):
                 cursor_key=f'cashflow:cursor:{group}:{year}'
                 if time.monotonic()>=deadline-12:break
                 cursor=get(cursor_key,{}).get('value',0)%len(pool)
-                page=[pool[(cursor+n)%len(pool)] for n in range(min(len(pool),12))]
+                page=[pool[(cursor+n)%len(pool)] for n in range(min(len(pool),80))]
                 keys=[key for s in page for key in (f'cashflow:state:{s}:{year}','annual:shared:'+s)]
                 records={}
                 for at in range(0,len(keys),80):records.update(get_many(keys[at:at+80]))
