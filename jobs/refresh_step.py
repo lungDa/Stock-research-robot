@@ -24,7 +24,7 @@ def run(name):
     }
     if name not in steps:
         raise ValueError("unknown refresh step")
-    return steps[name]()
+    # Keep annual work below the parent process deadline. The annual worker\n    # persists feed snapshots and its cursor after each attempt.\n    if name == "annual":\n        return annual(max_requests=2, seconds=18)\n    return steps[name]()
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
