@@ -48,9 +48,12 @@ def run():
                         state = "partial" if isinstance(value, dict) and (
                             value.get("state") in ("failed", "partial", "busy", "limited", "cooldown")
                             or value.get("failed_feeds", 0)
-                            or (name == "fundamentals" and isinstance(value, list) and any(
-                                isinstance(row, dict) and str(row.get("status", "")).startswith("failed:") for row in value))
+                            
                         ) else "finished"
+                        if name == "fundamentals" and isinstance(value, list) and any(
+                            isinstance(row, dict) and str(row.get("status", "")).startswith("failed:") for row in value
+                        ):
+                            state = "partial"
                         entry = {"state": state, "result": value}
                     except (ValueError, IndexError):
                         entry = {"state": "failed", "reason": "missing structured result"}
