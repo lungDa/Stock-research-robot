@@ -27,3 +27,36 @@ def test_text_is_bounded_and_query_encoded():
     bubble=result['contents']['contents'][0]
     assert len(bubble['body']['contents'][0]['text'])<60
     assert '%26' in bubble['footer']['contents'][0]['action']['uri']
+
+
+def test_persistent_flex_outbox_reuses_payload_and_retry_key(monkeypatch):
+    from jobs import recommend
+    from app.db import get
+    from uuid import uuid4
+    key='flex:outbox:test:'+str(uuid4())
+    calls=[]
+    def sender(user,payload,retry_key):
+        calls.append((user,payload,retry_key))
+        if len(calls)==1:
+            raise TimeoutError('uncertain LINE response')
+    monkeypatch.setattr(recommend,'push_message',sender)
+    payload=recommendation_flex([{'symbol':'2330.TW','score':95,
+                                 'relaxation_round':0}],'https://example.com')
+    import pytest
+    with pytest.raises(TimeoutError):
+        recommend.deliver('Ualice',key,[payload],False,100)
+    recommend.deliver('Ualice',key,[{'type':'text','text':'changed'}],False,100)
+    assert calls[0]==calls[1]
+    assert get(key)['messages'][0]['sent'] is True
+    recommend.deliver('Ualice',key,[],False,100)
+    assert len(calls)==2
+
+
+def test_text_fallback_still_supported(monkeypatch):
+    from jobs import recommend
+    from uuid import uuid4
+    key='flex:plain:'+str(uuid4())
+    sent=[]
+    monkeypatch.setattr(recommend,'push',lambda *args:sent.append(args))
+    recommend.deliver('Ualice',key,['plain summary'],False,100)
+    assert sent[0][1]=='plain summary'
