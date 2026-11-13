@@ -99,7 +99,7 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         quote = get('quote:' + symbol, {})
         if quote.get('kind') in ('ETF', 'ETN', 'FUND'):
             return False
-        return not code.startswith('00')
+        return True
     symbols = [symbol for symbol in symbols if eligible(symbol)]
     if not symbols:
         return {'annual_requests': 0, 'updated_symbols': 0, 'failed_feeds': 0, 'state': 'no_eligible_symbols'}
