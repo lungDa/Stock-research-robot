@@ -16,7 +16,7 @@ def choose_market_batch(universe, cursor, snapshot, now, limit=12, max_age=36*36
     valid_age=(type(timestamp) in (int,float) and math.isfinite(timestamp)
                and 0<=now-timestamp<=max_age)
     priority=[]
-    if valid_age and snapshot.get('scope')=='THREE_FIELD_DIAGNOSTIC':
+    if valid_age and snapshot.get('scope') in ('THREE_FIELD_DIAGNOSTIC', 'SIX_FACTOR_PROVISIONAL'):
         market_set=set(market)
         priority=list(dict.fromkeys(
             s for s in snapshot.get('symbols',[]) if isinstance(s,str) and s in market_set))
