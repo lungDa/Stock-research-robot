@@ -27,7 +27,7 @@ def run(symbols=None,max_requests=2,years=5):
     max_requests=max(1,min(int(max_requests),4));years=max(1,min(int(years),15))
     requested_years=list(range(today.year-1,max(2012,today.year-years-1),-1))
     explicit=symbols is not None
-    with leased('annual:worker',180) as owned:
+    with leased('annual:worker',75) as owned:
         if not owned:return {'state':'busy','cash_requests':0}
         if explicit:
             priority=sorted({normalize(s) for s in symbols if s.strip()});market=[];complete=False
