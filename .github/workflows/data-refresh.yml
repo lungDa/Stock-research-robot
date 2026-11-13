@@ -12,7 +12,7 @@ concurrency:
 jobs:
   replenish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
@@ -20,6 +20,7 @@ jobs:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
       ANNUAL_UNIVERSE_BATCH: '1'
+      REFRESH_STEP_TIMEOUT_SECONDS: '65'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +32,7 @@ jobs:
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
       - name: Replenish in bounded independent batches
-        timeout-minutes: 5
+        timeout-minutes: 18
         run: |
           python -m jobs.maintenance_guard
           python -m jobs.refresh_data
