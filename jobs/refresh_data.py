@@ -12,6 +12,7 @@ def run():
         from jobs.refresh_eps import run as eps
         from jobs.refresh_annual import run as annual
         from jobs.refresh_us_prices import run as prices
+        from jobs.v26_market_coverage import run as coverage_diagnostic
         from jobs.refresh_paid_dividends import run as paid
         from jobs.refresh_tw_financials import run as tw_financials
         from jobs.refresh_history import run as history
@@ -20,7 +21,7 @@ def run():
         from jobs.refresh_cash_dividends import run as cash
         # Each job reserves its own provider limits; a failure must not suppress others.
         result={'started_at':datetime.now(timezone.utc).isoformat(),'steps':{}}
-        for name,step in [('maintenance',clean),('universe',universe),('tw_prices',tw_prices),('history',history),('fundamentals',fundamentals),('cash_dividends',cash),('tw_financials',tw_financials),('eps_first',eps),('eps_second',eps),('annual',annual),('us_prices',prices),('paid',paid)]:
+        for name,step in [('maintenance',clean),('universe',universe),('tw_prices',tw_prices),('history',history),('fundamentals',fundamentals),('cash_dividends',cash),('tw_financials',tw_financials),('eps_first',eps),('eps_second',eps),('annual',annual),('coverage_diagnostic',coverage_diagnostic),('us_prices',prices),('paid',paid)]:
             try:
                 value=step();state='finished'
                 if isinstance(value,dict) and (value.get('state') in ('failed','partial','busy','limited','cooldown') or value.get('failed_feeds',0)):
