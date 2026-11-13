@@ -23,7 +23,7 @@ def universe():
 
 
 def run(symbols=None,max_requests=2,years=5):
-    init_db();now=time.time();today=local_now().date();count=0;updated=0;failures=0
+    init_db();now=time.time();today=local_now().date();count=0;updated=0;failures=0;missing=0;missing_reasons={}
     max_requests=max(1,min(int(max_requests),4));years=max(1,min(int(years),15))
     requested_years=list(range(today.year-1,max(2012,today.year-years-1),-1))
     explicit=symbols is not None
@@ -124,8 +124,11 @@ def run(symbols=None,max_requests=2,years=5):
                 for symbol in candidates:
                     key=f'cashflow:state:{symbol}:{year}'
                     if symbol not in values:
-                        put(key,{'status':'missing','reason':issues.get(symbol,'本批未取得該公司股利支出'),
-                            'last_attempt':now,'next_attempt':now+86400});failures+=1;continue
+                        reason=issues.get(symbol,'本批未取得該公司股利支出')
+                        missing+=1
+                        missing_reasons[reason]=missing_reasons.get(reason,0)+1
+                        put(key,{'status':'missing','reason':reason,
+                            'last_attempt':now,'next_attempt':now+7*86400});continue
                     old=copy.deepcopy(get('cashflow:official:'+symbol,{'rows':{}}))
                     old.setdefault('rows',{})[str(year)]=values[symbol]
                     old['updated_at']=datetime.now(timezone.utc).isoformat();put('cashflow:official:'+symbol,old)
@@ -147,7 +150,8 @@ def run(symbols=None,max_requests=2,years=5):
                     put('annual:source:mopsfin',{'next_attempt':now+86400,**detail});break
         result={**summary,'state':'partial' if failures or not complete else 'finished','cash_requests':count,
             'elapsed_request_budget_seconds':round(time.monotonic()-start,2),
-            'updated_fields':updated,'failed_feeds':failures,'updated_at':datetime.now(timezone.utc).isoformat()}
+            'updated_fields':updated,'failed_feeds':failures,'missing_fields':missing,
+            'missing_reasons':missing_reasons,'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:cash_dividends',result);return result
 
 
