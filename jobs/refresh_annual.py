@@ -94,7 +94,7 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         if not symbol.endswith(('.TW', '.TWO')):
             return True
         code = symbol.split('.')[0]
-        if not re.fullmatch(r'\\d{4}', code):
+        if not re.fullmatch(r'\d{4}', code):
             return False
         quote = get('quote:' + symbol, {})
         if quote.get('kind') in ('ETF', 'ETN', 'FUND'):
