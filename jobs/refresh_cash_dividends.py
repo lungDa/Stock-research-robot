@@ -23,7 +23,7 @@ def universe():
 
 
 def run(symbols=None,max_requests=2,years=5):
-    init_db();now=time.time();start=time.monotonic();today=local_now().date();count=0;updated=0;failures=0
+    init_db();now=time.time();today=local_now().date();count=0;updated=0;failures=0
     max_requests=max(1,min(int(max_requests),4));years=max(1,min(int(years),15))
     requested_years=list(range(today.year-1,max(2012,today.year-years-1),-1))
     explicit=symbols is not None
@@ -51,6 +51,8 @@ def run(symbols=None,max_requests=2,years=5):
             'market_complete':complete,'years':requested_years,'scope':'全台股母體分批輪替；優先查詢／追蹤標的；不代表已下載齊全'}
         if not priority and not market:return {**summary,'state':'idle'}
         if now<get('annual:source:mopsfin',{}).get('next_attempt',0):return {**summary,'state':'cooldown'}
+        # Start the HTTP budget after expensive universe/classification reads.
+        start=time.monotonic()
         def download(path,**kwargs):
             nonlocal count
             if count>=max_requests or time.monotonic()-start>=35 or not source_slot('mopsfin',48):raise StopIteration
@@ -144,6 +146,7 @@ def run(symbols=None,max_requests=2,years=5):
                 if status in (401,403,429):
                     put('annual:source:mopsfin',{'next_attempt':now+86400,**detail});break
         result={**summary,'state':'partial' if failures or not complete else 'finished','cash_requests':count,
+            'elapsed_request_budget_seconds':round(time.monotonic()-start,2),
             'updated_fields':updated,'failed_feeds':failures,'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:cash_dividends',result);return result
 
