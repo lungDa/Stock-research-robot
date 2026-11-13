@@ -53,6 +53,7 @@ def run():
         return {'state': 'no_universe', 'verified': False}
     total_known = 0
     priority = []
+    completed_symbols = []
     previous = get('v26:priority:partial', {})
     previous_waiting = previous.get('waiting_since', {}) if isinstance(previous, dict) else {}
     if not isinstance(previous_waiting, dict):
@@ -73,12 +74,14 @@ def run():
             total_known += status['known']
             # A partial EPS/ROE history is useful for prioritization, but is
             # not proof that a stock meets the user's multi-factor criteria.
-            if status['missing']:
+            if not status['missing']:
+                completed_symbols.append(symbol)
+            else:
                 priority.append({'symbol': symbol,
                                  'missing_fields': len(status['missing']),
                                  'requested_at': previous_waiting.get(symbol, now)})
     priority = prioritize_missing(priority, now=now)
-    count = len(priority)
+    count = len(priority) + len(completed_symbols)
     summary = {'state': 'diagnostic', 'at': now, 'market_complete': complete,
                'market_symbols': count, 'years': years, 'fields': list(FIELDS),
                'known_fields': total_known, 'expected_fields': count * 15,
@@ -89,7 +92,7 @@ def run():
     # Keep a bounded snapshot. The worker rotates through this list and its
     # own checkpoint; this is not yet the full six-factor priority engine.
     put('v26:priority:partial', {'at': now,
-                                  'symbols': [row['symbol'] for row in priority],
+                                  'symbols': [row['symbol'] for row in priority] + sorted(completed_symbols),
                                   'waiting_since': {row['symbol']: row['requested_at'] for row in priority},
                                   'scope': 'THREE_FIELD_DIAGNOSTIC'})
     return summary
