@@ -126,6 +126,6 @@ def messages(report):
     result=[summary]
     for i,d in enumerate(items,1):
         r=d['rating'];missing=[x['label'] for x in r['checks'] if x['passed'] is None]
-        result.append(f"第{i}名｜{d['name']}（{d['symbol']}）\n{r['grade']}｜分數 {r['score']}｜完整度 {r['coverage']}%\n收盤日 {d['date']}｜TWD {d['price']:.2f}\n"+(f'採第{round_}輪放寬條件。\n' if round_ else '符合原始規則。\n')+('加分項缺漏：'+'、'.join(missing)+'\n' if missing else '')+'依個人多因子規則篩選，非報酬保證。')
+        result.append(f"第{i}名｜{d['name']}（{d['symbol']}）\n{r['grade']}｜分數 {r['score']}｜完整度 {r['coverage']}%\n收盤日 {d['date']}｜TWD {d['price']:.2f}\n"+(f'採第{d["relaxation_round"]}輪放寬條件。\n' if d['relaxation_round'] else '符合原始規則。\n')+('加分項缺漏：'+'、'.join(missing)+'\n' if missing else '')+'依個人多因子規則篩選，非報酬保證。')
     if any(len(m)>4900 for m in result):raise ValueError('排名訊息過長，停止發送')
     return result
