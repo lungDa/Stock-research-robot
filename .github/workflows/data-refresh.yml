@@ -2,8 +2,8 @@ name: Replenish data and clean expired records
 on:
   workflow_dispatch:
   schedule:
-    # 台灣 03:41 / 09:41 / 15:41 / 21:41，每日執行；不發送LINE通知。
-    - cron: '41 1,7,13,19 * * *'
+    # 台灣 06:00 / 12:00 / 18:00 / 23:00，每日執行；不發送LINE通知。
+    - cron: '0 4,10,15,22 * * *'
 permissions:
   contents: read
 concurrency:
