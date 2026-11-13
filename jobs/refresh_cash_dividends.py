@@ -30,7 +30,7 @@ def run(symbols=None,max_requests=2,years=5):
     def mark(name):
         nonlocal phase_started
         current=time.monotonic();phases[name]=round(current-phase_started,3);phase_started=current
-    init_db();mark('db_init');now=time.time();today=local_now().date();count=0;updated=0;failures=0;missing=0;missing_reasons={}
+    init_db();mark('db_init');now=time.time();today=local_now().date();count=0;updated=0;failures=0;missing=0;missing_reasons={};updated_samples=[]
     max_requests=max(1,min(int(max_requests),4));years=max(1,min(int(years),15))
     requested_years=list(range(today.year-1,max(2012,today.year-years-1),-1))
     explicit=symbols is not None
@@ -152,6 +152,7 @@ def run(symbols=None,max_requests=2,years=5):
                     old.setdefault('rows',{})[str(year)]=values[symbol]
                     old['updated_at']=datetime.now(timezone.utc).isoformat();put('cashflow:official:'+symbol,old)
                     put(key,{'status':'ok','last_success':now,'next_attempt':now+30*86400});updated+=1
+                    if len(updated_samples)<20:updated_samples.append({'symbol':symbol,'year':year})
                 put('cashflow:year_cursor',{'value':(slot+1)%len(requested_years)})
             except StopIteration:break
             except Exception as exc:
@@ -174,7 +175,7 @@ def run(symbols=None,max_requests=2,years=5):
             'elapsed_request_budget_seconds':round(time.monotonic()-start,2),
             'elapsed_total_seconds':round(65-max(0,deadline-time.monotonic()),2),
             'updated_fields':updated,'failed_feeds':failures,'missing_fields':missing,
-            'missing_reasons':missing_reasons,'phase_seconds':phases,'updated_at':datetime.now(timezone.utc).isoformat()}
+            'missing_reasons':missing_reasons,'updated_samples':updated_samples,'phase_seconds':phases,'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:cash_dividends',result);return result
 
 
