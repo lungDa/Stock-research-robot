@@ -126,6 +126,9 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
                 'finmind_configured':bool(token),'sec_configured':bool(sec_agent)}
     # Round-robin across companies, then feeds; retain the persisted cursor.
     tasks=sorted(tasks,key=lambda pair:((list(TW_DATASETS).index(pair[1]) if pair[1] in TW_DATASETS else list(SEC_CONCEPTS).index(pair[1])),pair[0]))
+    # Network time budget starts after market/watchlist discovery and task construction.
+    # Otherwise slow database reads can consume the entire budget before the first HTTP request.
+    started=time.monotonic()
     count=0; touched=set(); failures=0
     skipped_source_cooldown=0; skipped_feed_cooldown=0; skipped_budget=0
     def download(url,params=None,headers=None):
@@ -140,15 +143,18 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         return fetch_json(url,params,headers=headers,max_bytes=1048576,seconds=6)
     cursor_key='annual:query_cursor:'+symbols[0] if query else 'annual:cursor'
     cursor=get(cursor_key,{'value':0})['value']%len(tasks)
+    scanned=0
     for offset in range(len(tasks)):
         if count>=max_requests or time.monotonic()-started>=seconds:break
         i=(cursor+offset)%len(tasks); symbol,feed=tasks[i]
+        scanned+=1
+        # Move past cooling feeds so a subsequent run reaches other companies.
+        put(cursor_key,{'value':(i+1)%len(tasks)})
         source='finmind' if symbol.endswith(('.TW','.TWO')) else 'sec'
         if now<get('annual:source:'+source,{}).get('next_attempt',0):
             skipped_source_cooldown+=1
             continue
         statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
-        put(cursor_key,{'value':(i+1)%len(tasks)})
         eps_migration=source=='finmind' and feed==TW_DATASETS[0] and state.get('eps_schema',0)<TW_EPS_SCHEMA
         migration=eps_migration or (feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
         if now<state.get('next_attempt',0) and not migration:
@@ -240,7 +246,7 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
     summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures,
         'skipped_source_cooldown':skipped_source_cooldown,
         'skipped_feed_cooldown':skipped_feed_cooldown,
-        'skipped_budget':skipped_budget,
+        'skipped_budget':skipped_budget,'scanned_tasks':scanned,'total_tasks':len(tasks),
         'state':('partial' if failures or (count==0 and (skipped_source_cooldown or skipped_feed_cooldown or skipped_budget)) else 'finished')}
     if count==0:
         summary['reason']=('source_cooldown' if skipped_source_cooldown else
