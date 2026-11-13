@@ -57,15 +57,36 @@ def relaxed(config,round_):
     return c
 
 def rank(items,config,today):
+    """Fill up to ten slots by relaxation tier, preserving strict-first priority."""
+    chosen = {}
+    eligible = 0
+    last_round = 0
+    last_rules = config['stock_rules']
     for round_ in range(4):
-        c=relaxed(config,round_);ranked=[];eligible=0
-        for data,rows in items:
-            r=evaluate(data,c,rows,today=today)
-            if r['checks'] and all(x['passed'] is not None for x in r['checks'] if x['required']):eligible+=1
-            if r['grade'] in ('買','強力買') and not any(x['required'] and x['passed'] is not True for x in r['checks']):ranked.append({**data,'rating':r})
-        ranked.sort(key=lambda d:(-d['rating']['score'],-d['rating']['coverage'],d['symbol']))
-        if ranked or round_==3 or not eligible:
-            return {'items':ranked[:10],'matched':len(ranked),'round':round_,'eligible':eligible,'rules':c['stock_rules'],'original_config_hash':config_hash(config)}
+        c = relaxed(config, round_)
+        last_rules = c['stock_rules']
+        last_round = round_
+        for data, rows in items:
+            symbol = data['symbol']
+            if symbol in chosen or data.get('kind') != 'STOCK':
+                continue
+            r = evaluate(data, c, rows, today=today)
+            required = [x for x in r['checks'] if x['required']]
+            if round_ == 0 and required and all(x['passed'] is not None for x in required):
+                eligible += 1
+            if r['grade'] not in ('買', '強力買'):
+                continue
+            if any(x['passed'] is not True for x in required):
+                continue
+            chosen[symbol] = {**data, 'rating': r, 'relaxation_round': round_}
+        if len(chosen) >= 10:
+            break
+    ranked = sorted(chosen.values(), key=lambda d: (
+        d['relaxation_round'], -d['rating']['score'],
+        -d['rating']['coverage'], d['symbol']))
+    return {'items': ranked[:10], 'matched': len(chosen), 'round': last_round,
+            'eligible': eligible, 'rules': last_rules,
+            'original_config_hash': config_hash(config)}
 
 def collect(symbols,snapshots,target,user,deadline):
     from app.providers.taiwan_official import build_result
