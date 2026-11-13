@@ -88,6 +88,21 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
                     symbols.append(s)
     if not symbols:
         print('年度資料：尚無追蹤清單或可用市場母體，略過。');return
+    # FinMind company financial statements are not applicable to ETF/fund
+    # securities or alphanumeric exchange codes. Keep ordinary 4-digit shares.
+    def eligible(symbol):
+        if not symbol.endswith(('.TW', '.TWO')):
+            return True
+        code = symbol.split('.')[0]
+        if not re.fullmatch(r'\\d{4}', code):
+            return False
+        quote = get('quote:' + symbol, {})
+        if quote.get('kind') in ('ETF', 'ETN', 'FUND'):
+            return False
+        return not code.startswith('00')
+    symbols = [symbol for symbol in symbols if eligible(symbol)]
+    if not symbols:
+        return {'annual_requests': 0, 'updated_symbols': 0, 'failed_feeds': 0, 'state': 'no_eligible_symbols'}
     symbols=sorted(symbols)
     # Cursor across symbol/feed pairs prevents one slow company starving others.
     tasks=[]
