@@ -189,7 +189,7 @@ def test_independent_refresh_marks_returned_source_failure_as_partial(monkeypatc
     def fake_run(cmd, **kwargs):
         step = cmd[-1]
         value = {"state": "failed", "failed_feeds": 1} if step == "tw_financials" else {"state": "cached"}
-        return subprocess.CompletedProcess(cmd, 0, stdout=__import__("json").dumps(value) + "\\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=__import__("json").dumps(value) + "\n", stderr="")
 
     monkeypatch.setattr(job, "init_db", Mock())
     monkeypatch.setattr(job, "leased", owned)
