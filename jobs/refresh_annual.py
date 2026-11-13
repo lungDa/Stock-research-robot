@@ -117,12 +117,16 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
     # Round-robin across companies, then feeds; retain the persisted cursor.
     tasks=sorted(tasks,key=lambda pair:((list(TW_DATASETS).index(pair[1]) if pair[1] in TW_DATASETS else list(SEC_CONCEPTS).index(pair[1])),pair[0]))
     count=0; touched=set(); failures=0
+    skipped_source_cooldown=0; skipped_feed_cooldown=0; skipped_budget=0
     def download(url,params=None,headers=None):
         nonlocal count
         if count>=max_requests or time.monotonic()-started>=seconds:raise StopIteration
         from app.services.data_queue import source_slot
         source='finmind' if url==FINMIND else 'sec'
-        if not source_slot(source,100 if source=='finmind' else 60):raise StopIteration
+        if not source_slot(source,100 if source=='finmind' else 60):
+            nonlocal skipped_budget
+            skipped_budget+=1
+            raise StopIteration
         count+=1
         return fetch_json(url,params,headers=headers,max_bytes=1048576,seconds=6)
     cursor_key='annual:query_cursor:'+symbols[0] if query else 'annual:cursor'
@@ -131,12 +135,16 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
         if count>=max_requests or time.monotonic()-started>=seconds:break
         i=(cursor+offset)%len(tasks); symbol,feed=tasks[i]
         source='finmind' if symbol.endswith(('.TW','.TWO')) else 'sec'
-        if now<get('annual:source:'+source,{}).get('next_attempt',0):continue
+        if now<get('annual:source:'+source,{}).get('next_attempt',0):
+            skipped_source_cooldown+=1
+            continue
         statekey='annual:feed:'+symbol+':'+feed; state=get(statekey,{})
         put(cursor_key,{'value':(i+1)%len(tasks)})
         eps_migration=source=='finmind' and feed==TW_DATASETS[0] and state.get('eps_schema',0)<TW_EPS_SCHEMA
         migration=eps_migration or (feed==TW_DATASETS[2] and state.get('schema',0)<TW_CASH_SCHEMA) or ((feed==TW_DATASETS[3] or (source=='sec' and feed in ('eps','net_income','equity'))) and state.get('period_schema',0)<PERIOD_SCHEMA)
-        if now<state.get('next_attempt',0) and not migration:continue
+        if now<state.get('next_attempt',0) and not migration:
+            skipped_feed_cooldown+=1
+            continue
         if eps_migration:
             # Old versions discarded EPS. Refill recent quarters first without
             # erasing older financial rows or requesting eleven years again.
@@ -220,7 +228,15 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             'fund_profile':profile,
             'status':'partial','notes':['分批補齊；無資料不補零。美股EPS以USD/股計，台股以TWD/股計。',
                 'ETF不套用公司EPS與ROE；費用率與完整配息仍須可核對來源。']})
-    summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures}
+    summary={'annual_requests':count,'updated_symbols':len(touched),'failed_feeds':failures,
+        'skipped_source_cooldown':skipped_source_cooldown,
+        'skipped_feed_cooldown':skipped_feed_cooldown,
+        'skipped_budget':skipped_budget,
+        'state':('partial' if failures or (count==0 and (skipped_source_cooldown or skipped_feed_cooldown or skipped_budget)) else 'finished')}
+    if count==0:
+        summary['reason']=('source_cooldown' if skipped_source_cooldown else
+            'feed_cooldown' if skipped_feed_cooldown else
+            'daily_request_budget' if skipped_budget else 'no_due_tasks')
     print(summary)
     return summary
 
