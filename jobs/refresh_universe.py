@@ -101,5 +101,6 @@ def build():
     put('universe:scope', {'partial':partial, 'count':len(rows), 'market':'TW/TWO',
                           'updated_at':time.time()})
     print(f'台股候選母體{len(rows)}檔；部分涵蓋={partial}；美股本階段不主動掃描')
+    return {'state':'partial' if partial else 'finished','market_symbols':len(rows),'market_complete':not partial}
 
 if __name__ == '__main__': build()
