@@ -74,8 +74,13 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             universe=[]
         if universe:
             start=int(get('annual:universe_cursor',{'value':0}).get('value',0))%len(universe)
-            batch=[universe[(start+i)%len(universe)] for i in range(min(12,len(universe)))]
-            put('annual:universe_cursor',{'value':(start+len(batch))%len(universe)})
+            # Half the market batch follows the partial-coverage priority
+            # snapshot; the other half remains a full-market round robin.
+            # This avoids starving stocks absent from the diagnostic snapshot.
+            from app.services.annual_priority import choose_market_batch
+            snapshot=get('v26:priority:partial',{})
+            batch, advanced=choose_market_batch(universe,start,snapshot,now=now)
+            put('annual:universe_cursor',{'value':(start+advanced)%len(universe)})
             for s in batch:
                 if s not in symbols:
                     symbols.append(s)
