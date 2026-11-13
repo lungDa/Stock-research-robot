@@ -37,7 +37,7 @@ def compact(dataset, records, code):
 def run(symbols=None,max_requests=8,seconds=48,query=False):
     from app.db import leased
     init_db()
-    with leased('annual:worker',180) as owned:
+    with leased('annual:worker',60) as owned:
         if not owned:return {'state':'busy','annual_requests':0,'updated_symbols':0,'failed_feeds':0}
         result=_run(symbols,max_requests,seconds,query)
         if not query:
