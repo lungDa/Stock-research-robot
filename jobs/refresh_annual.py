@@ -78,7 +78,9 @@ def _run(symbols=None,max_requests=8,seconds=48,query=False):
             # snapshot; the other half remains a full-market round robin.
             # This avoids starving stocks absent from the diagnostic snapshot.
             from app.services.annual_priority import choose_market_batch
-            snapshot=get('v26:priority:partial',{})
+            snapshot=get('v27:priority:six_factor_provisional',{})
+            if snapshot.get('scope') != 'SIX_FACTOR_PROVISIONAL':
+                snapshot=get('v26:priority:partial',{})
             batch, advanced=choose_market_batch(universe,start,snapshot,now=now)
             put('annual:universe_cursor',{'value':(start+advanced)%len(universe)})
             for s in batch:
