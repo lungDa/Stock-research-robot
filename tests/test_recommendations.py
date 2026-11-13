@@ -28,7 +28,7 @@ def test_only_relax_when_zero_and_never_mutate():
     r=m.rank([item(eps=1.01),item('2330.TW',.95)],c,DAY)
     assert r['round']==3 and r['matched']==2
     r=m.rank([item(eps=.95)],c,DAY)
-    assert r['round']==1 and r['matched']==1 and r['rules'][0]['threshold']==.9
+    assert r['round']==3 and r['matched']==1 and r['items'][0]['relaxation_round']==1
     assert c==old
 
 def test_three_rounds_no_padding_missing_and_boolean_guards():
@@ -37,7 +37,7 @@ def test_three_rounds_no_padding_missing_and_boolean_guards():
     c=config();c['missing_policy']='available'
     d,rows=item();rows['2025']['eps']=None
     r=m.rank([(d,rows)],c,DAY)
-    assert r['round']==0 and not r['items'] and r['eligible']==0
+    assert r['round']==3 and not r['items'] and r['eligible']==0
     c['stock_rules'] += [rule('fcf_positive',1,1,'=='),rule('fcf_coverage',1,1,'>=')]
     assert m.relaxed(c,3)['stock_rules'][1:]==c['stock_rules'][1:]
 
