@@ -111,4 +111,8 @@ def run(symbols=None,max_requests=4,seconds=24):
         return result
 
 
-if __name__=='__main__':print(run())
+if __name__=='__main__':
+    from jobs.tw_financial_summary import write_summary
+    result=run()
+    write_summary({'result':result})
+    print(result)

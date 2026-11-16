@@ -5,6 +5,8 @@ os.environ['LINE_CHANNEL_SECRET']='test-secret'
 import pytest
 from app.db import Base,engine,init_db
 @pytest.fixture(autouse=True)
-def clean_db():
+def clean_db(monkeypatch):
+    # Simulated refresh failures must not pollute the real CI job summary.
+    monkeypatch.delenv('GITHUB_STEP_SUMMARY',raising=False)
     Base.metadata.drop_all(engine);init_db()
     yield

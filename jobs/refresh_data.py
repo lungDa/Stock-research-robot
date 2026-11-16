@@ -66,6 +66,9 @@ def run():
                 entry = {"state": "failed", "reason": type(exc).__name__}
                 print(f"FAILED {name}: {type(exc).__name__}", flush=True)
             result["steps"][name] = entry
+            if name == 'tw_financials':
+                from jobs.tw_financial_summary import write_summary
+                write_summary(entry)
             result["updated_at"] = utcnow()
             put("jobs:data_refresh", result)
             print(f"END {name}: {entry['state']} ({len(result['steps'])}/{len(STEPS)})", flush=True)
