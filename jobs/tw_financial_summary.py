@@ -1,6 +1,7 @@
 """Allowlisted Chinese Actions summaries; never render raw provider/user text."""
 import os
 import re
+import math
 
 from app.providers.source_errors import CONTRACTS
 
@@ -31,6 +32,22 @@ GUIDANCE = {
     'storage': ('資料庫操作失敗', '檢查資料庫連線與可用性；不要在公開紀錄貼出連線字串或密碼。'),
     'contract': ('資料未通過格式、公司身分或年度數值核對', '請維護者核對官方格式與解析規則；不要將缺漏補成 0 或放寬核對。'),
 }
+STOP_REASONS = {
+    'worker_busy': '已有其他工作持有更新鎖；等待目前工作結束。',
+    'no_symbols': '沒有符合條件的標的；請檢查佇列與標的設定。',
+    'source_cooldown': '官方來源仍在冷卻；等待冷卻解除，不要反覆重跑。',
+    'feed_cooldown': '所有已檢查的年度項目都在冷卻；等待個別項目可再更新。',
+    'request_limit': '已達本批請求上限；後續排程會從保留的進度續跑。',
+    'time_limit': '已耗盡本批時間預算；請檢查準備工作與資料庫耗時，並等待後續排程續跑。',
+    'source_quota': '未取得官方來源的共用請求配額；等待配額恢復，不要繞過限制。',
+    'catalog_failure': '官方目錄處理失敗；請參考下方安全診斷。',
+    'feed_failure': '年度項目處理失敗；請參考下方安全診斷。',
+    'tasks_scanned': '已檢查本批全部項目；部分項目可能因個別冷卻而略過。',
+}
+
+
+def _seconds(value):
+    return f'{value:.3f}' if type(value) in (int,float) and math.isfinite(value) and 0<=value<=86400 else '未提供'
 
 
 def _text(value):
@@ -85,7 +102,20 @@ def render_summary(entry):
                   '| ---: | ---: | ---: |',
                   '| ' + ' | '.join(_count(result.get(k)) for k in
                     ('official_requests', 'updated_symbols', 'failed_feeds')) + ' |', '']
-        if state == 'cooldown':
+        stop = _text(result.get('stop_reason'))
+        if stop in STOP_REASONS:
+            lines += ['停止／結束原因：' + STOP_REASONS[stop], '',
+                      '| 本批項目數 | 已檢查項目數 | 因個別冷卻略過 |', '| ---: | ---: | ---: |',
+                      '| ' + ' | '.join(_count(result.get(k)) for k in
+                        ('total_tasks','scanned_tasks','skipped_feed_cooldown')) + ' |', '',
+                      '| 資料庫初始化（秒） | 準備工作（秒） | 已用預算（秒） | 預算上限（秒） |',
+                      '| ---: | ---: | ---: | ---: |',
+                      '| ' + ' | '.join(_seconds(result.get(k)) for k in
+                        ('db_init_seconds','preparation_seconds','elapsed_budget_seconds','budget_seconds')) + ' |', '',
+                      '準備工作含標的、來源狀態與目錄快取讀取；已用預算包含準備工作，但不含資料庫初始化。', '']
+            if result.get('official_requests') == 0:
+                lines += ['本批未發出官方請求，不能據此確認來源已恢復。', '']
+        elif state == 'cooldown':
             lines += ['建議：等待既有冷卻解除，由後續排程再檢查；本次未重新連線，不能據此判定來源已恢復。', '']
         elif state in ('busy', 'limited'):
             lines += ['建議：等待目前工作結束或配額恢復，再由後續排程續跑；這不等於資料格式錯誤。', '']
