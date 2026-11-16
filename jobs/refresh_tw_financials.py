@@ -11,8 +11,16 @@ from app.providers.mopsfin import request,parse_catalog,parse_company,parse_annu
 from app.providers.source_errors import describe
 
 
+def failure_detail(exc,stage):
+    # Stages are code-owned literals; never include symbols, users, URLs or payloads.
+    if stage.endswith(('讀取','寫入')):
+        return {'stage':stage,'error_code':'storage','reason':stage+'：資料庫操作失敗'}
+    return describe(exc,stage)
+
+
 def run(symbols=None,max_requests=4,seconds=24):
     init_db();start=time.monotonic();now=time.time();count=0;touched=set();failed=0
+    failures=[]
     max_requests=max(1,min(int(max_requests),4));seconds=max(1,min(float(seconds),24))
     with leased('annual:worker',180) as owned:
         if not owned:return {'state':'busy','official_requests':0}
@@ -31,14 +39,20 @@ def run(symbols=None,max_requests=4,seconds=24):
         source=get('annual:source:mopsfin',{})
         if now<source.get('next_attempt',0):return {'state':'cooldown','official_requests':0}
         catalog=get('mopsfin:catalog',{})
+        stage='官方目錄下載'
         try:
             if now-catalog.get('at',0)>7*86400 or not catalog.get('metrics'):
-                catalog={'at':now,'metrics':parse_catalog(download('/'))}
+                payload=download('/')
+                stage='官方目錄解析'
+                catalog={'at':now,'metrics':parse_catalog(payload)}
+                stage='官方目錄寫入'
                 put('mopsfin:catalog',catalog)
         except StopIteration:return {'state':'limited','official_requests':count}
         except Exception as exc:
-            put('annual:source:mopsfin',{'next_attempt':now+86400,**describe(exc,'官方目錄')})
-            result={'state':'failed','official_requests':count,'failed_feeds':1,'updated_at':datetime.now(timezone.utc).isoformat()}
+            detail=failure_detail(exc,stage)
+            put('annual:source:mopsfin',{'next_attempt':now+86400,**detail})
+            result={'state':'failed','official_requests':count,'failed_feeds':1,'updated_symbols':0,
+                    'failures':[detail],'updated_at':datetime.now(timezone.utc).isoformat()}
             put('jobs:tw_financials',result)
             return result
         tasks=[(symbol,field) for field in ('eps','roe_pct') for symbol in symbols]
@@ -50,23 +64,32 @@ def run(symbols=None,max_requests=4,seconds=24):
             state=get(key,{})
             if now<state.get('next_attempt',0):continue
             put(cursor_key,{'value':i})  # Resume this task if metadata uses the last request.
-            stage='公司代號查詢'
+            stage='公司快取讀取'
             try:
                 company=get('mopsfin:company:'+symbol,{})
                 if now-company.get('at',0)>30*86400 or not company.get('display'):
-                    company={'at':now,'display':parse_company(download('/suggestCompany',params={'query':symbol.split('.')[0]}),symbol)}
+                    stage='公司代號下載'
+                    payload=download('/suggestCompany',params={'query':symbol.split('.')[0]})
+                    stage='公司代號解析'
+                    company={'at':now,'display':parse_company(payload,symbol)}
+                    stage='公司快取寫入'
                     put('mopsfin:company:'+symbol,company)
+                stage='年度'+field+'請求準備'
                 metric=catalog['metrics'][field]
+                form=annual_fields(field,company['display'],metric)
                 stage='年度'+field+'下載'
-                payload=download('/compare/data',form=annual_fields(field,company['display'],metric))
+                payload=download('/compare/data',form=form)
                 stage='年度'+field+'解析'
                 rows=parse_annual(payload,symbol,field,company['display'],local_now().date(),metric)
+                stage='年度'+field+'快取讀取'
                 shared=copy.deepcopy(get('financial:official:'+symbol,{'rows':{}}))
+                stage='年度'+field+'資料整合'
                 for year,row in rows.items():
                     current=shared['rows'].setdefault(year,{})
                     sources={**current.get('field_sources',{}),**row['field_sources']}
                     current.update(row);current['field_sources']=sources
                 shared.update(updated_at=datetime.now(timezone.utc).isoformat(),status='partial',company_display=company['display'])
+                stage='年度'+field+'寫入'
                 put('financial:official:'+symbol,shared)
                 put(key,{'status':'ok','at':now,'years':sorted(rows),'next_attempt':now+7*86400})
                 put(cursor_key,{'value':(i+1)%len(tasks)})
@@ -74,14 +97,16 @@ def run(symbols=None,max_requests=4,seconds=24):
             except StopIteration:break
             except Exception as exc:
                 failed+=1
-                code=getattr(getattr(exc,'response',None),'status_code',None)
-                detail=describe(exc,stage)
+                detail=failure_detail(exc,stage)
+                # Bound log size even for cached metadata failures without requests.
+                if len(failures)<4:failures.append(detail)
                 put(key,{**state,'status':'failed','last_attempt':now,**detail,'next_attempt':now+86400})
                 put(cursor_key,{'value':(i+1)%len(tasks)})
-                if code in (401,403,429):
+                if detail['error_code'] in ('http_401','http_403','http_429'):
                     put('annual:source:mopsfin',{'next_attempt':now+86400,**detail});break
         result={'state':'partial' if failed else 'finished','official_requests':count,
-                'updated_symbols':len(touched),'failed_feeds':failed,'updated_at':datetime.now(timezone.utc).isoformat()}
+                'updated_symbols':len(touched),'failed_feeds':failed,'failures':failures,
+                'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:tw_financials',result)
         return result
 
