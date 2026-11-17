@@ -20,7 +20,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-worker.txt
       - run: pip install --disable-pip-version-check -r requirements-worker.txt
-      - name: Read existing cooldowns without updating data
+      - name: Read existing cooldowns with safe failure-stage diagnostics
         timeout-minutes: 2
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

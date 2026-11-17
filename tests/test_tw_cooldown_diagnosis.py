@@ -76,7 +76,7 @@ def test_connection_enforces_read_only_and_disposes(monkeypatch):
     engine.dispose.assert_called_once()
     engine.connect.return_value.__enter__.return_value.execute.return_value.scalar.return_value = 'off'
     diag.collect.reset_mock()
-    with pytest.raises(ValueError):
+    with pytest.raises(diag.DiagnosticFailure):
         diag.read_database('postgres://user:secret@example/db', '', [])
     diag.collect.assert_not_called()
 
@@ -89,3 +89,10 @@ def test_failure_never_prints_exception_or_credentials(monkeypatch, capsys, tmp_
     output = capsys.readouterr().out
     assert '診斷未完成' in output and 'SECRET' not in output and 'private-user' not in output
     assert (tmp_path / 'summary.md').read_text(encoding='utf-8').strip() == output.strip()
+
+
+def test_safe_driver_failure_category():
+    from sqlalchemy.exc import ProgrammingError
+    failure = diag.DiagnosticFailure('讀取既有候選項目與冷卻紀錄', ProgrammingError('secret SQL', {}, RuntimeError('secret payload')))
+    assert failure.category == '資料庫查詢格式或權限錯誤'
+    assert failure.code == '未提供'
