@@ -133,8 +133,13 @@ render_admin_console(api, personal, bool(st.session_state.get('is_admin')))
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
 query,watch,screen,strategy_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定'])
 with query:
+    from app.ui.query_link import apply_symbol_link
+    linked_symbol=apply_symbol_link(st.query_params,st.session_state)
+    st.session_state.setdefault('query_symbol','2330')
+    if linked_symbol:
+        st.caption('已帶入推薦股票代號；按「分析」取得資料，也可自行修改代號。')
     with st.form('query'):
-        symbol=st.text_input('代號','2330',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
+        symbol=st.text_input('代號',key='query_symbol',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
         submit=st.form_submit_button('分析')
     if submit:
         requested_symbol=symbol.strip()

@@ -34,7 +34,8 @@ def run(symbols=None,max_requests=2,years=5):
     max_requests=max(1,min(int(max_requests),4));years=max(1,min(int(years),15))
     requested_years=list(range(today.year-1,max(2012,today.year-years-1),-1))
     explicit=symbols is not None
-    with leased('annual:worker',75) as owned:
+    # Keep ownership beyond the parent's 90s subprocess timeout.
+    with leased('annual:worker',180) as owned:
         if not owned:return {'state':'busy','cash_requests':0}
         if explicit:
             priority=sorted({normalize(s) for s in symbols if s.strip()});market=[];complete=False
@@ -89,8 +90,10 @@ def run(symbols=None,max_requests=2,years=5):
             put('jobs:cash_dividends',result);return result
         year_cursor=get('cashflow:year_cursor',{}).get('value',0)%len(requested_years)
         batch_size=max(1,min(20,get('cashflow:batch_size',{}).get('value',20)))
+        visited_years=0
         for offset in range(min(len(requested_years),2)):
             if count>=max_requests or time.monotonic()>=deadline-12:break
+            visited_years+=1
             slot=(year_cursor+offset)%len(requested_years);year=requested_years[slot]
             candidates=[]
             groups=[('priority',priority,batch_size if not market else max(1,batch_size//2)),('market',market,batch_size)]
@@ -170,7 +173,7 @@ def run(symbols=None,max_requests=2,years=5):
                     put('annual:source:mopsfin',{'next_attempt':now+86400,**detail});break
         mark('backfill_work')
         # Rotate years across runs even if the current slice had no eligible rows.
-        put('cashflow:year_cursor',{'value':(year_cursor+2)%len(requested_years)})
+        put('cashflow:year_cursor',{'value':(year_cursor+max(1,visited_years))%len(requested_years)})
         result={**summary,'state':'partial' if failures or not complete else 'finished','cash_requests':count,
             'elapsed_request_budget_seconds':round(time.monotonic()-start,2),
             'elapsed_total_seconds':round(65-max(0,deadline-time.monotonic()),2),
