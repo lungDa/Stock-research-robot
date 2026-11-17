@@ -1,0 +1,29 @@
+name: Read-only annual cooldown diagnosis
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/v27-integrated]
+    paths: [.github/workflows/diagnose-tw-cooldowns.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    # Explicit one-shot opt-in while this workflow exists only on the feature branch.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[diagnose-cooldown]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Read existing cooldowns in a verified read-only transaction
+        timeout-minutes: 2
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+          ANNUAL_SYMBOLS: ${{ vars.ANNUAL_SYMBOLS }}
+        run: python -m scripts.diagnose_tw_cooldowns

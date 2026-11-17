@@ -178,12 +178,23 @@ def test_manual_contract_probe_four_calls_and_no_ttm_claim():
 
 
 def test_independent_refresh_marks_returned_source_failure_as_partial(monkeypatch):
+    import subprocess
     import jobs.refresh_data as job
-    import jobs.refresh_tw_financials as official
-    from jobs import maintenance,refresh_fundamentals,refresh_eps,refresh_annual,refresh_us_prices,refresh_paid_dividends,refresh_universe
-    monkeypatch.setattr(refresh_universe,'build',Mock(return_value=None))
-    for module in (maintenance,refresh_fundamentals,refresh_eps,refresh_annual,refresh_us_prices,refresh_paid_dividends):
-        monkeypatch.setattr(module,'run',Mock(return_value={'state':'cached'}))
-    monkeypatch.setattr(official,'run',Mock(return_value={'state':'failed','failed_feeds':1}))
-    result=job.run()
-    assert result['state']=='partial' and result['steps']['tw_financials']['state']=='partial'
+    from contextlib import contextmanager
+
+    @contextmanager
+    def owned(*args, **kwargs):
+        yield True
+
+    def fake_run(cmd, **kwargs):
+        step = cmd[-1]
+        value = {"state": "failed", "failed_feeds": 1} if step == "tw_financials" else {"state": "cached"}
+        return subprocess.CompletedProcess(cmd, 0, stdout=__import__("json").dumps(value) + "\n", stderr="")
+
+    monkeypatch.setattr(job, "init_db", Mock())
+    monkeypatch.setattr(job, "leased", owned)
+    monkeypatch.setattr(job.subprocess, "run", fake_run)
+    monkeypatch.setattr(job, "put", Mock())
+    result = job.run()
+    assert result["state"] == "partial"
+    assert result["steps"]["tw_financials"]["state"] == "partial"

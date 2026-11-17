@@ -1,5 +1,5 @@
 import copy,csv,io,time
-from datetime import date
+from datetime import date,datetime
 import pytest
 from app.db import get,put
 from app.services.multifactor import DEFAULT,validate,evaluate,annual_rows,save_settings,settings_for,rated_many
@@ -81,7 +81,10 @@ def test_annual_import_atomic_validation_and_isolation():
     with pytest.raises(ValueError):import_csv('Ualice','2330',csv_text([{**valid,'capital_expenditure':-3}]))
     with pytest.raises(ValueError):import_csv('Ualice','2330',csv_text([{**valid,'eps':'NaN'}]))
 
-def test_batch_uses_personal_data_and_stale_momentum_blocked():
+def test_batch_uses_personal_data_and_stale_momentum_blocked(monkeypatch):
+    # Match the fixed quote/annual fixtures instead of letting them expire in CI.
+    monkeypatch.setattr('app.services.multifactor.local_now',lambda:datetime.combine(TODAY,datetime.min.time()))
+    monkeypatch.setattr('app.services.freshness.local_now',lambda:datetime.combine(TODAY,datetime.min.time()))
     put('annual:Ualice:2330.TW',annual())
     assert rated_many([quote()],'Ualice')[0]['rating']['grade']=='強力買'
     assert rated_many([quote()],'Ubob')[0]['rating']['grade']=='資料不足'

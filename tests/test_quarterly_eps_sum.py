@@ -176,3 +176,21 @@ def test_migration_deferred_by_daily_budget_does_not_restore_old_week_cooldown(m
     put('annual:cursor',{'value':0})
     job.run(['2330'],max_requests=1)
     assert get(key)['records'][-1]['type']=='EPS' and loader.call_count==1
+
+
+def test_cumulative_ytd_eps_cannot_be_summed_as_quarters():
+    rows=records()
+    rows[2]['origin_name']='累計基本每股盈餘'
+    assert taiwan_eps_four_quarters('2330.TW',rows,TODAY) is None
+
+
+def test_conflicting_same_period_eps_fails_closed():
+    rows=records()
+    rows.append({**rows[-1], 'value':999})
+    assert taiwan_eps_four_quarters('2330.TW',rows,TODAY) is None
+
+
+def test_repeated_identical_quarter_eps_remains_valid():
+    rows=records()
+    rows.append(dict(rows[-1]))
+    assert taiwan_eps_four_quarters('2330.TW',rows,TODAY)['value']==10

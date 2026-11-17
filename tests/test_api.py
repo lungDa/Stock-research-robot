@@ -59,3 +59,23 @@ def test_maintenance_blocks_public_private_and_webhook(monkeypatch):
             assert response.status_code==503
         assert c.post('/line/webhook',json={'events':[]}).status_code==503
         assert c.post('/auth/line/start',json={}).status_code==503
+
+
+def test_signed_webhook_in_maintenance_gets_notice_without_running_command(monkeypatch):
+    from unittest.mock import Mock
+    import app.api.server as server
+    from app.channels import commands
+    from app.db import get,put
+    put('system:maintenance',{'enabled':True})
+    command=Mock();reply=Mock()
+    monkeypatch.setattr(commands,'respond',command)
+    monkeypatch.setattr(line,'reply',reply)
+    event={'type':'message','webhookEventId':'maintenance-test','source':{'type':'user','userId':'Ualice'},
+           'replyToken':'token','message':{'type':'text','text':'通知開啟'}}
+    body,headers=signed({'events':[event]})
+    with TestClient(app) as c:
+        assert c.post('/line/webhook',content=body,headers=headers).status_code==200
+    command.assert_not_called()
+    assert '維護中' in reply.call_args.args[1]
+    assert get('event:maintenance-test') is None
+    assert get('system:maintenance')['enabled'] is True

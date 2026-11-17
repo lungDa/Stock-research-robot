@@ -5,7 +5,9 @@ from app.services.freshness import local_now,TAIPEI
 from app.services.accounts import member_users,can_use_personal
 from app.services.market_recommendations import preferences,is_session,target_day,collect,rank,messages
 from app.services.multifactor import settings_for
-from app.channels.line import quota,push
+from app.channels.line import quota,push,push_message
+from app.config import settings
+from app.services.recommendation_flex import recommendation_flex
 
 def deliver(user,key,texts,dry_run,remaining):
     if dry_run:return remaining
@@ -17,7 +19,11 @@ def deliver(user,key,texts,dry_run,remaining):
     for entry in state['messages']:
         if entry['sent']:continue
         if remaining<=5:raise RuntimeError('LINE配額不足，保留未確認訊息')
-        push(user,entry['text'],entry['retry_key']);entry['sent']=True;remaining-=1;put(key,state)
+        if isinstance(entry['text'],dict):
+            push_message(user,entry['text'],entry['retry_key'])
+        else:
+            push(user,entry['text'],entry['retry_key'])
+        entry['sent']=True;remaining-=1;put(key,state)
     return remaining
 
 def run(slot,dry_run=True,now=None):
@@ -61,7 +67,17 @@ def run(slot,dry_run=True,now=None):
                 remaining=deliver(user,key,[],False,remaining);continue
             items,coverage=collect(symbols,snapshots,target,user,deadline)
             report={**rank(items,settings_for(user),today),'coverage':coverage,'target_date':str(target),'date':str(today),'slot':slot,'slot_label':'11:30' if slot=='morning' else '19:30','universe_partial':partial,'generated_at':now.isoformat()}
-            texts=messages(report);put('recommendations:'+('preview:' if dry_run else 'latest:')+user,report)
+            texts=messages(report)
+            # Summary stays a plain text message; ranked stocks become one
+            # Flex carousel only when the configured public URL is valid.
+            flex_items=[{'symbol':d['symbol'],'name':d.get('name'),
+                         'score':d['rating'].get('score'),
+                         'relaxation_round':d.get('relaxation_round',0)}
+                        for d in report['items']]
+            flex=recommendation_flex(flex_items,settings.public_app_url)
+            if flex is not None:
+                texts=[texts[0],flex]
+            put('recommendations:'+('preview:' if dry_run else 'latest:')+user,report)
             remaining=deliver(user,key,texts,dry_run,remaining)
             # Independent opt-in four-mode outbox; never alter existing ranking.
             from app.day_trader.reporting import preferences as four_preferences, latest as four_latest, summary as four_summary

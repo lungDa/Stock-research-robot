@@ -131,10 +131,15 @@ render_security_center(api, personal, bool(st.session_state.get('is_admin')))
 from app.day_trader.admin_console_ui import render_admin_console
 render_admin_console(api, personal, bool(st.session_state.get('is_admin')))
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
-query,watch,screen,strategy_tab,coverage_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定','📊 財務資料完整率'])
+query,watch,screen,strategy_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定'])
 with query:
+    from app.ui.query_link import apply_symbol_link
+    linked_symbol=apply_symbol_link(st.query_params,st.session_state)
+    st.session_state.setdefault('query_symbol','2330')
+    if linked_symbol:
+        st.caption('已帶入推薦股票代號；按「分析」取得資料，也可自行修改代號。')
     with st.form('query'):
-        symbol=st.text_input('代號','2330',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
+        symbol=st.text_input('代號',key='query_symbol',help='上櫃例如 6488.TWO；美股例如 AAPL、VOO')
         submit=st.form_submit_button('分析')
     if submit:
         requested_symbol=symbol.strip()
@@ -331,6 +336,10 @@ with screen:
         st.dataframe(pd.DataFrame({'符合條件標的':report.get(mode,[])}),use_container_width=True)
         with st.expander('本次失敗代號'): st.write(report.get('failed',[]))
     else: st.info('尚無掃描報告，請先執行排程。')
+
+    st.divider()
+    from app.ui.v26_coverage_dashboard import render as render_v26_coverage
+    render_v26_coverage(api, personal, bool(st.session_state.get('is_admin')))
 
 with strategy_tab:
     if not personal:
@@ -658,7 +667,3 @@ if personal:
                     if rows:st.dataframe(rows,hide_index=True,use_container_width=True)
                     else:st.warning('本模式資料不足，暫不排名')
 
-
-with coverage_tab:
-    from app.ui.v26_coverage_dashboard import render as render_v26_coverage
-    render_v26_coverage(api, personal, bool(st.session_state.get('is_admin')))
