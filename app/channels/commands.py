@@ -68,6 +68,11 @@ def format_quote(d):
 
 def handle(user,text):
     command,arg=parse(text)
+    # These instructions do not need a member lookup or market data.
+    if command=='查詢' and not arg:
+        return '可以直接輸入「2330」「查詢00878」或「幫我分析台積電」。上櫃請指定例如6488.TWO。'
+    if command in ('功能選單','使用說明'):
+        return HELP+'\n可說「幫我追蹤台積電」「今天有什麼值得看」「不要通知」。不需要輸入嚴格格式；目前支援常用問法，不是任意問答AI。'
     personal=can_use_personal(user)
     if command in PRIVATE and not personal:return login_help()
     if command in ('綁定','個人設定','修改密碼','歷史資料'):

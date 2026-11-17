@@ -1,7 +1,7 @@
 import asyncio,json,logging,time
 from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks
 from pydantic import BaseModel,Field
-from app.db import init_db,get,claim,put
+from app.db import init_db,get,put
 from app.api.security import current_user,current_admin,is_admin
 from app.services.research import research
 from app.services.watchlist import watches,add,remove,toggle
@@ -30,14 +30,34 @@ async def maintenance_gate(request:Request,call_next):
     if path in ('/health','/ready','/maintenance/status','/admin/maintenance'):
         return await call_next(request)
     try:
-        active=bool(get('system:maintenance',{}).get('enabled',False))
+        active=bool((await asyncio.to_thread(get,'system:maintenance',{})).get('enabled',False))
     except Exception:
-        log.exception('maintenance state unavailable')
+        log.warning('maintenance state unavailable')
+        if path=='/line/webhook':
+            return await unavailable_webhook(request,False)
         return JSONResponse(status_code=503,content={'detail':'系統狀態暫不可確認，請稍後再試'})
     if active:
+        if path=='/line/webhook':
+            return await unavailable_webhook(request,True)
         return JSONResponse(status_code=503,content={'detail':'系統維護中，請稍後再試'},
                             headers={'Retry-After':'300','Cache-Control':'no-store'})
     return await call_next(request)
+
+
+async def unavailable_webhook(request,maintenance):
+    from fastapi.responses import JSONResponse
+    from app.channels.webhook import notify_unavailable,MAINTENANCE,UNAVAILABLE
+    body=await request.body()
+    # Never send a message on behalf of an unsigned request.
+    if not line.verify(body,request.headers.get('x-line-signature','')):
+        return JSONResponse(status_code=503,content={'detail':'服務暫不可用'})
+    try:
+        events=json.loads(body)['events']
+        if not isinstance(events,list):raise ValueError()
+    except (ValueError,TypeError,KeyError):
+        return JSONResponse(status_code=400,content={'detail':'invalid events'})
+    ok=await asyncio.to_thread(notify_unavailable,events,MAINTENANCE if maintenance else UNAVAILABLE)
+    return JSONResponse(status_code=200 if ok else 503,content={'ok':ok})
 
 @app.get('/maintenance/status')
 def maintenance_status():
@@ -140,29 +160,9 @@ async def webhook(request:Request):
     if not line.verify(body,request.headers.get('x-line-signature','')): raise HTTPException(401,'invalid signature')
     try: events=json.loads(body).get('events',[])
     except (ValueError,AttributeError): raise HTTPException(400,'invalid JSON')
-    failed=False
-    for event in events:
-        is_follow=event.get('type')=='follow'
-        if not is_follow and (event.get('type')!='message' or event.get('message',{}).get('type')!='text'): continue
-        if event.get('source',{}).get('type')!='user': continue
-        user=event['source'].get('userId')
-        if not user:continue
-        event_id=event.get('webhookEventId')
-        if not event_id: continue
-        key='event:'+event_id
-        # 處理失敗釋放 claim；已成功回覆的事件忽略 redelivery。
-        if not claim(key,{'status':'processing','at':time.time()}):
-            state=get(key,{})
-            if state.get('status')=='done': continue
-            if time.time()-state.get('at',0)<60: failed=True; continue
-        try:
-            text=await asyncio.to_thread(commands.respond,user,'開始使用' if is_follow else event['message']['text'])
-            await asyncio.to_thread(line.reply,event['replyToken'],text)
-            put(key,{'status':'done','at':time.time()})
-        except Exception:
-            log.exception('webhook event failed')
-            put(key,{'status':'retry','at':0}); failed=True
-    if failed: raise HTTPException(503,'retry later')
+    if not isinstance(events,list):raise HTTPException(400,'invalid events')
+    from app.channels.webhook import deliver
+    if not await asyncio.to_thread(deliver,events):raise HTTPException(503,'retry later')
     return {'ok':True}
 
 @app.get('/strategy')
