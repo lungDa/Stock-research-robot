@@ -79,7 +79,12 @@ def number(value):
 
 
 def parse_annual(payload,symbol,field,display,today,metric=None):
-    company_code(symbol)
+    code=company_code(symbol)
+    # A cached display is not proof of identity: bind it to the requested code
+    # before accepting any matching response labels or metadata.
+    if not isinstance(display,str):raise ValueError('Verified company display mismatch')
+    display=clean(display)
+    if not re.fullmatch(re.escape(code)+r'\s+\S.*',display):raise ValueError('Verified company display mismatch')
     if field not in METRICS or not isinstance(payload,dict):raise ValueError('Invalid annual response')
     if payload.get('message'):raise ValueError('No annual data')
     if clean(payload.get('ylabel',''))!=METRICS[field][2]:raise ValueError('Annual unit mismatch')
@@ -88,7 +93,6 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
     if not isinstance(axes,list) or not 1<=len(axes)<=100 or len(set(map(str,axes)))!=len(axes):raise ValueError('Invalid annual periods')
     if not isinstance(graph,list) or len(graph)!=1 or not isinstance(graph[0],dict):raise ValueError('Unexpected company or average series')
     series=graph[0]
-    code=company_code(symbol)
     aliases={display,display.split(' ',1)[1],code}
     label=clean(series.get('label',''))
     if label not in aliases:raise ValueError('Company series does not match verified identity')
@@ -96,7 +100,9 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
     for key in ('displayCompanyId','checkedNameList'):
         values=payload.get(key)
         if values in (None,[]):continue
-        if not isinstance(values,list) or len(values)!=1 or clean(values[0]) not in aliases:raise ValueError('Company identity metadata mismatch')
+        if not isinstance(values,list):raise ValueError(key+' metadata type mismatch')
+        if len(values)!=1:raise ValueError(key+' metadata count mismatch')
+        if clean(values[0]) not in aliases:raise ValueError(key+' metadata identity mismatch')
         code_verified=code_verified or clean(values[0]) in (code,display)
     if not code_verified:raise ValueError('Company code cannot be bound to this series')
     if payload.get('extraNameList'):raise ValueError('Average series must not be used')
