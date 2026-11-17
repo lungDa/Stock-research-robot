@@ -72,7 +72,8 @@ def test_connection_enforces_read_only_and_disposes(monkeypatch):
     diag.read_database('postgres://user:secret@example/db', '', [])
     options = factory.call_args.kwargs
     assert options['isolation_level'] == 'REPEATABLE READ'
-    assert 'default_transaction_read_only=on' in options['connect_args']['options']
+    assert options['execution_options'] == {'postgresql_readonly': True}
+    assert options['connect_args'] == {'connect_timeout': 10}
     engine.dispose.assert_called_once()
     engine.connect.return_value.__enter__.return_value.execute.return_value.scalar.return_value = 'off'
     diag.collect.reset_mock()
@@ -96,3 +97,4 @@ def test_safe_driver_failure_category():
     failure = diag.DiagnosticFailure('讀取既有候選項目與冷卻紀錄', ProgrammingError('secret SQL', {}, RuntimeError('secret payload')))
     assert failure.category == '資料庫查詢格式或權限錯誤'
     assert failure.code == '未提供'
+    assert 'secret' not in failure.hint

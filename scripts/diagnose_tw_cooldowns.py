@@ -29,6 +29,15 @@ class DiagnosticFailure(Exception):
         code = getattr(getattr(exc, 'orig', None), 'sqlstate', None)
         # Only known SQLSTATEs, never arbitrary driver strings.
         self.code = code if code in {'25006', '42501', '42P01', '42703', '42601', '08001', '08006', '57014'} else '未提供'
+        message = str(exc).lower()
+        self.hint = next((label for pattern, label in (
+            ('unsupported startup parameter', '連線池不接受啟動參數'),
+            ('could not translate host name', '資料庫主機名稱解析失敗'),
+            ('name or service not known', '資料庫主機名稱解析失敗'),
+            ('timeout expired', '資料庫連線逾時'),
+            ('connection refused', '資料庫拒絕連線'),
+            ('password authentication failed', '資料庫驗證失敗'),
+        ) if pattern in message), '沒有可安全辨識的進一步原因')
 
 
 def stamp(value):
@@ -120,16 +129,18 @@ def read_database(url, configured, legacy_users):
     if not url.startswith(('postgres://', 'postgresql://', 'postgresql+psycopg://')):
         raise ValueError('PostgreSQL required')
     url = url.replace('postgres://', 'postgresql+psycopg://', 1).replace('postgresql://', 'postgresql+psycopg://', 1)
-    engine = create_engine(url, isolation_level='REPEATABLE READ', connect_args={
-        'connect_timeout': 10,
-        'options': '-c default_transaction_read_only=on -c statement_timeout=20000',
-    })
+    # Transaction-level READ ONLY also works behind transaction poolers which
+    # reject startup options. The first SQL transaction is already read-only.
+    engine = create_engine(url, isolation_level='REPEATABLE READ',
+                           execution_options={'postgresql_readonly': True},
+                           connect_args={'connect_timeout': 10})
     stage = '建立唯讀連線'
     try:
         with engine.connect() as conn:
             stage = '確認資料庫唯讀保護'
             if conn.execute(text('SHOW transaction_read_only')).scalar() != 'on':
                 raise ValueError('read-only required')
+            conn.execute(text("SET LOCAL statement_timeout = '20s'"))
             now = time.time()
             stage = '讀取既有候選項目與冷卻紀錄'
             rows, source, last = collect(conn, configured, legacy_users, now)
@@ -152,7 +163,7 @@ def main():
         # Never print exceptions: drivers can embed credentials, SQL or payloads.
         summary = '## 年度 EPS／ROE 唯讀冷卻診斷\n\n診斷未完成：唯讀連線、設定或既有資料未通過檢查；未推測到期時間或根因。\n'
         if isinstance(exc, DiagnosticFailure):
-            summary += f'階段：{exc.stage}；分類：{exc.category}；SQLSTATE：{exc.code}。\n'
+            summary += f'階段：{exc.stage}；分類：{exc.category}；SQLSTATE：{exc.code}；提示：{exc.hint}。\n'
         result = 1
     print(summary)
     if os.getenv('GITHUB_STEP_SUMMARY'):
