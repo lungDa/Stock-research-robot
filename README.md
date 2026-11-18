@@ -1,5 +1,7 @@
 # 股海燈塔：台股個股財務補強（嚴格核對）
 
+LINE 無回覆與免費後端休眠改善：新增獨立每 10 分鐘的 Render 健康檢查；設定、驗證與排程限制見 [LINE 回覆可用性](docs/LINE_AVAILABILITY.md)。
+
 全台股年度現金股利支出自動續補已加入：官方現金流量表備援、公司／年度／單位核對、分批輪替與畫面進度。詳見 [CASH_DIVIDENDS_AUTO.md](CASH_DIVIDENDS_AUTO.md)。全市場分批處理，不代表每檔已驗收齊全。
 
 本次依確認調整近一年EPS：可採近四個完整季度的基本EPS合計，與嚴格TTM分欄標示；詳見 [QUARTERLY_EPS_UPDATE.md](QUARTERLY_EPS_UPDATE.md)。舊版曾丟棄EPS欄位，部署後需執行一次資料續補。
@@ -80,3 +82,4 @@ Render 與 GitHub Actions 必須指向同一個 PostgreSQL `DATABASE_URL`。
 尚未更新你的 GitHub、Render、Streamlit 或正式資料庫。新官方入口的原始JSON回應尚未能在本環境取得，請部署後執行手動驗證工作；PostgreSQL線上環境也須核對；不可把模擬測試視為正式行情已更新。
 
 本次增量說明、來源公式及限制見 [TW_FINANCIALS_UPDATE.md](TW_FINANCIALS_UPDATE.md)。
+

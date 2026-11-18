@@ -1,6 +1,7 @@
 """One bounded public health check, allowing time for a free instance to start."""
 import json
 import os
+import time
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -20,6 +21,7 @@ def checked_url(value):
 
 
 def check(url):
+    started = time.monotonic()
     request = Request(url, headers={'Accept': 'application/json',
                                    'User-Agent': 'Stock-Lighthouse-Health-Check/1.0'})
     with urlopen(request, timeout=65) as response:
@@ -32,7 +34,9 @@ def check(url):
     if not isinstance(payload, dict) or payload.get('status') != 'ok':
         raise RuntimeError('Render health JSON did not confirm status=ok')
     print('Confirmed Render /health: HTTP 200 and status=ok.')
+    print(f'Render health response time: {time.monotonic()-started:.2f}s. LINE delivery is not verified by this check.')
 
 
 if __name__ == '__main__':
     check(checked_url(os.getenv('RENDER_HEALTH_URL', '')))
+
