@@ -31,6 +31,8 @@ def report(data,rows,rating,read):
             if metric=='expense_pct':state='unsupported';reason='尚無自動核對年度總費用率的來源；管理費不可替代總費用率'
             elif metric in ('price_ma20','ma20_ma60','volatility'):
                 state='history_missing';reason='行情過舊、歷史不足或價格調整事件；暫停此項判定'
+                if tw and data.get('adjustment_status')!='verified':
+                    state='adjustment_missing';reason=data.get('adjustment_reason','公司行動資料未齊；等待免費事件來源分批續補')
             elif tw and metric in ('eps_latest','eps_avg','roe_avg'):
                 state='cooldown' if read('annual:source:mopsfin',{}).get('next_attempt',0)>time.time() else 'queued' if queued else 'missing'
                 reason='官方上市／上櫃全年EPS及ROE待補或來源缺年度；不需FinMind token，請核對官方下載狀態'
@@ -65,3 +67,4 @@ def report(data,rows,rating,read):
             current.append({'metric':key,'label':label,'state':state,'reason':reason})
     return {'rule_fields':labels,'current_fields':current,
             'required_missing':sum(c['required'] and c['state']!='available' for c in labels)}
+

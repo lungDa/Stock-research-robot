@@ -52,11 +52,11 @@ def run(limit=30, seconds=120):
         processed.add(symbol); report['attempted']+=1
         d=(fetched if isinstance(fetched,dict) else get('quote:'+symbol)) if success else None
         from app.services.freshness import market_usable
-        if d and time.time()-d.get('cached_at',0)<36*3600 and market_usable(d):
+        if d and market_usable(d):
             from app.services.multifactor import rated
             d=rated(d,'public')
             report['fresh_count']+=1
-            fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','volume_ratio','eps','roe','pe','income','swing','price_basis','source','updated_at','warnings','data_status','cached_at')
+            fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','volume_ratio','eps','roe','pe','income','swing','price_basis','source','updated_at','warnings','data_status','cached_at','history','technical_basis','adjustment_status','adjustment_reason','adjustment_anchor')
             report['candidates'].append({k:d.get(k) for k in fields})
             if d.get('date') == report['target_date']: report['today_count']+=1
             if d.get('date') and d['date'] not in report['data_dates']: report['data_dates'].append(d['date'])
@@ -88,3 +88,4 @@ if __name__=='__main__':
     a=p.parse_args()
     if a.limit<1 or a.seconds<1:p.error('參數必須為正數')
     run(a.limit,a.seconds)
+

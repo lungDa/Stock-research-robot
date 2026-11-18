@@ -7,6 +7,11 @@ from app.services.multifactor import DEFAULT,rule
 from app.services.freshness import TAIPEI
 
 DAY=date(2026,11,10)
+pytestmark=pytest.mark.usefixtures('taiwan_market')
+
+@pytest.fixture(autouse=True)
+def morning_clock(taiwan_market,monkeypatch):
+    monkeypatch.setattr('app.services.freshness.local_now',lambda:datetime(2026,11,10,11,30,tzinfo=TAIPEI))
 def config():
     c=copy.deepcopy(DEFAULT);c['stock_rules']=[rule('eps_latest',1,1)];return c
 
@@ -90,7 +95,7 @@ def test_calendar_contract(monkeypatch):
     rows += [{'Date':'1150106','Name':'開始交易日','Description':'開始交易'}]
     monkeypatch.setattr(bounded_http,'fetch_json',lambda *a,**kw:rows)
     assert m.calendar(2026)['opened']==['2026-01-06']
-    with pytest.raises(RuntimeError):m.calendar(2025)
+    with pytest.raises(RuntimeError):m.calendar(2024)
 
 def test_collect_visits_beyond_thirty_and_personal_isolation():
     symbols=[f'{n:04}.TW' for n in range(1000,1041)]

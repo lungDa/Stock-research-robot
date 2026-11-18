@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from app.db import init_db, put, leased
 
 STEPS = [
-    "maintenance", "universe", "tw_prices", "history", "fundamentals",
+    "maintenance", "market_metadata", "universe", "tw_prices", "history", "corporate_actions", "fundamentals",
     "cash_dividends", "tw_financials", "eps_first", "eps_second",
     "coverage_diagnostic", "annual", "us_prices", "paid",
 ]
@@ -83,3 +83,4 @@ if __name__ == "__main__":
     print(json.dumps(outcome, ensure_ascii=False, default=str), flush=True)
     if outcome["state"] != "finished":
         sys.exit(1)
+

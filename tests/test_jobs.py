@@ -12,7 +12,8 @@ def test_scan_continues_after_stock_failure(monkeypatch):
     scan.run(2,60)
     result=get('scan:latest')
     assert result['failed']==['2330.TW'] and result['fresh_count']==1
-    assert len(result['swing'])==1
+    assert result['swing']==[]  # Raw cached averages cannot pass without event coverage.
+    assert result['candidates'][0]['adjustment_status']=='missing'
 
 def setup_signals(monkeypatch):
     import jobs.notify as notify
@@ -79,3 +80,6 @@ def test_pending_expired_not_resent(monkeypatch):
     put(key,{'pending':{'day':'2000-01-01','created_at':0,'grade':'買','config_hash':'x'}})
     monkeypatch.setattr(notify,'push',lambda *a:calls.append(a))
     notify.run();assert not calls and get(key)['uncertain_delivery']
+
+import pytest
+pytestmark=pytest.mark.usefixtures('taiwan_market')

@@ -6,6 +6,7 @@ from app.db import put,get
 from app.services.freshness import local_now
 from app.providers.annual_free import TW_DATASETS
 from app.providers.tw_daily import parse
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 
 def price_rows(symbol='2330'):
@@ -180,3 +181,4 @@ def test_manual_diagnostic_continues_after_official_failure_without_leaking_toke
     assert result['sources']['annual_eps_pdf']['status']=='ok'
     assert result['sources']['finmind_prices']['ma60_available']
     assert 'secret' not in str(result)
+

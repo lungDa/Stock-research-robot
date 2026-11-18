@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import get,put
 from app.services.accounts import register,password_matches,member_users
 U='U'+'1'*32;V='U'+'2'*32
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 @pytest.fixture
 def configured(monkeypatch):

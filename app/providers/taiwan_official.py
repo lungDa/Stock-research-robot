@@ -213,7 +213,7 @@ def build_result(symbol, rows, meta, warnings):
             'volume_ratio': float(volumes.iloc[-1] / volumes.tail(20).mean()) if volume_ok else None,
             'volatility': raw_volatility, 'eps': None, 'roe': None, 'pe': None,
             'debt_to_equity': None, 'expense_ratio': None, 'yield': None,
-            'history': [{'date': r['date'], 'close': float(r['close'])} for r in frame.to_dict('records')],
+            'history': [{'date': r['date'], 'close': float(r['close']), 'volume': float(r['volume']) if pd.notna(r['volume']) else None} for r in frame.to_dict('records')],
             'source': '臺灣證券交易所 TWSE' if market == 'TW' else '證券櫃檯買賣中心 TPEx',
             'price_basis': '未還原收盤價', 'history_count': count,'corporate_action_risk':jump,
             'data_status': 'partial', 'warnings': list(dict.fromkeys(warnings))}
@@ -239,7 +239,7 @@ def refresh_cached_history(data):
     warnings=[w for w in data.get('warnings',[]) if not (w.startswith('目前僅取得') or w.startswith('最新收盤價尚未') or w.startswith('歷史價格出現'))]
     rebuilt=build_result(symbol,rows,data,warnings)
     fields=('ma20','ma60','volume_ratio','volatility','history','history_count','corporate_action_risk','warnings')
-    return {**data,**{k:rebuilt[k] for k in fields},'history_cache_stamp':stamp}
+    return {**data,**{k:rebuilt[k] for k in fields},'history_cache_stamp':stamp,'technical_history_incomplete':False}
 
 
 def fetch(symbol):
@@ -300,4 +300,6 @@ def fetch(symbol):
     result = build_result(symbol, rows, meta, warnings)
     if missing_latest_history:
         result['ma20'] = result['ma60'] = result['volume_ratio'] = None
+        result['technical_history_incomplete']=True
     return result
+

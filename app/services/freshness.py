@@ -9,6 +9,14 @@ TAIPEI = ZoneInfo('Asia/Taipei')
 def local_now(): return datetime.now(TAIPEI)
 
 
+def taiwan_status(data, today=None):
+    from app.services.trading_calendar import status
+    from app.services.trading_calendar import cached_read
+    now = local_now()
+    if today is not None:now=now.replace(year=today.year,month=today.month,day=today.day)
+    return status(data,now,cached_read)
+
+
 def market_usable(data, today=None):
     """One rule for web, LINE, scans and notifications; never refresh timestamps."""
     today = today or local_now().date()
@@ -17,6 +25,8 @@ def market_usable(data, today=None):
     price = data.get('price')
     if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
         return False
+    if data.get('symbol','').endswith(('.TW','.TWO')):
+        return taiwan_status(data,today)['state']=='current'
     try:
         day = datetime.fromisoformat(data['date']).date()
         return 0 <= (today-day).days <= 7
@@ -27,6 +37,9 @@ def market_usable(data, today=None):
 def quote_due(data, now=None):
     if not data:
         return True
+    if data.get('symbol','').endswith(('.TW','.TWO')):
+        # Calendar-qualified closes remain current over weekends and long holidays.
+        return not market_usable(data)
     now = time.time() if now is None else now
     ttl = 1800 if data.get('price_basis') == '未還原收盤價' else (300 if data.get('data_status') == 'partial' else 3600)
     if data.get('symbol', '').endswith(('.TW', '.TWO')) and needs_evening_refresh(data.get('cached_at'), data.get('date')):
@@ -37,9 +50,16 @@ def quote_due(data, now=None):
 def mark_cached(data):
     if not data:
         return data
-    if time.time()-data.get('cached_at', 0) > 36*3600 or not market_usable(data):
+    taiwan = data.get('symbol','').endswith(('.TW','.TWO'))
+    if taiwan:
+        state=taiwan_status(data)
+        if data.get('data_status')=='stale' and state['state']=='current':
+            state={**state,'state':'source_unconfirmed','reason':'行情日期符合，但來源更新未確認，保留舊快取'}
+        data={**data,'freshness':state}
+    if (not taiwan and time.time()-data.get('cached_at', 0) > 36*3600) or not market_usable(data):
         return {**data, 'data_status': 'fundamentals_only' if data.get('price') is None else 'stale',
-                'warnings': list(dict.fromkeys(data.get('warnings', [])+['目前顯示較舊或不完整行情；請核對行情日。']))}
+                'warnings': list(dict.fromkeys(data.get('warnings', [])+[
+                    data['freshness']['reason'] if taiwan else '目前顯示較舊或不完整行情；請核對行情日。']))}
     return data
 
 
@@ -62,6 +82,9 @@ def format_updated_at(value):
 
 def quote_note(data, now=None):
     if data.get('data_status')=='fundamentals_only':return '僅年度財報；尚無可用行情日期。'
+    if data.get('freshness'):
+        f=data['freshness']
+        return f['reason']+'；應有收盤日：'+str(f.get('expected_date') or '待核對')+'；實際行情日：'+str(f.get('actual_date') or '未提供')+'。'
     if data.get('data_status')=='stale':return '來源更新未確認，目前為舊快取；請核對行情日與更新時間。'
     now = (now or local_now()).astimezone(TAIPEI)
     day = str(data.get('date', ''))
@@ -72,3 +95,4 @@ def quote_note(data, now=None):
     if now.weekday() < 5 and (now.hour, now.minute) < (18, 17):
         return '尚非今日行情；平日18:17啟動盤後更新，休市日保留最近交易日。'
     return '尚未取得今日行情：可能休市、停牌、來源未更新或本批未涵蓋；保留實際行情日。'
+

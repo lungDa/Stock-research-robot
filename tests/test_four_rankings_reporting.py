@@ -1,4 +1,6 @@
 from app.day_trader.reporting import summary
+import pytest
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 def test_missing_report_does_not_send():
     assert summary({}) is None
@@ -47,3 +49,4 @@ def test_four_only_subscriber_generates_report_without_market_fetch(monkeypatch)
     result=recommend.run('morning',dry_run=True)
     assert result['four_reports']==1
     assert result['reports']==[]
+

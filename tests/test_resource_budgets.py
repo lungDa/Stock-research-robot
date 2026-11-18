@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 from app.providers import bounded_http as http
 from app.providers import taiwan_official as official
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 class Response:
     status_code=200
@@ -84,3 +85,4 @@ def test_failed_scan_does_not_overwrite_previous_report(monkeypatch):
     monkeypatch.setattr(scan,'research',Mock(side_effect=RuntimeError('offline')))
     with pytest.raises(RuntimeError):scan.run(1,30)
     assert get('scan:latest')=={'previous':True}
+

@@ -6,6 +6,7 @@ from app.providers import taiwan_official as official
 from app.providers import market
 from app.services.analysis import enrich
 from app.db import get, put
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 @pytest.mark.parametrize('raw',['115/11/05','1151105','20261105','2026-11-05'])
 def test_dates(raw): assert official.trading_date(raw)=='2026-11-05'
@@ -59,8 +60,9 @@ def test_raw_split_disables_signal():
     d=enrich(official.build_result('0050.TW',rows,{'kind':'ETF'},[]))
     assert d['ma20'] is None and d['volatility'] is None and not d['swing']['matched']
 
-def test_sufficient_history_computes_moving_averages():
+def test_sufficient_history_computes_moving_averages(verified_actions):
     rows=[{'date':x.date().isoformat(),'close':100+i,'volume':1000} for i,x in enumerate(pd.date_range(end=__import__('app.services.freshness',fromlist=['local_now']).local_now().date(),periods=70))]
+    verified_actions('2330.TW',rows[0]['date'],rows[-1]['date'])
     d=enrich(official.build_result('2330.TW',rows,{'kind':'STOCK'},[]))
     assert d['ma20']==159.5 and d['ma60']==139.5 and d['swing']['matched']
     assert not d['income']['matched'] and d['yield'] is None
@@ -85,3 +87,4 @@ def test_legacy_yahoo_cache_not_used_for_taiwan(monkeypatch):
 def test_wrong_month_rejected(monkeypatch):
     monkeypatch.setattr(official,'_request',lambda *a,**k:{'fields':['日期','成交股數','收盤價'],'data':[['115/09/01','1','100']]})
     with pytest.raises(ValueError): official.month('2330','TW',date(2026,10,1),date(2026,11,6))
+

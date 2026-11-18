@@ -1,5 +1,6 @@
 """可重現的個人多因子規則；所有百分比欄位均使用百分點。"""
 import copy,hashlib,json,math
+from app.services.trading_calendar import calendar_snapshot
 from datetime import date
 from app.services.freshness import local_now
 
@@ -142,10 +143,15 @@ def value_for(data,rows,metric,years,today):
         # 無股利且FCF為正視為足以覆蓋，避免除以0；FCF非正仍不符合。
         return min(a/b if b>0 else (1 if a>0 else 0) for a,b in zip(fcf,div))
     if data.get('data_status')=='stale':return None
-    try:
-        age=(today-date.fromisoformat(data['date'])).days
-        if not 0<=age<=7:return None
-    except (ValueError,KeyError,TypeError):return None
+    if data.get('symbol','').endswith(('.TW','.TWO')):
+        from app.services.freshness import market_usable
+        if not market_usable(data,today):return None
+        if metric in ('price_ma20','ma20_ma60','volatility') and data.get('adjustment_status')!='verified':return None
+    else:
+        try:
+            age=(today-date.fromisoformat(data['date'])).days
+            if not 0<=age<=7:return None
+        except (ValueError,KeyError,TypeError):return None
     if metric=='price_ma20':
         a,b=data.get('adjusted_close'),data.get('ma20')
         return (a/b-1)*100 if a is not None and b is not None and b>0 else None
@@ -238,7 +244,7 @@ def rated(data,user,config=None,documents=None):
         from app.services.trailing_metrics import attach
         data=attach(data,shared,read('paid:shared:'+data['symbol'],{}),read('ttm:'+user+':'+data['symbol'],{}))
     from app.services.analysis import enrich
-    data=enrich(data)
+    data=enrich(data,read)
     rating=evaluate(data,config or settings_for(user),rows)
     from app.services.data_quality import report
     return {**data,'rating':rating,'data_quality':report(data,rows,rating,read),
@@ -255,6 +261,7 @@ def _annual_state(symbol,documents):
     return {k:shared[k] for k in ('updated_at','status','notes') if k in shared}
 
 def _rating_keys(items,user):
+    from app.providers.corporate_actions import FEEDS
     keys=['strategy:'+user]+['annual:'+user+':'+d['symbol'] for d in items]
     keys+=['annual:shared:'+d['symbol'] for d in items]
     keys+=['cashflow:official:'+d['symbol'] for d in items if d['symbol'].endswith(('.TW','.TWO'))]
@@ -265,9 +272,11 @@ def _rating_keys(items,user):
     keys+=['annual:query_result:'+d['symbol'] for d in items]
     markets={d['symbol'].rsplit('.',1)[-1] for d in items if d['symbol'].endswith(('.TW','.TWO'))}
     keys+=['fundamentals:index:'+market for market in sorted(markets)]+['annual:source:finmind','annual:source:sec','annual:source:mopsfin']
+    keys+=['corporate:feed:'+d['symbol']+':'+feed for d in items if d['symbol'].endswith(('.TW','.TWO')) for feed in FEEDS]
     return list(dict.fromkeys(keys))
 
 
+@calendar_snapshot
 def rated_many(items,user):
     from app.db import get_many
     keys=_rating_keys(items,user)
@@ -283,3 +292,4 @@ def rated_report(report,user):
     return {**report,'ratings':items,
         'income':[f"{d['symbol']} {d['name']}｜{d['date']}" for d in items if d['rating']['grade'] in ('買','強力買')],
         'swing':[f"{d['symbol']} {d['name']}｜{d['date']}" for d in items if d.get('swing',{}).get('matched')]}
+

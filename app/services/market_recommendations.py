@@ -4,6 +4,7 @@ from datetime import date,timedelta
 from app.db import get,put,get_many
 from app.services.multifactor import annual_rows,evaluate,settings_for,METRICS,config_hash
 from app.services.freshness import local_now
+from app.services.trading_calendar import calendar_snapshot
 
 def preferences(user):return get('recommendations:preferences:'+user,{'enabled':False})
 def enable(user,enabled):
@@ -56,6 +57,7 @@ def relaxed(config,round_):
         r['threshold']=round(v,6)
     return c
 
+@calendar_snapshot
 def rank(items,config,today):
     """Relax only an empty result; stop at the first tier with any matches."""
     chosen = {}
@@ -92,10 +94,12 @@ def collect(symbols,snapshots,target,user,deadline):
     from app.providers.taiwan_official import build_result
     items=[];stats={'universe':len(symbols),'stock_quotes':0,'unknown_or_etf':0,'missing_price':0}
     base={k:get(k,{}) for k in ('fundamentals:index:TW','fundamentals:index:TWO')}
-    for offset in range(0,len(symbols),10):
+    from app.providers.corporate_actions import FEEDS,attach as adjust_technicals
+    for offset in range(0,len(symbols),5):
         if time.monotonic()>deadline:raise TimeoutError('全市場排名超過時間預算；不發送不完整批次')
-        batch=symbols[offset:offset+10];keys=[]
+        batch=symbols[offset:offset+5];keys=[]
         for s in batch:keys+=['quote:'+s,'twdaily:quote:'+s,'annual:shared:'+s,'annual:'+user+':'+s,'eps:official:'+s,'financial:official:'+s,'cashflow:official:'+s]
+        keys+=['corporate:feed:'+s+':'+feed for s in batch for feed in FEEDS]
         docs={**base,**get_many(keys)}
         for s in batch:
             code,market=s.rsplit('.',1);meta=base['fundamentals:index:'+market].get(code,{})
@@ -107,13 +111,15 @@ def collect(symbols,snapshots,target,user,deadline):
             if not current or current.get('date')!=str(target):stats['missing_price']+=1;continue
             d={'symbol':s,'name':meta.get('name') or current['name'],'kind':'STOCK','currency':'TWD','price':current['close'],'adjusted_close':current['close'],'date':str(target),'ma20':None,'ma60':None,'data_status':'partial','price_basis':'未還原收盤價'}
             for old in [cached,docs.get('twdaily:quote:'+s,{})]:
+                if old.get('technical_history_incomplete'):continue
                 history=[{**r,'volume':r.get('volume')} for r in old.get('history',[]) if r.get('date','')<=str(target)]
                 if history:
                     last=max(history,key=lambda r:r['date'])
                     if last['date']==str(target) and last['close']==current['close']:
-                        rebuilt=build_result(s,history,d,[]);d.update({k:rebuilt[k] for k in ('ma20','ma60')});break
+                        rebuilt=build_result(s,history,d,[]);d.update({k:rebuilt[k] for k in ('ma20','ma60','history')});break
                 if old.get('date')==str(target) and old.get('price')==current['close'] and old.get('data_status')!='stale':
                     d.update({k:old.get(k) for k in ('ma20','ma60')});break
+            d=adjust_technicals(d,lambda k,default=None:docs.get(k,default))
             stats['stock_quotes']+=1;items.append((d,annual_rows(user,s,docs)))
     return items,stats
 

@@ -28,7 +28,7 @@ def shared(symbol,read):
     import time
     state=read('twdaily:quote:'+symbol)
     choices=[]
-    if state and 0<=time.time()-state.get('cached_at',0)<=36*3600 and market_usable(state):choices.append(state)
+    if state and market_usable(state):choices.append(state)
     feed=read('annual:feed:'+symbol+':TaiwanStockPrice',{})
     at=feed.get('at',0)
     if 0<=time.time()-at<=36*3600:
@@ -37,3 +37,4 @@ def shared(symbol,read):
             if market_usable(result):choices.append(result)
         except ValueError:pass
     return max(choices,key=lambda d:(d['date'],d['cached_at'])) if choices else None
+
