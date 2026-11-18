@@ -13,23 +13,50 @@ def config():
 def item(symbol='2412.TW',eps=2):
     return ({'symbol':symbol,'name':symbol,'kind':'STOCK','price':100,'date':'2026-11-09','data_status':'partial','currency':'TWD'}, {'2025':{'eps':eps}})
 
-def test_fill_to_ten_without_demoting_strict_matches():
+def test_strict_matches_are_not_padded_with_relaxed_candidates():
     c=config()
     items=[item(f'{1000+i}.TW', 1.2 if i<3 else .85) for i in range(12)]
     r=m.rank(items,c,DAY)
-    assert len(r['items'])==10
-    assert [d['relaxation_round'] for d in r['items'][:3]]==[0,0,0]
-    assert all(d['relaxation_round']>0 for d in r['items'][3:])
-    assert len({d['symbol'] for d in r['items']})==10
+    assert len(r['items'])==3 and r['matched']==3 and r['round']==0
+    assert all(d['relaxation_round']==0 for d in r['items'])
+    assert {d['symbol'] for d in r['items']}=={'1000.TW','1001.TW','1002.TW'}
 
 
 def test_only_relax_when_zero_and_never_mutate():
     c=config();old=copy.deepcopy(c)
     r=m.rank([item(eps=1.01),item('2330.TW',.95)],c,DAY)
-    assert r['round']==3 and r['matched']==2
+    assert r['round']==0 and r['matched']==1
+    assert r['items'][0]['symbol']=='2412.TW'
     r=m.rank([item(eps=.95)],c,DAY)
-    assert r['round']==3 and r['matched']==1 and r['items'][0]['relaxation_round']==1
+    assert r['round']==1 and r['matched']==1 and r['items'][0]['relaxation_round']==1
     assert c==old
+
+
+def test_first_successful_relaxed_round_is_not_padded():
+    r=m.rank([item(eps=.95),item('2330.TW',.85)],config(),DAY)
+    assert r['round']==1 and r['matched']==1
+    assert [d['symbol'] for d in r['items']]==['2412.TW']
+    assert r['rules'][0]['threshold']==.9
+
+
+def test_later_relaxed_round_scans_all_candidates_before_top_ten():
+    items=[item(f'{n:04}.TW',eps=.85) for n in range(1031,1010,-1)]
+    r=m.rank(items,config(),DAY)
+    assert r['round']==2 and r['matched']==21 and len(r['items'])==10
+    assert r['items'][0]['symbol']=='1011.TW'
+    assert all(d['relaxation_round']==2 for d in r['items'])
+
+
+@pytest.mark.parametrize('eps,round_',[(2,0),(.95,1),(.7,3)])
+def test_summary_describes_zero_match_relaxation(eps,round_):
+    report={**m.rank([item(eps=eps)],config(),DAY),
+            'coverage':{'universe':1,'stock_quotes':1},'slot_label':'11:30',
+            'target_date':'2026-11-09','universe_partial':False}
+    text=m.messages(report)[0]
+    assert report['round']==round_
+    assert '為補足前10名' not in text
+    assert ('原條件零檔符合' in text)==bool(round_)
+    if not report['items']:assert '目前無可推薦個股' in text
 
 def test_three_rounds_no_padding_missing_and_boolean_guards():
     assert m.rank([item(eps=.7)],config(),DAY)['round']==3
@@ -134,6 +161,43 @@ def test_job_send_idempotent_and_outside_window(monkeypatch):
     assert len(calls)==2
     with pytest.raises(RuntimeError):j.run('morning',False,now.replace(hour=13))
 
+
+@pytest.mark.parametrize('main_sent',[False,True])
+@pytest.mark.parametrize('four_pending',[False,True])
+def test_four_report_recovers_independently_of_existing_main_outbox(monkeypatch,main_sent,four_pending):
+    from app.day_trader import reporting
+    j=setup_job(monkeypatch)
+    now=datetime(2026,11,10,11,30,tzinfo=TAIPEI)
+    main_key='recommendations:outbox:2026-11-10:morning:Ualice'
+    four_key='four_rankings:outbox:2026-11-10:morning:Ualice'
+    put(main_key,{'created_at':time.time(),'messages':[
+        {'text':'saved main','retry_key':'main-retry','sent':main_sent}]})
+    if four_pending:
+        put(four_key,{'created_at':time.time(),'messages':[
+            {'text':'saved four','retry_key':'four-retry','sent':False}]})
+    monkeypatch.setattr(reporting,'preferences',lambda u:{'enabled':u=='Ualice'})
+    refreshed=[]
+    def refresh(user,day):
+        refreshed.append((user,day))
+        return {'as_of':day,'rankings':{'long_term':[{'symbol':'2330.TW'}]}}
+    monkeypatch.setattr(reporting,'refresh_cached',refresh)
+    monkeypatch.setattr(reporting,'summary',lambda report:'new four')
+    monkeypatch.setattr(j,'collect',lambda *a:pytest.fail('must resume the saved main report'))
+    monkeypatch.setattr(j,'quota',lambda:100)
+    calls=[]
+    monkeypatch.setattr(j,'push',lambda *a:calls.append(a))
+    j.run('morning',False,now)
+    j.run('morning',False,now)
+    four_text='saved four' if four_pending else 'new four'
+    assert sum(call[1]==four_text for call in calls)==1
+    assert sum(call[1]=='saved main' for call in calls)==(0 if main_sent else 1)
+    if four_pending:
+        assert calls[0]==('Ualice','saved four','four-retry')
+        assert refreshed==[]
+    else:
+        assert refreshed==[('Ualice','2026-11-09')]
+    assert all(entry['sent'] for key in (main_key,four_key) for entry in get(key)['messages'])
+
 def test_preferences_api_and_line_commands():
     from fastapi.testclient import TestClient
     from app.api.server import app
@@ -157,3 +221,4 @@ def test_relax_upward_for_upper_bound_and_streak_rounding():
     c=config();c['stock_rules']=[rule('price_ma20',10,1,'<'),rule('dividend_streak',10,10,'>=')]
     r=m.relaxed(c,1)
     assert r['stock_rules'][0]['threshold']>10 and r['stock_rules'][1]['threshold']==9
+

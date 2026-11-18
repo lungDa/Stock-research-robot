@@ -57,7 +57,7 @@ def relaxed(config,round_):
     return c
 
 def rank(items,config,today):
-    """Fill up to ten slots by relaxation tier, preserving strict-first priority."""
+    """Relax only an empty result; stop at the first tier with any matches."""
     chosen = {}
     eligible = 0
     last_round = 0
@@ -79,7 +79,7 @@ def rank(items,config,today):
             if any(x['passed'] is not True for x in required):
                 continue
             chosen[symbol] = {**data, 'rating': r, 'relaxation_round': round_}
-        if len(chosen) >= 10:
+        if chosen:
             break
     ranked = sorted(chosen.values(), key=lambda d: (
         d['relaxation_round'], -d['rating']['score'],
@@ -119,7 +119,7 @@ def collect(symbols,snapshots,target,user,deadline):
 
 def messages(report):
     stats=report['coverage'];round_=report['round'];items=report['items']
-    summary=(f"股海燈塔｜個人規則排名 {report['slot_label']}\n行情日 {report['target_date']}（收盤，非即時）\n母體 {stats['universe']}檔｜個股行情 {stats['stock_quotes']}檔\n必要資料足夠 {report['eligible']}檔｜符合 {report['matched']}檔｜列出 {len(items)}檔\n"+('母體來源部分涵蓋；' if report['universe_partial'] else '')+'資料缺漏者不算符合；排名限目前可評估範圍。\n'+(f'為補足前10名，逐輪放寬至第{round_}輪（每輪約10%）；原條件符合者優先。\n' if round_ else '採原始個人規則。\n'))
+    summary=(f"股海燈塔｜個人規則排名 {report['slot_label']}\n行情日 {report['target_date']}（收盤，非即時）\n母體 {stats['universe']}檔｜個股行情 {stats['stock_quotes']}檔\n必要資料足夠 {report['eligible']}檔｜符合 {report['matched']}檔｜列出 {len(items)}檔\n"+('母體來源部分涵蓋；' if report['universe_partial'] else '')+'資料缺漏者不算符合；排名限目前可評估範圍。\n'+(f'原條件零檔符合，逐輪放寬至第{round_}輪（每輪約10%）；找到符合即停止放寬，最多列10檔。\n' if round_ else '採原始個人規則；有符合即列實際數量，最多10檔，不為補足名額放寬。\n'))
     if not items:summary+='目前無可推薦個股，不以缺資料或未達標股票湊數。\n'
     summary+='本次門檻（期間不變）：\n'+'\n'.join(f"{METRICS[r['metric']]} {r['op']} {r['threshold']:g}（{r['years']}年，{'必要' if r['required'] else '加分'}）" for r in report['rules'] if r['enabled'])
     summary+='\n同分依資料完整度、股票代號排序。規則篩選非報酬預測。'
@@ -129,3 +129,4 @@ def messages(report):
         result.append(f"第{i}名｜{d['name']}（{d['symbol']}）\n{r['grade']}｜分數 {r['score']}｜完整度 {r['coverage']}%\n收盤日 {d['date']}｜TWD {d['price']:.2f}\n"+(f'採第{d["relaxation_round"]}輪放寬條件。\n' if d['relaxation_round'] else '符合原始規則。\n')+('加分項缺漏：'+'、'.join(missing)+'\n' if missing else '')+'依個人多因子規則篩選，非報酬保證。')
     if any(len(m)>4900 for m in result):raise ValueError('排名訊息過長，停止發送')
     return result
+

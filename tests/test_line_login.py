@@ -29,7 +29,8 @@ def activate(client,user=U,new='12345678'):
 
 def test_public_works_private_denied_before_login(monkeypatch):
     import app.api.public as public
-    monkeypatch.setattr(public,'cached_quote',lambda s:{'symbol':s,'kind':'UNKNOWN','price':100,'cached_at':time.time(),'date':'2026-11-06'})
+    monkeypatch.setattr(public,'cached_quote',lambda s:{'symbol':s,'kind':'UNKNOWN','price':100,'cached_at':time.time(),'date':str(public.local_now().date())})
+    monkeypatch.setattr(public,'research',lambda *a,**kw:pytest.fail('fresh cached quote must not fetch live data'))
     with TestClient(app) as c:
         assert c.get('/public/quote/2330').status_code==200
         assert c.get('/public/scan').status_code==200
@@ -152,3 +153,4 @@ def test_password_attempt_limit(configured):
         h=preauth(U)
         for _ in range(6):assert c.post('/auth/password/verify',headers=h,json={'password':'wrong'}).status_code==403
         assert c.post('/auth/password/verify',headers=h,json={'password':'0000'}).status_code==429
+
