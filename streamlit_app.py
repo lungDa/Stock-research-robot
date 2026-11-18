@@ -237,10 +237,16 @@ with query:
         else:st.metric(f"收盤價（{d['currency']}）",f"{d['price']:.2f}")
         st.caption(f"行情日 {d['date']}｜更新 {format_updated_at(d.get('updated_at'))}｜來源 {d['source']}｜種類 {d['kind']}")
         st.caption('價格口徑：'+d.get('price_basis','Yahoo還原價格用於技術條件；圖表為未還原收盤價'))
+        if d['symbol'].endswith(('.TW','.TWO')):
+            st.caption('技術均線：最新價格基準還原｜'+d.get('adjustment_reason','公司行動資料待核對'))
+            if d.get('freshness'):st.caption('行情有效性：'+d['freshness']['reason']+'｜應有行情日 '+str(d['freshness'].get('expected_date') or '待核對'))
         from app.day_trader.ai_review_ui import render_ai_review
         render_ai_review(api, personal, d)
         if len(d['history']) > 1:
-            st.line_chart(pd.DataFrame(d['history']).set_index('date'))
+            st.line_chart(pd.DataFrame(d['history'])[['date','close']].set_index('date'))
+            if d.get('adjustment_status')=='verified' and d.get('adjusted_history'):
+                st.caption('還原歷史價格（以最新收盤日為基準；原始股價與成交量不改寫）')
+                st.line_chart(pd.DataFrame(d['adjusted_history'])[['date','adjusted_close']].set_index('date'))
         else:
             st.info('目前僅有單日收盤價，歷史圖表待官方資料補齊。')
         if d.get('kind')=='STOCK':
@@ -693,4 +699,5 @@ if personal:
         if report.get('skipped'):
             skipped=report['skipped']
             st.caption(f"檢查 {report.get('symbols_checked',0)} 檔｜缺行情 {skipped.get('missing_quote',0)}｜舊行情 {skipped.get('stale_quote',0)}｜基本面未齊 {skipped.get('missing_fundamentals',0)}｜日線條件未齊 {skipped.get('missing_daily_conditions',0)}")
+
 

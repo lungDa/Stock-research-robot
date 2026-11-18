@@ -25,5 +25,8 @@ def evaluate(data,mode):
     return {'mode':mode,'score':sum(v is True for v in checks.values()),'total':len(checks),
             'matched':all(v is True for v in checks.values()),'checks':checks}
 
-def enrich(data):
+def enrich(data, read=None):
+    from app.providers.corporate_actions import attach
+    data=attach(data, read)
     return {**data,'income':evaluate(data,'income'),'swing':evaluate(data,'swing')}
+

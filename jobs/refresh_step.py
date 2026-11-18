@@ -15,9 +15,11 @@ def run(name):
     from jobs.refresh_tw_prices import run as tw_prices
     from jobs.refresh_universe import build as universe
     from jobs.refresh_cash_dividends import run as cash
+    from jobs.refresh_market_metadata import run as market_metadata
+    from jobs.refresh_corporate_actions import run as corporate_actions
     steps = {
         "maintenance": clean, "universe": universe, "tw_prices": tw_prices,
-        "history": history, "fundamentals": fundamentals,
+        "history": history, "market_metadata": market_metadata, "corporate_actions": corporate_actions, "fundamentals": fundamentals,
         "cash_dividends": cash, "tw_financials": tw_financials,
         "eps_first": eps, "eps_second": eps, "coverage_diagnostic": coverage,
         "annual": annual, "us_prices": prices, "paid": paid,
@@ -35,3 +37,4 @@ if __name__ == "__main__":
         raise SystemExit("usage: python -m jobs.refresh_step STEP")
     value = run(sys.argv[1])
     print(json.dumps(value, ensure_ascii=False, default=str), flush=True)
+

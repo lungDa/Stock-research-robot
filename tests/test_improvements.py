@@ -7,6 +7,7 @@ from app.db import get,put,acquire_lease,release_lease
 from app.api.server import app
 from app.services.freshness import local_now
 from app.services.multifactor import DEFAULT,rule,evaluate,rated,rated_many,annual_rows
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 
 
 def quote(symbol='2330.TW'):
@@ -62,7 +63,7 @@ def test_public_fresh_cache_avoids_provider(monkeypatch):
 
 def test_public_limit_preserves_old_data_and_timestamp(monkeypatch):
     import app.api.public as api
-    old={**quote(),'cached_at':time.time()-40*3600}
+    old={**quote(),'cached_at':time.time()-40*3600,'date':str(local_now().date()-timedelta(days=10))}
     monkeypatch.setattr(api,'cached_quote',lambda s:old)
     monkeypatch.setattr(api,'reserve_refresh',lambda:False)
     with TestClient(app) as c:result=c.get('/public/quote/2330').json()
@@ -72,7 +73,7 @@ def test_public_limit_preserves_old_data_and_timestamp(monkeypatch):
 
 def test_refresh_failure_retains_stale_cache(monkeypatch):
     import app.services.research as research
-    old={**quote(),'cached_at':time.time()-2*3600,'price_basis':'未還原收盤價'}
+    old={**quote(),'cached_at':time.time()-2*3600,'price_basis':'未還原收盤價','date':str(local_now().date()-timedelta(days=10))}
     put('quote:2330.TW',old)
     monkeypatch.setattr(research,'fetch',Mock(side_effect=TimeoutError()))
     result=research.research('2330')
@@ -205,3 +206,4 @@ def test_quality_reads_batched_queue_state_consistently(monkeypatch):
     one=rated(quote(),'public');many=rated_many([quote()],'public')[0]
     assert one['data_quality']==many['data_quality']
     assert any(r['state']=='queued' for r in one['data_quality']['rule_fields'])
+

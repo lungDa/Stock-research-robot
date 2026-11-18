@@ -5,12 +5,19 @@ from app.db import get,put
 from app.services.multifactor import DEFAULT,validate,evaluate,annual_rows,save_settings,settings_for,rated_many
 from app.services.annual_data import FIELDS,import_csv
 TODAY=date(2026,11,6)
+pytestmark=pytest.mark.usefixtures('taiwan_market')
+
+@pytest.fixture(autouse=True)
+def sample_action_coverage(verified_actions):
+    verified_actions('2330.TW','2026-01-01','2026-12-31')
 def annual():
     return {str(y):dict(eps=3,roe_pct=20,cash_yield_pct=6,cash_dividend_per_share=2,
         operating_cash_flow=200,capital_expenditure=50,cash_dividends_paid=100,revenue=100*1.1**(y-2015)) for y in range(2015,2026)}
 def quote(symbol='2330.TW'):
     return dict(symbol=symbol,name='測試公司',kind='STOCK',price=110,adjusted_close=110,ma20=100,ma60=90,
-        date=TODAY.isoformat(),currency='TWD',cached_at=time.time(),data_status='partial')
+        date=TODAY.isoformat(),currency='TWD',cached_at=time.time(),data_status='partial',adjustment_status='verified',
+        history=[{'date':str(TODAY-__import__('datetime').timedelta(days=69-i)),
+                  'close':80 if i<40 else 100 if i<69 else 110,'volume':1000} for i in range(70)])
 def test_complete_strong_and_required_failure_watch():
     rows=annual();assert evaluate(quote(),DEFAULT,rows,TODAY)['grade']=='強力買'
     rows['2025']['eps']=1
@@ -84,9 +91,10 @@ def test_annual_import_atomic_validation_and_isolation():
 def test_batch_uses_personal_data_and_stale_momentum_blocked(monkeypatch):
     # Match the fixed quote/annual fixtures instead of letting them expire in CI.
     monkeypatch.setattr('app.services.multifactor.local_now',lambda:datetime.combine(TODAY,datetime.min.time()))
-    monkeypatch.setattr('app.services.freshness.local_now',lambda:datetime.combine(TODAY,datetime.min.time()))
+    monkeypatch.setattr('app.services.freshness.local_now',lambda:datetime.combine(TODAY,datetime.min.time()).replace(hour=19))
     put('annual:Ualice:2330.TW',annual())
     assert rated_many([quote()],'Ualice')[0]['rating']['grade']=='強力買'
     assert rated_many([quote()],'Ubob')[0]['rating']['grade']=='資料不足'
     q=quote();q['data_status']='stale'
     assert evaluate(q,DEFAULT,annual(),TODAY)['grade']=='資料不足'
+

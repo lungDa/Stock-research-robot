@@ -10,6 +10,7 @@ from app.services.trailing_metrics import attach
 from app.services.freshness import local_now
 
 TODAY=date(2026,11,9)
+pytestmark=pytest.mark.usefixtures('taiwan_market')
 DATES=['2025-12-31','2026-03-31','2026-06-30','2026-09-30']
 
 def records(values=(1,2,3,4),dates=DATES):
@@ -194,3 +195,4 @@ def test_repeated_identical_quarter_eps_remains_valid():
     rows=records()
     rows.append(dict(rows[-1]))
     assert taiwan_eps_four_quarters('2330.TW',rows,TODAY)['value']==10
+
