@@ -27,7 +27,7 @@ def _extract(buffer, decoder, records):
         buffer = buffer[end:]
 
 
-def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, headers=None):
+def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, headers=None, socket_timeout=(2,2)):
     started = time.monotonic()
     decoder = codecs.getincrementaldecoder('utf-8-sig')()
     json_decoder = json.JSONDecoder()
@@ -38,7 +38,7 @@ def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, he
     consumed = 0
     reason = ''
     try:
-        with requests.get(url, params=params, headers=headers, timeout=(2, 2), stream=True, allow_redirects=False) as response:
+        with requests.get(url, params=params, headers=headers, timeout=socket_timeout, stream=True, allow_redirects=False) as response:
             response.raise_for_status()
             if response.status_code != 200:
                 raise ResourceLimitError('官方端點未直接回傳資料')
@@ -77,3 +77,4 @@ def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, he
     if reason:
         raise ResourceLimitError(f'回應超過{reason}，停止下載')
     return json.loads(buffer)
+

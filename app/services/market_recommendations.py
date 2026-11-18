@@ -12,31 +12,25 @@ def enable(user,enabled):
     put('recommendations:preferences:'+user,{'enabled':enabled});return preferences(user)
 
 def calendar(year):
-    from app.providers.bounded_http import fetch_json
-    from app.providers.taiwan_official import trading_date
+    from app.providers.exchange_calendar import load,URL
+    from app.services.trading_calendar import valid_calendar
     key='recommendations:calendar:'+str(year);old=get(key,{})
-    if old and time.time()-old.get('at',0)<6*3600:return old
-    if year!=local_now().year:
-        if old:return old
-        raise RuntimeError('缺少該年度交易日曆，停止推播')
-    rows=fetch_json('https://openapi.twse.com.tw/v1/holidaySchedule/holidaySchedule',max_bytes=65536,seconds=6)
-    if not isinstance(rows,list) or not rows:raise ValueError('交易日曆不可用')
-    closed=[];opened=[]
-    for row in rows:
-        day=trading_date(row.get('Date',''))
-        if date.fromisoformat(day).year!=year:raise ValueError('交易日曆年度不符')
-        text=str(row.get('Name',''))+' '+str(row.get('Description',''))
-        if ('開始交易' in text or '最後交易' in text) and '無交易' not in text:opened.append(day)
-        else:closed.append(day)
-    if len(closed)<5:raise ValueError('交易日曆不完整')
-    result={'at':time.time(),'year':year,'closed':closed,'opened':opened}
+    at=old.get('at') if isinstance(old,dict) else None
+    age=time.time()-at if type(at) in (int,float) else -1
+    if (valid_calendar(old,year) and len(old['closed'])>=5 and old['opened']
+            and old.get('source')==URL and old.get('source_date')==f'{year}0101'
+            and 0<=age<6*3600):return old
+    result={**load(year),'at':time.time()}
     put(key,result);return result
 
 def is_session(day):
+    from app.services.trading_calendar import session
     overrides=get('recommendations:session_overrides',{})
-    if day.isoformat() in overrides:return bool(overrides[day.isoformat()])
-    c=calendar(day.year)
-    return day.isoformat() in c['opened'] or (day.weekday()<5 and day.isoformat() not in c['closed'])
+    key='recommendations:calendar:'+str(day.year)
+    row=calendar(day.year) if day.isoformat() not in overrides else None
+    state=session(day,lambda k,d=None:row if k==key else get(k,d))
+    if state is None:raise RuntimeError('缺少可核對的交易日曆，停止推播')
+    return state
 
 def target_day(today,slot):
     if slot=='evening':return today
