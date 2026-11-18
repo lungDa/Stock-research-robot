@@ -1,0 +1,32 @@
+name: Check Render backend every 10 minutes (best effort)
+on:
+  workflow_dispatch:
+  schedule:
+    # Avoid the start-of-hour peak. GitHub may delay or drop scheduled runs.
+    - cron: '7,17,27,37,47,57 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/render-health.yml'
+      - 'scripts/check_render_health.py'
+  pull_request:
+    paths:
+      - '.github/workflows/render-health.yml'
+      - 'scripts/check_render_health.py'
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-render-health
+  cancel-in-progress: false
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      RENDER_HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      # The runner's Python standard library is sufficient; no pip/browser setup.
+      - name: Confirm backend health without fetching market data
+        timeout-minutes: 2
+        run: python3 scripts/check_render_health.py
