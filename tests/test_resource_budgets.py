@@ -51,6 +51,13 @@ def test_socket_timeouts_and_redirects(monkeypatch):
     assert loader.call_args.kwargs['timeout']==(2,2)
     assert loader.call_args.kwargs['allow_redirects'] is False
 
+def test_calendar_socket_wait_still_enforces_total_budget(monkeypatch):
+    loader=fake(monkeypatch,[b'{}'])
+    ticks=iter([0,13]);monkeypatch.setattr(http.time,'monotonic',lambda:next(ticks))
+    with pytest.raises(http.ResourceLimitError,match='時間預算'):
+        http.fetch_json('https://example.com',seconds=12,socket_timeout=(8,3))
+    assert loader.call_args.kwargs['timeout']==(8,3)
+
 def test_warning_is_not_repeated_for_every_symbol(monkeypatch):
     monkeypatch.setattr(official,'_warning_until',{})
     logger=Mock();monkeypatch.setattr(official,'log',logger)

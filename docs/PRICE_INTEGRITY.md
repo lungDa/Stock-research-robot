@@ -32,6 +32,10 @@
 
 程式合併並部署後，在 GitHub Actions 執行 **Replenish data and clean expired records** 一次，確認 `market_metadata` 已取得當年度日曆。既有每日四次排程也會接續執行，不另發 LINE 訊息。
 
+日曆改用證交所年度報表端點 `https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule`，以 `date=YYYY0101&response=json` 指定西元年度。不能用會提早切換到下一年度的 OpenAPI 最新表，也不能以 `queryYear` 參數取代 `date`。下載結果必須核對 `date`、`queryYear`、民國年度標題、欄位、總筆數及每列日期；不符或不完整時不覆寫既有快取。
+
+`market_metadata` 各年度獨立處理：當年與前一年是必要資料，十一月起另預載下一年。必要年度任一失敗回報 `partial`；下一年尚未公告不影響當年續補，但在 `years` 結果保留失敗原因。前一年也能從空資料庫重新下載，元旦及跨年長假不依賴部署前留下的快取。每年度快取六小時；舊 OpenAPI 快取會由新來源重新核對。交易日依資料列的「名稱」判斷，最後交易日的「說明」提到其他日期無交易，不會將該列日期誤列為休市。臨時休市仍依已核對的日期覆寫，不從年度例假表推測颱風休市。
+
 新增 `corporate_actions` 步驟，每次最多兩次來源請求，與其他工作共用原有 FinMind 每日 100 次預算。追蹤、查詢待補及 `ANNUAL_SYMBOLS` 列入任務，另逐檔輪替市場母體。每檔四來源可跨批次完成；缺 Token、額度不足或來源失敗時保留既有涵蓋區間，不冒稱本次下載成功。
 
 首次上線不代表已補齊全市場。四來源尚未完整涵蓋的標的，會顯示還原資料未齊、均線缺資料；這可能使符合數暫時減少。跨年應保留先前年度的日曆快取。服務仍是免費日線研究工具，不是即時報價或完整回測資料庫。
@@ -45,3 +49,5 @@
 - [FinMind 基本面資料集與欄位](https://finmind.github.io/tutor/TaiwanMarket/Fundamental/)
 - [FinMind 免費／付費方案範圍](https://finmind.github.io/Pricing/)
 - [TWSE 除權除息計算結果](https://www.twse.com.tw/zh/announcement/ex-right/twt49u.html)
+- [TWSE 市場開休市日期](https://www.twse.com.tw/zh/trading/holiday.html)
+- [TWSE 2026 年度報表 JSON](https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date=20260101&response=json)

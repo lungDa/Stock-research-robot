@@ -24,18 +24,24 @@ def calendar_snapshot(function):
     return wrapped
 
 
+def valid_calendar(row, year):
+    if (not isinstance(row, dict) or type(row.get('year')) is not int or row['year'] != year
+            or not isinstance(row.get('closed'), list) or not isinstance(row.get('opened'), list)):
+        return False
+    try:
+        days = [date.fromisoformat(d) for d in row['closed'] + row['opened']]
+        if any(d.year != year for d in days) or len(set(days)) != len(days):return False
+    except (TypeError, ValueError):return False
+    return True
+
+
 def session(day, read):
     overrides = read('recommendations:session_overrides', {})
     if day.isoformat() in overrides:
         value = overrides[day.isoformat()]
         return value if type(value) is bool else None
     row = read('recommendations:calendar:' + str(day.year), {})
-    if row.get('year') != day.year or not isinstance(row.get('closed'), list) or not isinstance(row.get('opened'), list):
-        return None
-    try:
-        days = [date.fromisoformat(d) for d in row['closed'] + row['opened']]
-        if any(d.year != day.year for d in days):return None
-    except (TypeError, ValueError):return None
+    if not valid_calendar(row, day.year):return None
     return str(day) in row['opened'] or (day.weekday() < 5 and str(day) not in row['closed'])
 
 

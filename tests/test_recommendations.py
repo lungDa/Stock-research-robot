@@ -81,7 +81,7 @@ def test_top_ten_deterministic_excludes_nonstocks():
     assert r['items'][0]['symbol']=='0011.TW'
 
 def test_calendar_holiday_and_previous_session(monkeypatch):
-    monkeypatch.setattr(m,'calendar',lambda year:{'closed':['2026-11-09'],'opened':[]})
+    monkeypatch.setattr(m,'calendar',lambda year:{'year':year,'closed':['2026-11-09'],'opened':[]})
     assert not m.is_session(date(2026,11,9))
     assert m.target_day(DAY,'morning')==date(2026,11,6)
     assert m.target_day(DAY,'evening')==DAY
@@ -91,11 +91,13 @@ def test_calendar_holiday_and_previous_session(monkeypatch):
 def test_calendar_contract(monkeypatch):
     from app.providers import bounded_http
     monkeypatch.setattr(m,'local_now',lambda:datetime(2026,11,10,tzinfo=TAIPEI))
-    rows=[{'Date':f'11501{d:02}','Name':'依規定放假','Description':''} for d in range(1,6)]
-    rows += [{'Date':'1150106','Name':'開始交易日','Description':'開始交易'}]
-    monkeypatch.setattr(bounded_http,'fetch_json',lambda *a,**kw:rows)
+    rows=[[f'2026-01-{d:02}','依規定放假',''] for d in range(1,6)]
+    rows += [['2026-01-06','開始交易日','開始交易']]
+    payload={'stat':'ok','date':'20260101','queryYear':2026,'title':'115 年市場開休市日期',
+             'fields':['日期','名稱','說明'],'data':rows,'total':len(rows)}
+    monkeypatch.setattr(bounded_http,'fetch_json',lambda *a,**kw:payload)
     assert m.calendar(2026)['opened']==['2026-01-06']
-    with pytest.raises(RuntimeError):m.calendar(2024)
+    with pytest.raises(ValueError,match='年度不符'):m.calendar(2024)
 
 def test_collect_visits_beyond_thirty_and_personal_isolation():
     symbols=[f'{n:04}.TW' for n in range(1000,1041)]
