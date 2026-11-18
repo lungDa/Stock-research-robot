@@ -14,10 +14,11 @@ def test_transient_auth_failure_keeps_session_and_offers_retry(monkeypatch):
     monkeypatch.setattr(requests,'request',offline)
     app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
     app.session_state['token']='a'*24
+    app.session_state['browser_logout_pending']=False
     app.run()
     assert not app.exception
     assert app.session_state['token']=='a'*24
-    assert not app.session_state.filtered_state.get('browser_logout_pending')
+    assert app.session_state['browser_logout_pending'] is False
     assert app.button(key='retry_login')
     assert not any('private upstream' in e.value for e in app.error)
 
