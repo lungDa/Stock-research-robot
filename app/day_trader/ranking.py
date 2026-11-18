@@ -36,7 +36,8 @@ def rank_four_modes(rows, *, top_n=10):
             # Intraday and swing require fresh, complete intraday technical data.
             # Long-term requires complete fundamentals; combined requires both.
             eligible=(fundamental_ok and technical_ok) if mode=="combined" else (
-                fundamental_ok if mode=="long_term" else technical_ok)
+                fundamental_ok if mode=="long_term" else
+                technical_ok and row.get('intraday_verified') is True)
             if not eligible:continue
             if mode=="long_term":
                 score=f if not technical_ok else wf*f+wt*t
@@ -54,4 +55,4 @@ def rank_four_modes(rows, *, top_n=10):
         result[mode]=result[mode][:top_n]
     return {"rankings":result,"labels":LABELS,"top_n":top_n,
             "research_only":True,"execution_enabled":False,
-            "note":"研究用排名；當沖／波段須另外核驗分鐘K棒時效與完整性，並非投資建議。"}
+            "note":"綜合與長期使用已驗證基本面及日線條件；當沖／波段僅接受已核驗分鐘資料。研究排名並非投資建議。"}

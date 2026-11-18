@@ -6,9 +6,12 @@ from app.services.freshness import format_updated_at,quote_note
 st.set_page_config(page_title='股海燈塔',page_icon='🌊',layout='wide')
 st.title('🌊 股海燈塔')
 st.caption('台美股・ETF｜存股與波段規則篩選')
+from app.release import VERSION
+st.caption('網站版本 '+VERSION)
 try: base=st.secrets.get('API_BASE_URL',os.getenv('API_BASE_URL','http://localhost:10000'))
 except FileNotFoundError: base=os.getenv('API_BASE_URL','http://localhost:10000')
 def api(method,path,**kwargs):
+    st.session_state.api_last_status=None
     # 訪客只走公開GET端點；個人寫入端點仍由後端強制認證。
     if not st.session_state.get('personal_active') and method=='GET' and (path.startswith(('/quote/','/fundamentals/status/')) or path=='/scan'):
         path='/public'+path
@@ -17,13 +20,16 @@ def api(method,path,**kwargs):
     headers={'Authorization':'Bearer '+st.session_state.token} if st.session_state.get('token') else {}
     try:
         r=requests.request(method,base+path,headers=headers,timeout=45,**kwargs)
+        st.session_state.api_last_status=r.status_code
         if r.status_code>=400:
             try: detail=r.json().get('detail','請稍後重試')
             except ValueError: detail='請稍後重試'
             st.error(str(detail));return None
         return r.json()
-    except requests.RequestException:
-        st.error('服務暫時無法連線，請稍後再試。');return None
+    except requests.Timeout:
+        st.error('服務回應逾時，可能正在喚醒。請稍後再試；若剛才送出設定或模擬委託，請先讀取結果，勿更換委託識別碼重送。');return None
+    except (requests.RequestException,ValueError):
+        st.error('服務暫時無法連線或回應不完整，請稍後重試。');return None
 
 # Maintenance gate before login, callbacks, public queries or any write controls.
 try:
@@ -31,7 +37,9 @@ try:
     maintenance_response.raise_for_status()
     maintenance_active=bool(maintenance_response.json().get('maintenance',True))
 except (requests.RequestException,ValueError,TypeError):
-    maintenance_active=True
+    st.warning('目前無法確認服務狀態，可能正在喚醒。請稍後按下重新連線；登入資料會保留。')
+    if st.button('重新連線',key='retry_service'):st.rerun()
+    st.stop()
 if maintenance_active:
     st.warning('系統維護中，暫停登入、查詢與交易操作。請稍後再試。')
     st.stop()
@@ -74,9 +82,13 @@ if st.session_state.get('token'):
         st.session_state.password_change_required=info['password_change_required']
         st.session_state.is_admin=info.get('is_admin',False)
         st.session_state.personal_active=info['stage']=='active'
-    else:
+    elif st.session_state.get('api_last_status')==401:
         st.session_state.browser_logout_pending=True
         st.rerun()
+    else:
+        st.warning('暫時無法確認登入狀態，已保留登入資料。恢復連線前暫停個人操作。')
+        if st.button('重新確認登入',key='retry_login'):st.rerun()
+        st.stop()
 
 with st.sidebar:
     if not st.session_state.get('token'):
@@ -579,6 +591,9 @@ if personal and st.session_state.get('is_admin'):
             right.metric('最早需求距今（小時）',status['oldest_request_age_hours'])
             st.caption(status['queue_scope'])
             st.write('來源設定：',status['source_configured'])
+            if status.get('feature_readiness'):
+                st.write('功能啟用條件（設定存在不代表已通過實際測試）：')
+                st.json(status['feature_readiness'])
             st.write('今日來源請求／本系統上限：',status['daily_provider_requests'])
             st.write('來源可重試倒數（秒）：',status['source_retry_after_seconds'])
             st.dataframe([{'工作':name,'最後結束':item.get('updated_at','尚無紀錄'),
@@ -606,6 +621,8 @@ if personal:
                     st.rerun()
         else:
             st.metric('模擬現金餘額（已扣模擬稅費）',paper['cash'])
+            limits=paper.get('risk_limits') or {}
+            st.caption(f"單筆金額上限：{limits.get('max_order_value','未提供')} 元｜單檔持倉上限：{limits.get('max_position_value','未提供')} 元")
             current_fee=paper.get('fee_settings') or {}
             with st.form('paper_fee_settings'):
                 fee_mode=st.selectbox('手續費模式',['STANDARD','CUSTOM'],index=0 if current_fee.get('mode')!='CUSTOM' else 1,
@@ -619,13 +636,17 @@ if personal:
                 if api('PUT','/paper/fees',json={'mode':fee_mode,'discount':str(fee_discount),'minimum_fee':str(fee_min)}):
                     st.session_state.paper_account=api('GET','/paper/account');st.rerun()
             st.dataframe(paper.get('positions',[]),hide_index=True)
+            if paper.get('recent_orders'):
+                st.caption('最近30筆模擬成交；舊版委託未保存的費用不補算。')
+                st.dataframe(paper['recent_orders'],hide_index=True)
             if paper.get('halted'):
                 st.error('此模擬帳戶已停止新增委託。')
             else:
                 with st.form('paper_order'):
                     order_symbol=st.text_input('台股代號','2330.TW',key='paper_symbol')
                     asset_type=st.selectbox('商品類別',['STOCK','ETF'],format_func=lambda x:'普通股票' if x=='STOCK' else 'ETF')
-                    order_mode=st.selectbox('交易方式',['REGULAR','ODD_LOT','AFTER_HOURS','DAY_TRADE'],format_func=lambda x:{'REGULAR':'一般整股','ODD_LOT':'盤中零股','AFTER_HOURS':'盤後定價','DAY_TRADE':'當沖（模擬；不核對資格）'}[x])
+                    order_mode=st.selectbox('交易方式',['ODD_LOT','REGULAR','AFTER_HOURS','DAY_TRADE'],format_func=lambda x:{'REGULAR':'一般整股','ODD_LOT':'盤中零股','AFTER_HOURS':'盤後定價','DAY_TRADE':'當沖（模擬；不核對資格）'}[x])
+                    st.caption('未加市場尾碼視為上市 .TW；上櫃請輸入 .TWO。整股每筆為1000股的倍數；零股為1至999股。')
                     order_side=st.selectbox('方向',['BUY','SELL'],format_func=lambda x:'買進' if x=='BUY' else '賣出')
                     order_qty=st.number_input('股數',min_value=1,max_value=1000000,value=100,step=1)
                     order_price=st.number_input('假設成交單價（NT$）',min_value=0.0001,value=100.0,step=0.5,format='%.4f')
@@ -654,10 +675,13 @@ if personal:
             if api('PUT','/four-rankings/preferences',json={'enabled':enabled}):
                 st.success('四榜通知設定已儲存')
         if st.button('更新四榜研究報告',key='four_rankings_refresh'):
-            st.session_state.four_rankings_report=api('GET','/four-rankings/latest')
+            with st.spinner('正在以追蹤清單的現有資料產生研究報告…'):
+                st.session_state.four_rankings_report=api('POST','/four-rankings/refresh')
         report=st.session_state.get('four_rankings_report') or {}
+        st.caption(report.get('scope_label','個人追蹤清單（最多30檔台股）；非全市場排名'))
+        if report.get('score_basis'):st.caption(report['score_basis'])
         if not report.get('as_of'):
-            st.info('尚無完整四榜資料。須完成基本面與分鐘K棒資料驗證後才會發布，不以缺漏資料湊榜。')
+            st.info('尚無可用行情，請先加入追蹤清單並查詢股票資料，再更新研究報告。當沖／波段尚待分鐘行情接入與驗證。')
         else:
             st.caption('資料時間：'+str(report['as_of'])+'｜僅供研究，不會觸發委託')
             tabs=st.tabs(['綜合前10','長期前10','波段前10','當沖前10'])
@@ -665,5 +689,8 @@ if personal:
                 with tab:
                     rows=report.get('rankings',{}).get(mode,[])
                     if rows:st.dataframe(rows,hide_index=True,use_container_width=True)
-                    else:st.warning('本模式資料不足，暫不排名')
+                    else:st.warning((report.get('mode_messages') or {}).get(mode,'本模式資料不足，暫不排名'))
+        if report.get('skipped'):
+            skipped=report['skipped']
+            st.caption(f"檢查 {report.get('symbols_checked',0)} 檔｜缺行情 {skipped.get('missing_quote',0)}｜舊行情 {skipped.get('stale_quote',0)}｜基本面未齊 {skipped.get('missing_fundamentals',0)}｜日線條件未齊 {skipped.get('missing_daily_conditions',0)}")
 

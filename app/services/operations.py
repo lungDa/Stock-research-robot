@@ -23,7 +23,18 @@ def overview():
             value=metrics.setdefault(check['metric'],{'label':check['label'],'known':0,'sampled':0})
             value['sampled']+=1;value['known']+=int(check['passed'] is not None)
     for value in metrics.values():value['coverage_pct']=round(value['known']/value['sampled']*100,1)
+    from app.day_trader.dual_ai import readiness
+    from app.config import settings
     return {'database':'ok','queue_symbols':len(queues),'queue_scope':'有效查詢需求，保留14天；不等同仍缺欄位數',
+            'feature_readiness':{
+                'ai':readiness(),
+                'line':{'configured':bool(settings.line_secret and settings.line_token),
+                        'verified':False,'message':'需由 LINE 實際傳送功能選單確認回覆；設定存在不代表 webhook 已啟用。'},
+                'login':{'configured':all((settings.login_channel_id,settings.login_channel_secret,settings.login_callback,settings.public_app_url)),
+                         'verified':False,'message':'需在使用者瀏覽器完成 LINE 登入與個人密碼驗證。'},
+                'rankings':{'scope':'個人追蹤清單快取','minute_feed_configured':False,
+                            'message':'綜合／長期須滿足資料條件；波段／當沖待分鐘行情接入與驗證。'},
+                'paper':{'live_orders':False,'message':'自填價格模擬；非真實券商成交。'}},
             'oldest_request_age_hours':round(max([now-r['requested_at'] for r in queues.values()] or [0])/3600,1),
             'feed_states_sampled':len(states),'feed_sample_limit':1000,
             'feed_ok':sum(r.get('status')=='ok' for r in states),

@@ -27,7 +27,7 @@ app.include_router(coverage_router)
 async def maintenance_gate(request:Request,call_next):
     from fastapi.responses import JSONResponse
     path=request.url.path
-    if path in ('/health','/ready','/maintenance/status','/admin/maintenance'):
+    if path in ('/health','/ready','/version','/maintenance/status','/admin/maintenance'):
         return await call_next(request)
     try:
         active=bool((await asyncio.to_thread(get,'system:maintenance',{})).get('enabled',False))
@@ -86,6 +86,11 @@ class Symbol(BaseModel): symbol:str=Field(max_length=25)
 class Notice(BaseModel): enabled:bool
 @app.get('/health')
 def health(): return {'status':'ok'}
+
+@app.get('/version')
+def version():
+    from app.release import VERSION
+    return {'version':VERSION}
 @app.get('/me')
 def me(user=Depends(current_user)): return {'user':user,'is_admin':is_admin(user)}
 
@@ -262,6 +267,11 @@ def recommendations_latest(user=Depends(current_user)):
 def four_rankings_latest(user=Depends(current_user)):
     from app.day_trader.reporting import latest
     return latest(user)
+
+@app.post('/four-rankings/refresh')
+def four_rankings_refresh(user=Depends(current_user)):
+    from app.day_trader.reporting import refresh_cached
+    return refresh_cached(user)
 
 @app.get('/four-rankings/preferences')
 def four_rankings_preferences(user=Depends(current_user)):
@@ -454,7 +464,8 @@ def admin_role_mutation_denied(target_user:str, request:Request):
 @app.get('/ai/usage')
 def personal_ai_usage(user=Depends(current_user)):
     from app.day_trader.ai_usage import usage
-    return {'normal':usage(user),'emergency':usage(user,'emergency')}
+    from app.day_trader.dual_ai import readiness
+    return {'normal':usage(user),'emergency':usage(user,'emergency'),'service':readiness()}
 
 @app.get('/admin/ai-usage/{target_user}')
 def admin_ai_usage(target_user:str,request:Request):

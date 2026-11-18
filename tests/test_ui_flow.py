@@ -5,6 +5,34 @@ from app.services.multifactor import rated
 from tests.test_improvements import quote
 
 
+def test_transient_auth_failure_keeps_session_and_offers_retry(monkeypatch):
+    import requests
+    maintenance=Mock(status_code=200)
+    maintenance.json.return_value={'maintenance':False}
+    monkeypatch.setattr(requests,'get',lambda *a,**k:maintenance)
+    def offline(*a,**k):raise requests.Timeout('private upstream details')
+    monkeypatch.setattr(requests,'request',offline)
+    app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
+    app.session_state['token']='a'*24
+    app.run()
+    assert not app.exception
+    assert app.session_state['token']=='a'*24
+    assert not app.session_state.filtered_state.get('browser_logout_pending')
+    assert app.button(key='retry_login')
+    assert not any('private upstream' in e.value for e in app.error)
+
+
+def test_unreachable_maintenance_does_not_claim_scheduled_maintenance(monkeypatch):
+    import requests
+    def offline(*a,**k):raise requests.ConnectionError('private connection')
+    monkeypatch.setattr(requests,'get',offline)
+    app=AppTest.from_file(str(Path(__file__).parents[1]/'streamlit_app.py'),default_timeout=20)
+    app.run()
+    assert not app.exception
+    assert app.button(key='retry_service')
+    assert any('無法確認服務狀態' in w.value for w in app.warning)
+
+
 def test_query_shows_quote_before_enqueue_and_refreshes_after_background(monkeypatch):
     import requests
     calls=[]

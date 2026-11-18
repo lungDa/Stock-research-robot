@@ -22,6 +22,9 @@ def render_ai_review(api, personal, quote):
 
     normal = usage.get("normal") or {}
     emergency = usage.get("emergency") or {}
+    service=usage.get('service') or {}
+    if service.get('message'):
+        st.caption(service['message'])
     left, right = st.columns(2)
     left.metric("一般 AI 今日剩餘", f"{normal.get('remaining', 0)} / {normal.get('limit', 0)}")
     right.metric("緊急 AI 今日剩餘", f"{emergency.get('remaining', 0)} / {emergency.get('limit', 0)}")
@@ -45,10 +48,14 @@ def render_ai_review(api, personal, quote):
         st.write(result.get("commentary") or "未提供文字解讀")
         st.caption(f"AI 來源：{result.get('provider', '未知')}｜AI 文字不改變原有量化評分，也不會執行交易。")
     elif result.get("status") == "UNAVAILABLE":
-        st.warning("AI 服務暫時無法完成分析，本次不扣除額度。")
+        st.warning((result.get('message') or 'AI 服務暫時無法完成分析。')+' 本次不扣除額度。')
     elif result.get("status") == "QUOTA_PENDING":
         st.info("此股票已有分析進行中，請稍後再試。")
     elif result.get("status") == "RESULT_UNAVAILABLE":
         st.warning("今日分析已記錄，但快取結果暫時無法取得，請稍後再試。")
     else:
-        st.warning("AI 分析未完成：" + str(result.get("status", "未知狀態")))
+        messages={'QUOTA_NO_LIMIT_CONFIGURED':'尚未設定你的 AI 額度，請聯絡管理員。',
+                  'QUOTA_EXHAUSTED':'此類別今日額度已用完或尚有分析進行中；已完成的股票仍可免費查看今日結果。',
+                  'QUOTA_COMMIT_FAILED':'分析紀錄尚未完成，未扣除額度，請稍後重試。',
+                  'DISABLED':'AI 分析目前未啟用。'}
+        st.warning(messages.get(result.get('status'),'AI 分析未完成，請稍後重試。'))

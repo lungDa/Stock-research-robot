@@ -4,9 +4,9 @@ from app.day_trader.ranking import rank_four_modes
 def test_four_rankings_and_deterministic_order():
     rows=[
         {"symbol":"2330.TW","fundamental_score":90,"technical_score":60,
-         "fundamental_complete":True,"technical_complete":True,"signal":"NO_SIGNAL"},
+         "fundamental_complete":True,"technical_complete":True,"intraday_verified":True,"signal":"NO_SIGNAL"},
         {"symbol":"2317.TW","fundamental_score":60,"technical_score":95,
-         "fundamental_complete":True,"technical_complete":True,"signal":"BREAKOUT_WATCH"},
+         "fundamental_complete":True,"technical_complete":True,"intraday_verified":True,"signal":"BREAKOUT_WATCH"},
     ]
     out=rank_four_modes(rows)
     assert out["rankings"]["long_term"][0]["symbol"]=="2330.TW"
@@ -17,7 +17,7 @@ def test_four_rankings_and_deterministic_order():
 def test_missing_and_stale_data_excluded_from_relevant_modes():
     rows=[
         {"symbol":"A","fundamental_score":80,"fundamental_complete":True},
-        {"symbol":"B","technical_score":90,"technical_complete":True},
+        {"symbol":"B","technical_score":90,"technical_complete":True,"intraday_verified":True},
         {"symbol":"C","fundamental_score":99,"technical_score":99,
          "fundamental_complete":True,"technical_complete":True,"data_stale":True},
     ]
@@ -31,3 +31,11 @@ def test_invalid_inputs_fail_closed():
     with pytest.raises(ValueError):rank_four_modes([],top_n=0)
     assert rank_four_modes([{"symbol":"X","technical_score":float("nan"),
                             "technical_complete":True}])["rankings"]["intraday"]==[]
+
+
+def test_daily_scores_cannot_masquerade_as_minute_rankings():
+    report=rank_four_modes([{'symbol':'2330.TW','fundamental_score':80,'technical_score':90,
+                            'fundamental_complete':True,'technical_complete':True}])
+    assert report['rankings']['combined']
+    assert not report['rankings']['intraday']
+    assert not report['rankings']['swing']

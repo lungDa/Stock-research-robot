@@ -40,6 +40,16 @@ class PaperExecution(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+class PaperOrderDetail(Base):
+    """Immutable request identity and fees; additive table for existing ledgers."""
+    __tablename__ = "paper_order_details"
+    order_id: Mapped[int] = mapped_column(ForeignKey("paper_orders.id"), primary_key=True)
+    asset_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    order_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    broker_fee: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    transaction_tax: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    net_cash: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+
 class PaperPosition(Base):
     __tablename__ = "paper_positions"
     id: Mapped[int] = mapped_column(primary_key=True)
