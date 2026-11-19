@@ -377,9 +377,10 @@ def admin_stepup_issue(body:AdminStepUpRequest, request:Request):
         return issue(request, body.scope)
     except HTTPException:
         raise
-    except Exception:
-        log.exception('admin step-up delivery failed')
-        raise HTTPException(503, '管理員驗證碼暫時無法發送')
+    except Exception as exc:
+        from app.channels.webhook import report
+        report('admin_stepup_delivery', exc)
+        raise HTTPException(503, '管理員驗證碼發送未確認，請稍後重新發送並使用最新驗證碼') from None
 
 @app.post('/admin/stepup/verify')
 def admin_stepup_verify(body:AdminStepUpVerify, request:Request):
