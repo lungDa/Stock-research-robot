@@ -13,7 +13,21 @@ def probe(symbol,download=request):
     values={}
     for field in ('eps','roe_pct'):
         body=download('/compare/data',form=annual_fields(field,display,catalog[field]))
-        values[field]=parse_annual(body,symbol,field,display,datetime.now(ZoneInfo('Asia/Taipei')).date(),catalog[field])
+        try:
+            values[field]=parse_annual(body,symbol,field,display,datetime.now(ZoneInfo('Asia/Taipei')).date(),catalog[field])
+        except ValueError:
+            # Only bounded public company labels, never numeric series, full
+            # responses, headers, credentials or exception strings.
+            def labels(value):
+                if not isinstance(value,list):return {'type':type(value).__name__}
+                return [str(v)[:128] if isinstance(v,(str,int)) else {'type':type(v).__name__} for v in value[:2]]
+            if isinstance(body,dict):
+                print(json.dumps({'public_company_identity':{
+                    'symbol':symbol,'field':field,
+                    'displayCompanyId':labels(body.get('displayCompanyId')),
+                    'checkedNameList':labels(body.get('checkedNameList')),
+                    'series_labels':labels([s.get('label') for s in body.get('graphData',[])[:2] if isinstance(s,dict)])}},ensure_ascii=False))
+            raise
     common=set(values['eps'])&set(values['roe_pct'])
     return {'symbol':symbol,'company':display,'requests':4,'source':'https://mopsfin.twse.com.tw/',
         'status':'official_annual_contract_verified','years':{field:sorted(rows) for field,rows in values.items()},
@@ -32,3 +46,4 @@ def main():
 
 
 if __name__=='__main__':main()
+
