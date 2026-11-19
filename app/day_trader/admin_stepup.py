@@ -7,6 +7,7 @@ import hmac
 import re
 import secrets
 import time
+import uuid
 from fastapi import HTTPException, Request
 from app.api.line_login import digest, session_info
 from app.api.device_sessions import permitted
@@ -57,8 +58,15 @@ def issue(request, scope):
                   "challenge_expires": time.time() + OTP_TTL, "attempts": 0,
                   "grant_expires": 0})
         # Recipient is derived exclusively from authenticated admin identity.
-        line.push(user, "股海燈塔重要操作驗證碼：" + otp +
-                  "（5分鐘有效，請勿轉傳）", secrets.token_hex(16))
+        try:
+            line.push(user, "股海燈塔重要操作驗證碼：" + otp +
+                      "（5分鐘有效，請勿轉傳）", str(uuid.uuid4()))
+        except Exception:
+            # Even an uncertain delivery must not leave a usable code or grant.
+            # A subsequent explicit request issues a new challenge.
+            put(key, {"challenge_expires": 0, "grant_expires": 0,
+                      "attempts": MAX_ATTEMPTS})
+            raise
     finally:
         release_lease(key + ":lock", lease)
     return {"sent": True, "expires_in": OTP_TTL}

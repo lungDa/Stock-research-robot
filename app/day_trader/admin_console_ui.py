@@ -10,6 +10,7 @@ def render_admin_console(api, personal, is_admin):
     if not personal or not is_admin:
         return
     with st.expander("🛡️ 最高管理員控制中心", expanded=False):
+        st.caption("若出現「重要操作需重新進行 LINE OTP 驗證」，請展開「登入裝置與安全管理」，選擇「AI 額度管理」，發送並驗證 LINE 驗證碼後再儲存。驗證碼只在網站輸入。")
         policy = api("GET", "/admin/role-policy")
         if policy is None:
             st.warning("無法取得管理員制度，請稍後再試。")
@@ -18,6 +19,10 @@ def render_admin_console(api, personal, is_admin):
         quota, security = st.tabs(["AI 額度管理", "系統安全設定"])
         with quota:
             st.caption("修改 AI 額度需先至「登入裝置與安全管理」完成「AI 額度管理」LINE OTP 授權（10 分鐘有效）。")
+            authorization=api('GET','/admin/stepup/status') or {}
+            quota_authorized=authorization.get('authorized') is True and authorization.get('scope')=='ai_limits'
+            if not quota_authorized:
+                st.info('可以先查詢額度；儲存前請完成「AI 額度管理」的 LINE 驗證。其他操作的授權不適用。')
             target = st.text_input("使用者 LINE ID", key="v25_quota_user", max_chars=33,
                                    placeholder="U 開頭的 33 字元 LINE 使用者 ID")
             valid = bool(re.fullmatch(r"U[0-9a-fA-F]{32}", target.strip()))
@@ -36,7 +41,7 @@ def render_admin_console(api, personal, is_admin):
                                              value=int(loaded.get("normal_daily_limit", 0)), step=1)
                     emergency = st.number_input("每日緊急 AI 額度", min_value=0, max_value=100000,
                                                 value=int(loaded.get("emergency_daily_limit", 0)), step=1)
-                    submit = st.form_submit_button("儲存額度（需要 AI 額度 OTP 授權）")
+                    submit = st.form_submit_button("儲存額度（需要 AI 額度 OTP 授權）",disabled=not quota_authorized)
                 if submit:
                     result = api("PUT", "/admin/ai-limits/" + target.strip(),
                                  json={"normal_daily_limit": int(normal),
