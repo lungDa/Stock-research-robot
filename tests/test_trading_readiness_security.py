@@ -27,7 +27,8 @@ def test_private_endpoints_require_authentication():
         assert client.put("/strategy", json={}).status_code in (401, 403)
         assert client.post("/watchlist", json={"symbol": "2330.TW"}).status_code in (401, 403)
         assert client.post('/four-rankings/refresh').status_code in (401,403)
-        assert client.get('/version').json()=={'version':'2.8.0'}
+        from app.release import VERSION
+        assert client.get('/version').json()=={'version':VERSION}
 
 
 def test_users_have_isolated_watchlists_and_strategy_settings():
