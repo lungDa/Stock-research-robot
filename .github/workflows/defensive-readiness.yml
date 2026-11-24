@@ -1,0 +1,50 @@
+name: Audit defensive data readiness
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Number of reads per latency measurement (1 to 100)
+        type: number
+        default: 20
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Run read-only defensive audit
+        env:
+          DATABASE_URL: ${{ secrets.DEFENSIVE_AUDIT_DATABASE_URL }}
+          AUDIT_SAMPLES: ${{ inputs.samples }}
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy.engine import make_url
+
+          try:
+              url = make_url(os.environ.get('DATABASE_URL', ''))
+              if url.get_backend_name() not in ('postgres', 'postgresql') or not url.host:
+                  raise ValueError
+          except Exception:
+              raise SystemExit('Set DEFENSIVE_AUDIT_DATABASE_URL to the read-only test PostgreSQL connection.') from None
+          PY
+          python -m jobs.audit_defensive_readiness --samples "$AUDIT_SAMPLES" > defensive-readiness.json
+          {
+            echo '### Defensive data readiness'
+            echo '```json'
+            cat defensive-readiness.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: defensive-readiness
+          path: defensive-readiness.json
+          if-no-files-found: error
