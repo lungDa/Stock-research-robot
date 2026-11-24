@@ -116,3 +116,15 @@ def test_both_fetches_failing_persists_cooldowns_across_worker_runs(monkeypatch)
     assert job.run(now.replace(hour=23))['state'] == 'partial'
     assert fetch.call_count == 6
     assert all(call.args[1] == date(2025, 6, 24) for call in fetch.call_args_list[-2:])
+
+
+def test_successful_download_of_older_observations_is_not_ready(monkeypatch):
+    now = datetime(2025, 7, 8, 22, tzinfo=timezone.utc)
+    fetch = Mock(return_value=[{'date': '2025-07-07', 'close': 100}])
+    monkeypatch.setattr(fred_indices, 'fetch', fetch)
+    for _ in range(2):
+        result = job.run(now)
+        assert result['state'] == 'partial'
+        assert result['indices']['sox']['expected_session'] == '2025-07-08'
+        assert result['indices']['sox']['freshness'] == 'awaiting_latest_session'
+    assert fetch.call_count == 2

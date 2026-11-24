@@ -57,6 +57,7 @@ def run(now=None):
         if not acquired:
             return {'state': 'busy'}
         closes = us_index_observations.session_closes(start, end)
+        expected = us_index_observations.latest_completed_session(closes, now)
         for benchmark, series in fred_indices.SERIES.items():
             key = PREFIX + benchmark
             cached = get(key, {})
@@ -85,7 +86,13 @@ def run(now=None):
             results[benchmark] = {'state': 'updated', 'latest': rows[-1]['date'],
                                   'observations': len(rows), 'timed_observations': len(availability['published_at']),
                                   'history_error': history_error, 'historical_window_loaded': loaded}
-    return {'state': 'partial' if any(row['state'] in ('failed', 'cooldown') for row in results.values())
+    for row in results.values():
+        row['expected_session'] = expected
+        if 'latest' in row:
+            row['freshness'] = 'current' if row['latest'] == expected else 'awaiting_latest_session'
+    return {'state': 'partial' if any(
+        row['state'] in ('failed', 'cooldown') or row.get('freshness') == 'awaiting_latest_session'
+        for row in results.values())
             else 'finished', 'indices': results}
 
 

@@ -24,13 +24,17 @@ def availability(rows, previous, closes, observed_at):
         if day in old_times and day in session_days and old_prices.get(day) == row['close']:
             times[day] = old_times[day]
 
+    latest = rows[-1]['date']
+    if latest == latest_completed_session(closes, observed_at):
+        times.setdefault(latest, observed_at.isoformat())
+    return {'session_closes': [pd.Timestamp(stamp).isoformat() for stamp in closes],
+            'published_at': times, 'availability_basis': 'worker_first_seen'}
+
+
+def latest_completed_session(closes, observed_at):
     # Use 16:00 ET as a conservative boundary even on shortened sessions.
     local = observed_at.astimezone(NEW_YORK)
     completed = closes[closes <= observed_at]
     if local.time() < time(16):
         completed = completed[completed.index.strftime('%Y-%m-%d') < str(local.date())]
-    latest = rows[-1]['date']
-    if not completed.empty and str(completed.index[-1].date()) == latest:
-        times.setdefault(latest, observed_at.isoformat())
-    return {'session_closes': [pd.Timestamp(stamp).isoformat() for stamp in closes],
-            'published_at': times, 'availability_basis': 'worker_first_seen'}
+    return str(completed.index[-1].date()) if not completed.empty else None
