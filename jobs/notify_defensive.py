@@ -36,6 +36,8 @@ def run(*, send=False, now=None):
         if level >= 3 and risk.get('ranking_as_of') == ranking.get('as_of') and ranking.get('as_of'):
             items = ranking.get('screened_periods', {}).get('1', {}).get('combined', {}).get('items', [])[:10]
         symbols = [item['symbol'] for item in items]
+        ranking_stamp = ranking.get('generated_at') if items else None
+        observed = datetime.fromisoformat(stamp)
         emitted = failed = 0
         remaining = None
         for user in member_users():
@@ -43,14 +45,20 @@ def run(*, send=False, now=None):
                 continue
             state_key = 'defensive:line:state:' + user
             previous = get(state_key, {})
-            if previous.get('observed_at') and datetime.fromisoformat(previous['observed_at']) >= datetime.fromisoformat(stamp):
-                continue
+            previous_stamp = previous.get('observed_at')
+            if previous_stamp:
+                prior = datetime.fromisoformat(previous_stamp)
+                if prior > observed:
+                    continue
+                if prior == observed and (not ranking_stamp or ranking_stamp == previous.get('ranking_stamp')):
+                    continue
             kind = event(level, previous, symbols)
-            state = {**previous, 'level': level, 'observed_at': stamp}
+            state = {**previous, 'level': level, 'observed_at': stamp, 'ranking_stamp': ranking_stamp}
             if kind:
                 body = message(kind, level, stamp, items)
                 if send:
-                    digest = hashlib.sha256(stamp.encode()).hexdigest()[:24]
+                    identity = stamp if kind != 'ranking_changed' else json.dumps([stamp, symbols])
+                    digest = hashlib.sha256(identity.encode()).hexdigest()[:24]
                     key = f'defensive:line:outbox:{user}:{digest}'
                     try:
                         if remaining is None:

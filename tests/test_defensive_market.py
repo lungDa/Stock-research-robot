@@ -51,3 +51,19 @@ def test_fundamental_and_adjusted_trend_screen_requires_complete_data():
     assert job.screen_candidate('2317.TW', history, closes, end, docs) == 'missing_data'
     assert job.screen_candidate('2317.TW', {'rows': history['rows'][1:]},
                                 closes, end, docs) == 'missing_data'
+
+
+def test_scheduled_rank_waits_for_close_and_reuses_same_session(monkeypatch):
+    from unittest.mock import Mock
+
+    now = datetime(2026, 11, 24, 19, tzinfo=TAIPEI)
+    put('recommendations:calendar:2026', {'year': 2026, 'closed': [], 'opened': []})
+    rank = Mock(return_value={'state': 'evaluated'})
+    monkeypatch.setattr(job, 'run', rank)
+    assert job.run_scheduled(now.replace(hour=17))['state'] == 'waiting_for_session_close'
+    rank.assert_not_called()
+    assert job.run_scheduled(now)['state'] == 'evaluated'
+    rank.assert_called_once_with(now, None)
+    put(job.SNAPSHOT, {'state': 'evaluated', 'as_of': '2026-11-24'})
+    assert job.run_scheduled(now.replace(hour=20)) == {'state': 'cached', 'as_of': '2026-11-24'}
+    assert rank.call_count == 1

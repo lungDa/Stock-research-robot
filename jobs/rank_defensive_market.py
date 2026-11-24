@@ -1,4 +1,5 @@
 """Produce a bounded-cache scan of downside hit rates for verified Taiwan stocks."""
+import argparse
 import json
 from operator import eq, ge, gt
 import sys
@@ -9,8 +10,9 @@ import pandas as pd
 from app.db import get, get_many, init_db, leased, put
 from app.services.defensive_model import BENCHMARK_WEIGHTS, LOOKBACK_YEARS, adjusted_stock_returns, rank_candidates
 from app.services.defensive_research import market_context
-from app.services.freshness import local_now
+from app.services.freshness import TAIPEI, local_now
 from app.services.multifactor import ANNUAL, DEFAULT, annual_rows, value_for
+from app.services.trading_calendar import calendar_snapshot, cached_read, expected_close
 
 SNAPSHOT = 'defensive:market_ranking'
 ANNUAL_PREFIXES = ('annual:shared:', 'eps:official:', 'financial:official:', 'cashflow:official:')
@@ -121,7 +123,29 @@ def run(now=None, progress=None):
         return result
 
 
+@calendar_snapshot
+def run_scheduled(now=None, progress=None):
+    now = (now or local_now()).astimezone(TAIPEI)
+    init_db()
+    end = expected_close(now, cached_read)
+    if end is None:
+        return {'state': 'calendar_missing'}
+    if end != now.date():
+        return {'state': 'waiting_for_session_close'}
+    previous = get(SNAPSHOT, {})
+    if previous.get('state') == 'evaluated' and previous.get('as_of') == str(end):
+        return {'state': 'cached', 'as_of': str(end)}
+    return run(now, progress)
+
+
 if __name__ == '__main__':
-    result = run(progress=lambda value: print(json.dumps(value), file=sys.stderr, flush=True))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--scheduled', action='store_true')
+    args = parser.parse_args()
+    rank = run_scheduled if args.scheduled else run
+    result = rank(progress=lambda value: print(json.dumps(value), file=sys.stderr, flush=True))
+    if args.scheduled and result['state'] == 'evaluated':
+        result = {key: result[key] for key in ('state', 'as_of', 'coverage')}
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))
-    raise SystemExit(0 if result['state'] == 'evaluated' else 1)
+    acceptable = ('evaluated', 'cached', 'waiting_for_session_close', 'busy') if args.scheduled else ('evaluated',)
+    raise SystemExit(0 if result['state'] in acceptable else 1)

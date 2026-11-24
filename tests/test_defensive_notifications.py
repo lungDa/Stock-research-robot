@@ -46,3 +46,25 @@ def test_worker_preserves_retry_key_and_never_sends_to_opted_out_users(monkeypat
     assert calls[0][0] == 'Ualice' and '2317.TW' in calls[0][1]
     assert get('defensive:line:state:Ualice')['alerted_level'] == 3
     assert job.run(send=True, now=now + timedelta(hours=2))['state'] == 'risk_stale'
+
+
+def test_worker_can_send_a_new_ranking_for_the_same_risk_snapshot(monkeypatch):
+    import jobs.recommend as recommend
+
+    now = datetime(2026, 11, 24, 19, tzinfo=TAIPEI)
+    put(RISK_SNAPSHOT, {'verified': True, 'level': 3, 'observed_at': now.isoformat(),
+                        'ranking_as_of': '2026-11-24'})
+    save_preference('Ualice', True)
+    monkeypatch.setattr(job, 'member_users', lambda: ['Ualice'])
+    monkeypatch.setattr(job, 'quota', lambda: 100)
+    calls = []
+    monkeypatch.setattr(recommend, 'push', lambda *args: calls.append(args))
+    assert job.run(send=True, now=now)['events'] == 1
+    assert '目前沒有可用的當期篩選排名' in calls[0][1]
+    put(job.SNAPSHOT, {'as_of': '2026-11-24', 'generated_at': now.isoformat(),
+                       'screened_periods': {'1': {'combined': {
+                           'items': [{'symbol': '2317.TW', 'score': .64}]}}}})
+    assert job.run(send=True, now=now)['events'] == 1
+    assert '2317.TW' in calls[1][1]
+    assert calls[0][2] != calls[1][2]
+    assert job.run(send=True, now=now)['events'] == 0

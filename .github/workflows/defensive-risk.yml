@@ -37,6 +37,9 @@ jobs:
           if [ "$DEFENSIVE_UNIVERSE_BACKFILL" = "true" ]; then
             python -m jobs.refresh_defensive_universe
           fi
+          if ! timeout 75s python -m jobs.rank_defensive_market --scheduled; then
+            echo "::warning::Defensive ranking unavailable; continue with risk notifications"
+          fi
           if [ "$DEFENSIVE_LINE_SEND" = "true" ]; then
             python -m jobs.notify_defensive --send
           else
