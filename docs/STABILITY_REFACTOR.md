@@ -87,4 +87,6 @@ Level 2 初次進入時提醒，Level 3～4 可附近一年五基準篩選榜。
 
 收盤風險工作 `python -m jobs.monitor_defensive_risk` 在台灣交易日 18:17 後核對五個當期基準報酬，只有五項齊備才發布風險等級。同一交易日重跑會重用快照。可透過資料庫文件 `defensive:risk:configuration` 設定四級的 `single_drop`、`multi_drop`、`declining_count`、`weighted_drop` 及五基準 `weights`，跌幅以小數表示。Streamlit 的 LINE 通知分頁可查看最近一次已驗證的收盤風險。
 
-新增 GitHub Actions 每小時依台灣交易日曆檢查，只有 `DEFENSIVE_RISK_ENABLED=true` 才會執行，LINE 另須 `DEFENSIVE_LINE_SEND=true` 才發送。此流程以已存行情為輸入，盤中報價、美股逐日公布時間來源與自動回補串接仍待完成。正式執行前需在測試環境驗證資料及通知。
+新增 GitHub Actions 每小時依台灣交易日曆檢查，只有 `DEFENSIVE_RISK_ENABLED=true` 才會執行，LINE 另須 `DEFENSIVE_LINE_SEND=true` 才發送。此流程以已存行情為輸入，盤中報價、美股逐日公布時間來源與全市場個股歷史回補仍待完成。正式執行前需在測試環境驗證資料及通知。
+
+啟用收盤風險排程後，會先執行 `python -m jobs.refresh_defensive_inputs`，依序更新 FRED 兩個指數、證交所兩個指數及台積電還原日線。沿用各來源的快取、請求上限及 FinMind 共用額度。單一來源失敗會獨立回報，其餘來源與風險核對仍會執行。缺 FinMind 金鑰的環境仍可更新指數資料。此工作只更新收盤風險的基準，不執行全市場個股回補。
