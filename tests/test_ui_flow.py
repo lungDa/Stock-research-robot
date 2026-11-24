@@ -105,3 +105,35 @@ def test_personal_financial_proof_form_renders_and_rejects_empty_input(monkeypat
     app.button(key='FormSubmitter:ttm_components_form-驗證算式並儲存我的TTM EPS').click().run()
     assert not app.exception and any('/ttm-eps-components/' in url for _,url in calls)
     assert any('請確認' in error.value for error in app.error)
+
+
+def test_defensive_research_displays_coverage_and_missing_publication():
+    app = AppTest.from_string("""
+import streamlit as st
+from app.ui.defensive_research import render
+def api(method, path, **kwargs):
+    assert not st.session_state.get('requested')
+    st.session_state['requested'] = True
+    assert path == '/defensive/research/2330.TW'
+    assert kwargs['params'] == {'severe_drop': .02}
+    return {'state': 'evaluated', 'symbol': '2330.TW', 'as_of': '2026-11-24',
+            'severe_drop': .02, 'min_pairs': 60, 'benchmarks': {
+                'tw_electronics': {'periods': {'1': {
+                    'status': 'available', 'paired_coverage': .8, 'pairs': 80,
+                    'expected_sessions': 100, 'down_sessions': 20, 'severe_sessions': 4,
+                    'up_probability': 0}}},
+                'nasdaq_100': {'state': 'publication_times_missing'},
+            }}
+render(api, True)
+""").run()
+    assert not app.exception and not app.dataframe
+    app.button[0].click().run()
+    assert not app.exception
+    rows = app.dataframe[0].value
+    assert rows.iloc[0]['資料涵蓋率'] == '80.0%'
+    assert rows.iloc[0]['逆勢上漲機率'] == '0.0%'
+    assert rows.iloc[3]['狀態'] == '缺少逐日公布時間'
+    assert rows.iloc[3]['逆勢上漲機率'] == '—'
+    app.selectbox[0].select(3).run()
+    assert not app.exception
+    assert app.subheader[0].value.endswith('近 3 年')
