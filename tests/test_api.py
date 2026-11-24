@@ -79,3 +79,35 @@ def test_signed_webhook_in_maintenance_gets_notice_without_running_command(monke
     assert '維護中' in reply.call_args.args[1]
     assert get('event:maintenance-test') is None
     assert get('system:maintenance')['enabled'] is True
+
+
+def test_defensive_research_route_requires_login_and_reports_missing_data():
+    with TestClient(app) as client:
+        route = '/defensive/research/2317.TW'
+        assert client.get(route).status_code == 401
+        assert client.get(route + '?min_pairs=1', headers=A).status_code == 422
+        assert client.get('/defensive/research/AAPL', headers=A).status_code == 400
+        response = client.get(route, headers=A)
+        assert response.status_code == 200
+        assert response.json() == {'state': 'calendar_missing', 'symbol': '2317.TW'}
+
+
+def test_defensive_market_ranking_reads_snapshot_with_authentication():
+    from app.db import put
+
+    with TestClient(app) as client:
+        route = '/defensive/market-ranking'
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers=A).json() == {'state': 'ranking_missing'}
+        snapshot = {'state': 'evaluated', 'as_of': '2026-11-24'}
+        put('defensive:market_ranking', snapshot)
+        assert client.get(route, headers=A).json() == snapshot
+
+
+def test_defensive_line_preferences_are_opt_in_and_private():
+    with TestClient(app) as client:
+        route = '/defensive/line-preference'
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers=A).json() == {'enabled': False}
+        assert client.put(route, headers=A, json={'enabled': True}).json() == {'enabled': True}
+        assert client.get(route, headers=B).json() == {'enabled': False}

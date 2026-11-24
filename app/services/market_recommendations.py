@@ -87,11 +87,13 @@ def rank(items,config,today):
 def collect(symbols,snapshots,target,user,deadline):
     from app.providers.taiwan_official import build_result
     items=[];stats={'universe':len(symbols),'stock_quotes':0,'unknown_or_etf':0,'missing_price':0}
-    base={k:get(k,{}) for k in ('fundamentals:index:TW','fundamentals:index:TWO')}
+    base_keys = ('fundamentals:index:TW', 'fundamentals:index:TWO')
+    base = {**dict.fromkeys(base_keys, {}), **get_many(base_keys)}
     from app.providers.corporate_actions import FEEDS,attach as adjust_technicals
-    for offset in range(0,len(symbols),5):
+    batch_size = 80 // (7 + len(FEEDS))
+    for offset in range(0,len(symbols),batch_size):
         if time.monotonic()>deadline:raise TimeoutError('全市場排名超過時間預算；不發送不完整批次')
-        batch=symbols[offset:offset+5];keys=[]
+        batch=symbols[offset:offset+batch_size];keys=[]
         for s in batch:keys+=['quote:'+s,'twdaily:quote:'+s,'annual:shared:'+s,'annual:'+user+':'+s,'eps:official:'+s,'financial:official:'+s,'cashflow:official:'+s]
         keys+=['corporate:feed:'+s+':'+feed for s in batch for feed in FEEDS]
         docs={**base,**get_many(keys)}

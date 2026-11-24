@@ -93,3 +93,22 @@ def test_failed_scan_does_not_overwrite_previous_report(monkeypatch):
     with pytest.raises(RuntimeError):scan.run(1,30)
     assert get('scan:latest')=={'previous':True}
 
+
+
+@pytest.mark.parametrize('chunks', [
+    [b'[{"Code":"2330"}{"Code":"2412"}]'],
+    [b'[{"Code":"2330"},', b']'],
+    [b'[{"Code":"2330"}]', b'{"extra":true}'],
+])
+def test_invalid_array_is_not_complete_market_data(monkeypatch, chunks):
+    fake(monkeypatch, chunks)
+    with pytest.raises(ValueError):
+        http.fetch_json('https://example.com', array=True)
+
+
+def test_array_terminator_at_budget_is_complete_if_stream_ends(monkeypatch):
+    body = b'[{"Code":"2330"}]'
+    fake(monkeypatch, [body])
+    assert http.fetch_json('https://example.com', max_bytes=len(body), array=True)['complete']
+    fake(monkeypatch, [body, b' '])
+    assert not http.fetch_json('https://example.com', max_bytes=len(body), array=True)['complete']

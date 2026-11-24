@@ -5,7 +5,19 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from app.config import settings
 url=settings.database_url.replace('postgres://','postgresql+psycopg://',1)
 if url.startswith('postgresql://'): url=url.replace('postgresql://','postgresql+psycopg://',1)
-engine=create_engine(url,pool_pre_ping=True,connect_args={'check_same_thread':False} if url.startswith('sqlite') else {})
+if url.startswith('sqlite'):
+    engine = create_engine(url, pool_pre_ping=True, connect_args={'check_same_thread': False})
+else:
+    engine = create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=3,
+        max_overflow=2,
+        pool_timeout=5,
+        pool_recycle=300,
+        pool_use_lifo=True,
+        connect_args={'connect_timeout': 5},
+    )
 Session=sessionmaker(engine,expire_on_commit=False)
 class Base(DeclarativeBase): pass
 class Watch(Base):
@@ -38,7 +50,29 @@ def init_db():
     from app.api import device_sessions  # register device session table
     Base.metadata.create_all(engine)
 def put(key,value):
-    with Session.begin() as s: s.merge(Document(key=key,payload=json.dumps(value,ensure_ascii=False,allow_nan=False)))
+    put_many({key: value})
+
+
+def put_many(documents):
+    """Publish related documents atomically, using one upsert per bounded batch."""
+    if not documents:
+        return
+    if engine.dialect.name == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    rows = [
+        {'key': key, 'payload': json.dumps(value, ensure_ascii=False, allow_nan=False)}
+        for key, value in sorted(documents.items())
+    ]
+    with Session.begin() as session:
+        for start in range(0, len(rows), 80):
+            statement = insert(Document).values(rows[start:start + 80])
+            session.execute(statement.on_conflict_do_update(
+                index_elements=[Document.key],
+                set_={'payload': statement.excluded.payload},
+            ))
+
 def get(key,default=None):
     with Session() as s:
         row=s.get(Document,key)
@@ -54,6 +88,8 @@ def get_many(keys):
     from sqlalchemy import select
     keys=list(dict.fromkeys(keys))
     if len(keys)>80:raise ValueError('最多80個快取鍵')
+    if not keys:
+        return {}
     with Session() as s:
         return {r.key:json.loads(r.payload) for r in s.scalars(select(Document).where(Document.key.in_(keys)))}
 

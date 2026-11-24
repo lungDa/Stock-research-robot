@@ -1,6 +1,8 @@
 """最多兩次1MiB串流下載、30秒軟預算；失敗保留資料並繼續輪替。"""
 import logging
 import time
+
+import requests
 from app.db import init_db,get,put
 from app.providers.bounded_http import fetch_json
 from app.providers.fundamentals import FEEDS,merge
@@ -18,7 +20,7 @@ def run():
 
 
 def _run():
-    init_db(); start=time.monotonic(); now=time.time()
+    start=time.monotonic(); now=time.time()
     cursor=get('fundamentals:cursor',{'value':0})['value']%len(FEEDS)
     results=[]
     for offset in range(2):
@@ -29,7 +31,7 @@ def _run():
         status='cached'
         if now>=state.get('next_attempt',0):
             # 先寫冷卻，途中中斷也不連續重打；一天最多一次同端點。
-            put(key,{'next_attempt':now+86400})
+            put(key,{**state, 'next_attempt':now+86400})
             try:
                 payload=fetch_json(url,max_bytes=1048576,seconds=6,array=True)
                 count=merge(market,payload['records'],category,url,now)
@@ -39,6 +41,12 @@ def _run():
                          'complete':payload['complete'],'count':count})
             except Exception as exc:
                 status='failed:'+type(exc).__name__
+                response = getattr(exc, 'response', None)
+                code = getattr(response, 'status_code', None)
+                if isinstance(exc, (requests.Timeout, requests.ConnectionError)) or (
+                    code is not None and 500 <= code < 600
+                ):
+                    put(key, {**state, 'next_attempt': now + 3600})
                 logging.warning('基本面來源暫不可用，保留既有資料：%s %s',market,category)
         results.append({'market':market,'category':category,'status':status})
         put('fundamentals:cursor',{'value':(i+1)%len(FEEDS)})

@@ -1,5 +1,5 @@
 import asyncio,json,logging,time
-from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks
+from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks,Query
 from pydantic import BaseModel,Field
 from app.db import init_db,get,put
 from app.api.security import current_user,current_admin,is_admin
@@ -107,6 +107,64 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/swing/{symbol}')
+def defensive_swing(symbol: str, holding: bool = False, benchmark: str = 'combined',
+                    user=Depends(current_user)):
+    from app.services.defensive_swing import report
+    from app.services.freshness import local_now
+
+    try:
+        return report(symbol.upper(), local_now(), holding=holding, benchmark=benchmark)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get('/defensive/risk')
+def defensive_risk(user=Depends(current_user)):
+    from app.services.defensive_notifications import RISK_SNAPSHOT
+
+    from app.db import get_many
+
+    check_key = RISK_SNAPSHOT + ':status'
+    source_key = 'defensive:input_refresh:status'
+    docs = get_many([RISK_SNAPSHOT, check_key, source_key])
+    snapshot = docs.get(RISK_SNAPSHOT, {'state': 'risk_unavailable'})
+    return {**snapshot, 'latest_check': docs.get(check_key), 'input_refresh': docs.get(source_key)}
+
+
+@app.get('/defensive/line-preference')
+def defensive_line_preference(user=Depends(current_user)):
+    from app.services.defensive_notifications import preference
+    return preference(user)
+
+
+@app.put('/defensive/line-preference')
+def defensive_line_preference_update(body: Notice, user=Depends(current_user)):
+    from app.services.defensive_notifications import save_preference
+    return save_preference(user, body.enabled)
+
+
+@app.get('/defensive/market-ranking')
+def defensive_market_ranking(user=Depends(current_user)):
+    return get('defensive:market_ranking', {'state': 'ranking_missing'})
+
+
+@app.get('/defensive/research/{symbol}')
+def defensive_research(
+    symbol: str,
+    min_pairs: int = Query(60, ge=2, le=1300),
+    severe_drop: float = Query(.02, gt=0, le=1),
+    user=Depends(current_user),
+):
+    from app.services.defensive_research import report
+    from app.services.freshness import local_now
+
+    try:
+        return report(symbol.upper(), local_now(), min_pairs=min_pairs, severe_drop=severe_drop)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get('/watchlist')
 def watchlist(user=Depends(current_user)): return watches(user)
 @app.post('/watchlist')

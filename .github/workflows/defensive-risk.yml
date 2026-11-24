@@ -1,0 +1,47 @@
+name: Check defensive market risk
+on:
+  schedule:
+    - cron: '25 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-defensive-risk
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: vars.DEFENSIVE_RISK_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      DEFENSIVE_UNIVERSE_BACKFILL: ${{ vars.DEFENSIVE_UNIVERSE_BACKFILL }}
+      DEFENSIVE_LINE_SEND: ${{ vars.DEFENSIVE_LINE_SEND }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Check persisted market risk
+        run: |
+          python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))"
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_defensive_inputs
+          python -m jobs.monitor_defensive_risk
+          if [ "$DEFENSIVE_UNIVERSE_BACKFILL" = "true" ]; then
+            python -m jobs.refresh_defensive_universe
+          fi
+          if ! timeout 75s python -m jobs.rank_defensive_market --scheduled; then
+            echo "::warning::Defensive ranking unavailable; continue with risk notifications"
+          fi
+          if [ "$DEFENSIVE_LINE_SEND" = "true" ]; then
+            python -m jobs.notify_defensive --send
+          else
+            python -m jobs.notify_defensive
+          fi

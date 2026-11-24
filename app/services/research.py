@@ -52,7 +52,10 @@ def research(symbol,refresh=False):
         if symbol.endswith(('.TW','.TWO')):
             from app.providers.fundamentals import attach
             from app.providers.taiwan_official import refresh_cached_history
-            cached=enrich(attach(refresh_cached_history(cached))); put('quote:'+symbol,cached)
+            refreshed = enrich(attach(refresh_cached_history(cached)))
+            if refreshed != cached:
+                put('quote:' + symbol, refreshed)
+            cached = refreshed
         return cached
     if cached and time.time()<get('quote_refresh:'+symbol,{}).get('next_attempt',0):
         return mark_cached(cached)

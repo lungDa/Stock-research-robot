@@ -74,3 +74,12 @@ def test_timeout_propagates_without_unbounded_retries(monkeypatch):
     with pytest.raises(TimeoutError):
         health.check(health.DEFAULT_URL)
     assert request.call_count == 1
+
+
+def test_readiness_requires_database_ok(monkeypatch):
+    request = Mock(side_effect=[Response(b'{"status":"ok","database":"ok"}'), Response()])
+    monkeypatch.setattr(health, 'urlopen', request)
+    health.check(health.DEFAULT_URL, readiness=True)
+    assert request.call_args.args[0].full_url.endswith('/ready')
+    with pytest.raises(RuntimeError, match='database=ok'):
+        health.check(health.DEFAULT_URL, readiness=True)
