@@ -107,6 +107,17 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/swing/{symbol}')
+def defensive_swing(symbol: str, holding: bool = False, user=Depends(current_user)):
+    from app.services.defensive_swing import report
+    from app.services.freshness import local_now
+
+    try:
+        return report(symbol.upper(), local_now(), holding=holding)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get('/defensive/risk')
 def defensive_risk(user=Depends(current_user)):
     from app.services.defensive_notifications import RISK_SNAPSHOT

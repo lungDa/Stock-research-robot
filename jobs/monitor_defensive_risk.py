@@ -2,7 +2,7 @@
 from datetime import datetime, time
 import json
 
-from app.db import get, init_db, leased, put
+from app.db import get, init_db, leased, put_many
 from app.services.defensive_model import BENCHMARK_WEIGHTS, RiskRule, risk_level
 from app.services.defensive_notifications import RISK_SNAPSHOT
 from app.services.defensive_research import market_context
@@ -34,6 +34,9 @@ def run(now=None):
             return {'state': 'market_closed'}
         existing = get(RISK_SNAPSHOT, {})
         if existing.get('session_date') == str(end) and existing.get('verified') is True:
+            archive_key = f'{RISK_SNAPSHOT}:session:{end}'
+            if get(archive_key) is None:
+                put_many({archive_key: existing})
             return {'state': 'cached', 'level': existing['level']}
         settings = get('defensive:risk:configuration', {})
         rules = [RiskRule(**item) for item in settings['rules']] if 'rules' in settings else DEFAULT_RULES
@@ -64,11 +67,12 @@ def run(now=None):
         level = risk_level(returns, rules, weights)
         if level is None:
             return {'state': 'insufficient_data', 'session_date': str(end)}
-        put(RISK_SNAPSHOT, {
+        snapshot = {
             'verified': True, 'level': level, 'session_date': str(end),
             'observed_at': max(observed, datetime.combine(end, time(18, 17), TAIPEI)).isoformat(),
             'ranking_as_of': str(end), 'returns': returns, 'basis': 'verified_daily_close',
-        })
+        }
+        put_many({RISK_SNAPSHOT: snapshot, f'{RISK_SNAPSHOT}:session:{end}': snapshot})
         return {'state': 'updated', 'session_date': str(end), 'level': level}
 
 

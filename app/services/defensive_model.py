@@ -102,7 +102,7 @@ def _finite_or_none(value):
     return float(value) if isfinite(value) else None
 
 
-def backtest(adjusted_opens, signals, as_of, years, holding_sessions):
+def backtest(adjusted_opens, signals, as_of, years, holding_sessions, *, allow_missing_opens=False):
     """Enter at the next session open and avoid overlapping trades in one symbol.
 
     Signals are indexed by the time they became available and contain their
@@ -112,7 +112,8 @@ def backtest(adjusted_opens, signals, as_of, years, holding_sessions):
         raise ValueError('unsupported backtest window')
     if (adjusted_opens.index.tz is None or not adjusted_opens.index.is_unique
             or not adjusted_opens.index.is_monotonic_increasing
-            or any(not isfinite(price) or price <= 0 for price in adjusted_opens)):
+            or any(not isfinite(price) or price <= 0 for price in
+                   (adjusted_opens.dropna() if allow_missing_opens else adjusted_opens))):
         raise ValueError('verified adjusted session opens are required')
     prices = adjusted_opens.loc[adjusted_opens.index <= as_of]
     start = as_of - pd.DateOffset(years=years)
@@ -124,6 +125,8 @@ def backtest(adjusted_opens, signals, as_of, years, holding_sessions):
         entry = prices.index.searchsorted(available_at, side='right')
         exit_ = entry + holding_sessions
         if entry <= last_exit or exit_ >= len(prices):
+            continue
+        if pd.isna(prices.iloc[entry]) or pd.isna(prices.iloc[exit_]):
             continue
         trades.append({
             'entry': prices.index[entry].isoformat(), 'exit': prices.index[exit_].isoformat(),
@@ -138,7 +141,7 @@ def backtest(adjusted_opens, signals, as_of, years, holding_sessions):
         'levels': {level: _performance([trade for trade in trades if trade['level'] == level])
                    for level in range(5)},
         'benchmarks': {key: _performance([trade for trade in trades if trade['benchmark'] == key])
-                       for key in BENCHMARK_WEIGHTS},
+                       for key in (*BENCHMARK_WEIGHTS, 'combined')},
         'limitations': ['未計入交易稅、手續費、滑價與流動性限制', '績效以單一標的依序成交計算'],
     }
 
