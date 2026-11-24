@@ -59,6 +59,7 @@ def config_hash(c):return hashlib.sha256(json.dumps(c,sort_keys=True).encode()).
 
 def annual_rows(user,symbol,documents=None):
     from app.db import get
+    from app.providers.tpex_eps import PROVENANCE as TPEX_EPS_PROVENANCE
     read=get if documents is None else lambda k,d=None:documents.get(k,d)
     official={}
     if symbol.endswith(('.TW','.TWO')):
@@ -74,6 +75,8 @@ def annual_rows(user,symbol,documents=None):
     for snapshot in (saved,official):
         for year,row in snapshot.items():
             existing=rows.setdefault(year,{})
+            if row.get('field_sources', {}).get('eps', {}).get('provenance') == TPEX_EPS_PROVENANCE and existing.get('eps') is not None:
+                continue
             old_source=existing.get('field_sources',{}).get('eps',{})
             if row.get('as_of','')<old_source.get('as_of',existing.get('as_of','')) and existing.get('eps') is not None:continue
             if not existing:existing.update(copy.deepcopy(row))
@@ -88,7 +91,8 @@ def annual_rows(user,symbol,documents=None):
             if field not in row:continue
             source=row.get('field_sources',{}).get(field,{})
             old=current.get('field_sources',{}).get(field,{})
-            if current.get(field) is not None and source.get('as_of','')<old.get('as_of',''):continue
+            fallback = field == 'eps' and old.get('provenance') == TPEX_EPS_PROVENANCE
+            if not fallback and current.get(field) is not None and source.get('as_of','')<old.get('as_of',''):continue
             if not current:current.update({k:v for k,v in row.items() if k not in ('eps','roe_pct','field_sources')})
             current[field]=row[field]
             current.setdefault('field_sources',{})[field]=copy.deepcopy(source)

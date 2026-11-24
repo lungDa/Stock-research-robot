@@ -42,6 +42,11 @@ jobs:
         run: |
           python -m jobs.maintenance_guard
           python -m jobs.refresh_eps
+      - name: Refresh TPEx full-year EPS (one market-wide report)
+        timeout-minutes: 1
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.refresh_tpex_eps
       - name: Refresh bounded annual batch (no LINE messages)
         timeout-minutes: 2
         run: |
