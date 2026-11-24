@@ -215,3 +215,38 @@ def adjusted_stock_returns(history, sessions):
     prices = prices.reindex(days)
     prices.index = sessions
     return prices.pct_change(fill_method=None)
+
+
+def align_us_index_history(history, us_closes, taiwan_opens, published_at):
+    """Use verified US session closes and observation-specific publication times.
+
+    Published timestamps are keyed by New York session date. Unstamped rows
+    cannot produce a point-in-time return. They remain available for audits.
+    """
+    us_closes = pd.DatetimeIndex(us_closes)
+    if (us_closes.tz is None or not us_closes.is_unique or us_closes.hasnans
+            or not us_closes.is_monotonic_increasing):
+        raise ValueError('verified ordered US closes required')
+    days = us_closes.tz_convert('America/New_York').strftime('%Y-%m-%d')
+    if not days.is_unique:
+        raise ValueError('one US close per session required')
+    prices = pd.Series({row['date']: row['close'] for row in history['rows']}, dtype=float)
+    prices = prices.reindex(days)
+    returns = prices.pct_change(fill_method=None)
+    events = {}
+    available = None
+    for i, day in enumerate(days):
+        current = published_at.get(day)
+        previous = available
+        available = None
+        if current is None:
+            continue
+        available = pd.Timestamp(current)
+        if pd.isna(available) or available.tz is None or available < us_closes[i]:
+            raise ValueError('index publication precedes its US session close')
+        if previous is not None and isfinite(returns.iloc[i]):
+            released_at = max(previous, available)
+            events[released_at] = (1 + events.get(released_at, 0)) * (1 + returns.iloc[i]) - 1
+    released = pd.Series(list(events.values()), dtype=float,
+                         index=pd.to_datetime(list(events), utc=True))
+    return align_released_returns(released, taiwan_opens)

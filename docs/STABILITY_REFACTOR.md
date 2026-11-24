@@ -47,3 +47,12 @@
 在具有既有 FinMind 授權的測試環境執行 `python -m jobs.refresh_defensive_history 2330.TW 2317.TW`。每次最多處理兩檔，沿用 FinMind 共用額度和冷卻狀態。若缺歷史日曆，每次先補一個年度，待所需年份齊備後才下載還原日線。資料按代號存入 `defensive:adjusted:` 命名空間，既有報價快取格式無須遷移。
 
 涵蓋率以各區間的交易所開市日為分母。新上市、暫停交易及資料源缺漏都可能使涵蓋率下降，目前尚未按個股掛牌與停復牌日期調整分母。下行統計用的日報酬可由還原收盤價產生，遇到缺漏交易日便保留缺值。工作尚未接入正式排程。
+
+## 美國指數歷史
+
+`python -m jobs.refresh_defensive_indices` 從 FRED 下載 Nasdaq-100（NASDAQ100）與費城半導體（NASDAQSOX）的近五年日收盤值。每次最多兩次有時間與大小上限的請求。同一小時重複執行會使用快取，來源失敗或最新觀測日倒退時保留已存資料。
+
+FRED CSV 的日期是觀測日，缺少逐筆可取得時間。研究函式 `align_us_index_history` 需要已核對的美國交易日收盤時刻及逐筆公布時間，才能分配到其後第一個台灣開盤。跨美國缺失交易日或缺公布時間的報酬保留缺值。還未接入歷史公布時間資料源，因此 FRED 收盤資料本身不能啟用歷史訊號。台灣電子類及半導體類指數也尚未接入。
+
+- [FRED NASDAQ100](https://fred.stlouisfed.org/series/NASDAQ100)
+- [FRED NASDAQSOX](https://fred.stlouisfed.org/series/NASDAQSOX)
