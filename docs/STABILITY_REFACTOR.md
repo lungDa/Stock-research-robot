@@ -56,3 +56,9 @@ FRED CSV 的日期是觀測日，缺少逐筆可取得時間。研究函式 `ali
 
 - [FRED NASDAQ100](https://fred.stlouisfed.org/series/NASDAQ100)
 - [FRED NASDAQSOX](https://fred.stlouisfed.org/series/NASDAQSOX)
+
+## 台灣類股指數歷史
+
+`python -m jobs.refresh_defensive_tw_indices` 使用證交所 MI_INDEX 的 `IND` 報表。每一交易日同時核對電子工業類及半導體類的價格指數，兩者齊全才寫入。每次最多抓兩個交易日，由近期往回補，已有日期直接重用，失敗交易日冷卻一小時。工作會回報五年多七天的交易日數與已取得日數。此工作尚未排程，完整回補需要多次執行。
+
+快取包含抓取時刻，這個時間只代表本系統實際讀到資料的時間。歷史報表未附原始公布時刻，因此仍需可靠的時點資料才能驗收歷史訊號。
