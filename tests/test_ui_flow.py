@@ -137,3 +137,37 @@ render(api, True)
     app.selectbox[0].select(3).run()
     assert not app.exception
     assert app.subheader[0].value.endswith('近 3 年')
+
+
+def test_defensive_market_view_reuses_snapshot_and_reports_missing_benchmarks():
+    app = AppTest.from_string("""
+import streamlit as st
+from app.ui.defensive_research import render_market_ranking
+def api(method, path):
+    assert (method, path) == ('GET', '/defensive/market-ranking')
+    assert not st.session_state.get('requested')
+    st.session_state['requested'] = True
+    rank = {'relaxation_tier': 1, 'eligible': 6, 'matched': 1,
+            'items': [{'symbol': '2317.TW', 'score': .58}]}
+    return {'state': 'evaluated', 'as_of': '2026-11-24', 'generated_at': '2026-11-24T19:00:00+08:00',
+            'coverage': {'current_history': 6, 'universe': 10}, 'thresholds': [.6, .55, .5],
+            'min_pairs': 60, 'min_down_sessions': 20,
+            'benchmark_status': {'tw_electronics': {'state': 'evaluated'},
+                                 'nasdaq_100': {'state': 'publication_times_missing'}},
+            'periods': {str(year): {'combined': rank, 'tw_electronics': rank,
+                                    'nasdaq_100': rank} for year in (1, 3, 5)}}
+render_market_ranking(api, True)
+""").run()
+    assert not app.exception and not app.dataframe
+    app.button(key='load_defensive_market').click().run()
+    assert not app.exception and not app.dataframe
+    assert any('綜合榜仍缺少可用基準' in item.value for item in app.info)
+    app.selectbox(key='defensive_market_benchmark').select('tw_electronics').run()
+    assert not app.exception
+    assert app.dataframe[0].value.iloc[0]['逆勢上漲命中率'] == '58.0%'
+    assert any('命中率門檻 55%' in item.value for item in app.caption)
+    app.selectbox(key='defensive_market_period').select(3).run()
+    assert not app.exception and app.dataframe
+    app.selectbox(key='defensive_market_benchmark').select('nasdaq_100').run()
+    assert not app.exception and not app.dataframe
+    assert any('缺少逐日公布時間' in item.value for item in app.info)

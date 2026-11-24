@@ -82,3 +82,63 @@ def render(api, personal):
         rows.append(row)
     st.dataframe(rows, hide_index=True)
     st.caption('台股基準使用同日收盤，供描述統計。美股基準依公布時間對齊下一個台灣開盤。')
+
+
+def render_market_ranking(api, personal):
+    if not personal:
+        st.session_state.pop('defensive_market_snapshot', None)
+        st.info('請先登入個人功能，再查看全市場逆勢排名。')
+        return
+
+    if st.button('讀取最新排名', key='load_defensive_market'):
+        result = api('GET', '/defensive/market-ranking')
+        if result is not None:
+            st.session_state['defensive_market_snapshot'] = result
+        elif st.session_state.get('defensive_market_snapshot'):
+            st.warning('未能讀取最新排名，下方顯示上一次成功讀取的快照。')
+
+    snapshot = st.session_state.get('defensive_market_snapshot')
+    if snapshot is None:
+        return
+    if snapshot.get('state') != 'evaluated':
+        st.info('目前沒有可讀取的全市場排名快照。')
+        return
+
+    coverage = snapshot['coverage']
+    st.caption(f"收盤日 {snapshot['as_of']}｜產出時間 {snapshot['generated_at']}"
+               f"｜具當日還原行情 {coverage['current_history']}／{coverage['universe']} 檔")
+    period, group = st.columns(2)
+    with period:
+        years = st.selectbox('排名期間', (1, 3, 5), key='defensive_market_period',
+                             format_func=lambda value: f'近 {value} 年')
+    labels = {'combined': '五基準綜合榜', **BENCHMARKS}
+    with group:
+        key = st.selectbox('排名基準', tuple(labels), key='defensive_market_benchmark',
+                           format_func=labels.__getitem__)
+
+    ranking = snapshot['periods'][str(years)][key]
+    if key == 'combined':
+        unavailable = [label for code, label in BENCHMARKS.items()
+                       if snapshot['benchmark_status'].get(code, {}).get('state') != 'evaluated']
+        if unavailable:
+            st.info('綜合榜仍缺少可用基準：' + '、'.join(unavailable))
+            return
+    else:
+        state = snapshot['benchmark_status'].get(key, {}).get('state')
+        if state != 'evaluated':
+            st.info(BENCHMARK_STATUS.get(state, '基準資料未提供'))
+            return
+
+    threshold = snapshot['thresholds'][ranking['relaxation_tier']]
+    st.caption(f"命中率門檻 {threshold:.0%}｜可評估 {ranking['eligible']} 檔｜符合 {ranking['matched']} 檔"
+               f"｜至少 {snapshot['min_pairs']} 組配對及 {snapshot['min_down_sessions']} 個基準下跌日")
+    if not ranking['items']:
+        st.info('目前沒有個股具備足夠樣本。' if not ranking['eligible']
+                else '目前沒有個股符合此榜單門檻。')
+        return
+    score_label = '加權逆勢命中率' if key == 'combined' else '逆勢上漲命中率'
+    st.dataframe([
+        {'名次': index, '股票代號': item['symbol'], score_label: format(item['score'], '.1%')}
+        for index, item in enumerate(ranking['items'], start=1)
+    ], hide_index=True)
+    st.caption('命中率依歷史下跌日統計。綜合榜以五個基準的命中率加權計算。')
