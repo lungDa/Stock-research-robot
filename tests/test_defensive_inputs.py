@@ -19,7 +19,11 @@ def test_input_refresh_attempts_all_sources_and_keeps_errors_separate(monkeypatc
     monkeypatch.setattr(job.refresh_defensive_indices, 'run', failed_fred)
     monkeypatch.setattr(job.refresh_defensive_tw_indices, 'run', twse)
     monkeypatch.setattr(job.refresh_defensive_history, 'run', adjusted)
-    result = job.run()['sources']
+    from app.db import get
+
+    report = job.run()
+    assert get('defensive:input_refresh:status') == report
+    result = report['sources']
     assert calls == ['fred', 'twse', ['2330.TW']]
     assert result == {
         'us_indices': {'state': 'failed', 'error_type': 'RuntimeError'},

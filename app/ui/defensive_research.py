@@ -180,6 +180,32 @@ def render_line_preferences(api, personal):
             st.warning('本次缺少可核對的交易日曆。')
         elif check['state'] == 'close_timestamp_unverified':
             st.warning('本次無法核對台股收盤觀測時間。')
+    refresh = (risk or {}).get('input_refresh')
+    if refresh:
+        st.caption('回補開始時間 ' + refresh['started_at'])
+        labels = {
+            'updated': '已更新', 'cached': '使用快取', 'partial': '部分完成',
+            'finished': '已完成', 'failed': '更新失敗', 'cooldown': '等待重試',
+            'not_configured': '尚未設定來源', 'awaiting_latest_session': '等待最新收盤',
+            'calendar_missing': '缺交易日曆', 'calendar_failed': '日曆更新失敗',
+            'calendar_updated': '已補交易日曆', 'busy': '更新工作執行中', 'budget': '等待可用額度',
+        }
+        rows = []
+        for key, item in refresh['sources'].get('us_indices', {}).get('indices', {}).items():
+            rows.append({'來源': BENCHMARKS.get(key, key),
+                         '狀態': labels.get(item.get('freshness', item['state']), '待確認'),
+                         '最新收盤': item.get('latest') or '—',
+                         '應有收盤': item.get('expected_session') or '—'})
+        for key, label in (('tw_indices', '證交所類股指數'), ('tsmc_adjusted', '台積電還原日線')):
+            item = refresh['sources'].get(key, {})
+            status = item.get('symbols', {}).get('2330.TW', item)
+            rows.append({'來源': label, '狀態': labels.get(status.get('state'), '待確認'),
+                         '最新收盤': item.get('as_of') or '—', '應有收盤': '—'})
+        if not refresh['sources'].get('us_indices', {}).get('indices'):
+            state = refresh['sources'].get('us_indices', {}).get('state')
+            rows.insert(0, {'來源': 'FRED 美股指數', '狀態': labels.get(state, '待確認'),
+                            '最新收盤': '—', '應有收盤': '—'})
+        st.dataframe(rows, hide_index=True)
     saved = st.session_state.get('defensive_line_preference')
     if saved is None:
         return

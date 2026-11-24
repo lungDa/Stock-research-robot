@@ -1,6 +1,7 @@
 """Refresh the independent sources feeding the defensive close monitor."""
 import json
 
+from app.db import put
 from app.services.freshness import local_now
 from jobs import refresh_defensive_history, refresh_defensive_indices, refresh_defensive_tw_indices
 
@@ -20,7 +21,9 @@ def run():
             # An independent provider should still have a chance to publish.
             # Connection errors may include credentials, so log only the type.
             results[name] = {'state': 'failed', 'error_type': type(exc).__name__}
-    return {'started_at': started.isoformat(), 'sources': results}
+    report = {'started_at': started.isoformat(), 'sources': results}
+    put('defensive:input_refresh:status', report)
+    return report
 
 
 if __name__ == '__main__':
