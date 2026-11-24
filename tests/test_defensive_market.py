@@ -64,6 +64,9 @@ def test_scheduled_rank_waits_for_close_and_reuses_same_session(monkeypatch):
     rank.assert_not_called()
     assert job.run_scheduled(now)['state'] == 'evaluated'
     rank.assert_called_once_with(now, None)
-    put(job.SNAPSHOT, {'state': 'evaluated', 'as_of': '2026-11-24'})
-    assert job.run_scheduled(now.replace(hour=20)) == {'state': 'cached', 'as_of': '2026-11-24'}
-    assert rank.call_count == 1
+    snapshot = {'state': 'evaluated', 'as_of': '2026-11-24'}
+    put(job.SNAPSHOT, {**snapshot, 'periods': {'1': {'combined': {'eligible': 0, 'matched': 0}}}})
+    assert job.run_scheduled(now.replace(hour=20))['state'] == 'evaluated'
+    put(job.SNAPSHOT, {**snapshot, 'periods': {'1': {'combined': {'eligible': 5, 'matched': 0}}}})
+    assert job.run_scheduled(now.replace(hour=21)) == {'state': 'cached', 'as_of': '2026-11-24'}
+    assert rank.call_count == 2

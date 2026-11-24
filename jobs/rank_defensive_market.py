@@ -133,7 +133,9 @@ def run_scheduled(now=None, progress=None):
     if end != now.date():
         return {'state': 'waiting_for_session_close'}
     previous = get(SNAPSHOT, {})
-    if previous.get('state') == 'evaluated' and previous.get('as_of') == str(end):
+    combined = previous.get('periods', {}).get('1', {}).get('combined', {})
+    if (previous.get('state') == 'evaluated' and previous.get('as_of') == str(end)
+            and combined.get('eligible', 0) > 0):
         return {'state': 'cached', 'as_of': str(end)}
     return run(now, progress)
 
