@@ -21,3 +21,22 @@ def test_audit_reports_coverage_separately_from_query_latency():
     assert result['coverage']['current_history_ratio'] == .5
     assert result['coverage']['historical_counts_for_current_stocks']['1']['observed_ratio'] == .5
     assert result['coverage']['published_applicable_data_99_percent'] == 'unverified'
+
+
+def test_audit_distinguishes_stored_index_prices_from_usable_returns():
+    now = datetime(2026, 11, 24, 19, tzinfo=TAIPEI)
+    put('recommendations:calendar:2026', {'year': 2026, 'closed': [], 'opened': []})
+    put('defensive:index:sox', {'rows': [{'date': '2026-11-23', 'close': 100}]})
+    put('defensive:tw_indices', {'rows': {
+        '2026-11-23': {'closes': {'tw_electronics': 100}},
+        '2026-11-24': {'closes': {'tw_electronics': 98}},
+    }})
+    put(audit.RISK_SNAPSHOT, {'verified': True, 'session_date': '2026-11-23'})
+    result = audit.run(now, samples=1)
+    ready = result['benchmark_readiness']
+    assert ready['target_session'] == '2026-11-24'
+    assert ready['benchmarks']['sox']['state'] == 'publication_times_missing'
+    assert ready['benchmarks']['sox']['stored_closes'] == 1
+    assert ready['benchmarks']['sox']['stored_time_records'] == 0
+    assert ready['benchmarks']['tw_electronics']['state'] == 'return_ready'
+    assert result['risk_snapshot'] == {'as_of': '2026-11-23', 'matches_target': False}

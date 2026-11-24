@@ -7,7 +7,9 @@ from time import perf_counter
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db import engine, get, get_many
-from app.services.defensive_model import LOOKBACK_YEARS
+from app.services.defensive_model import BENCHMARK_WEIGHTS, LOOKBACK_YEARS
+from app.services.defensive_notifications import RISK_SNAPSHOT
+from app.services.defensive_research import market_context
 from app.services.freshness import TAIPEI, local_now
 from app.services.trading_calendar import cached_read, calendar_snapshot, expected_close
 from jobs.rank_defensive_market import SNAPSHOT
@@ -30,6 +32,30 @@ def measure(read, *, samples, limit, validate):
         'p95_seconds': round(p95, 6), 'limit_seconds': limit,
         'state': 'insufficient_data' if usable != samples else 'passed' if p95 <= limit else 'failed',
     }
+
+
+def benchmark_readiness(now):
+    docs, end, closes, benchmarks = market_context(now, history_days=45)
+    sectors = docs.get('defensive:tw_indices', {}).get('rows', {})
+    reports = {}
+    for key in BENCHMARK_WEIGHTS:
+        if key.startswith('tw_'):
+            days = [day for day, item in sectors.items() if key in item.get('closes', {})]
+            times = None
+        else:
+            history_key = ('defensive:adjusted:' if key == '2330.TW' else 'defensive:index:') + key
+            history = docs.get(history_key, {})
+            days = [row['date'] for row in history.get('rows', [])]
+            times = len(history.get('published_at', {})) if key != '2330.TW' else None
+        series, details = benchmarks.get(key, (None, {'state': 'calendar_missing'}))
+        state = details['state']
+        if series is not None:
+            state = 'return_ready' if series.notna().iloc[-1] else 'session_return_missing'
+        reports[key] = {'state': state, 'stored_closes': len(days),
+                        'latest_stored_close': max(days, default=None), 'stored_time_records': times,
+                        'usable_returns_in_window': int(series.notna().sum()) if series is not None else None}
+    return {'calendar_window_days': 45, 'target_session': str(end) if end else None,
+            'benchmarks': reports}
 
 
 @calendar_snapshot
@@ -73,7 +99,11 @@ def run(now=None, *, samples=20):
                         counts['stocks_with_counts'] += 1
     for counts in periods.values():
         counts['observed_ratio'] = counts['observed'] / counts['sessions'] if counts['sessions'] else None
+    risk = get(RISK_SNAPSHOT, {})
+    risk_day = risk.get('session_date') if risk.get('verified') is True else None
     return {
+        'benchmark_readiness': benchmark_readiness(now),
+        'risk_snapshot': {'as_of': risk_day, 'matches_target': bool(current and risk_day == current)},
         'audit_time': now.isoformat(), 'database': engine.dialect.name, 'target_session': current,
         'latency': {'cached_history_read': quote, 'database_batch_read': batch,
                     'precomputed_ranking_read': ranking},
