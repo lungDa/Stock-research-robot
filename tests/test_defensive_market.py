@@ -29,3 +29,25 @@ def test_market_ranker_keeps_gaps_and_uses_audited_universe():
     assert updates[0]['percent'] == 0 and updates[-1]['percent'] == 100
     assert updates[-1]['qualified_by_period'][1] == 1
     assert get(job.SNAPSHOT) == result
+
+
+def test_fundamental_and_adjusted_trend_screen_requires_complete_data():
+    from datetime import date
+
+    end = date(2026, 11, 24)
+    closes = pd.bdate_range(end=end, periods=60, tz=TAIPEI)
+    history = {'rows': [{'date': date, 'close': 100 + i}
+                        for i, date in enumerate(closes.strftime('%Y-%m-%d'))]}
+    annual = {str(year): {'eps': 3, 'roe_pct': 20, 'cash_yield_pct': 6,
+                          'cash_dividend_per_share': 2, 'cash_dividends_paid': 10,
+                          'operating_cash_flow': 40, 'capital_expenditure': 10,
+                          'revenue': 100 * 1.1 ** (year - 2016)}
+              for year in range(2016, 2026)}
+    docs = {'annual:shared:2317.TW': {'rows': annual}}
+    assert job.screen_candidate('2317.TW', history, closes, end, docs) == 'passed'
+    annual['2025']['eps'] = .5
+    assert job.screen_candidate('2317.TW', history, closes, end, docs) == 'failed_rules'
+    annual['2025']['field_sources'] = {'eps': {'as_of': '2026-11-25'}}
+    assert job.screen_candidate('2317.TW', history, closes, end, docs) == 'missing_data'
+    assert job.screen_candidate('2317.TW', {'rows': history['rows'][1:]},
+                                closes, end, docs) == 'missing_data'

@@ -116,7 +116,15 @@ def render_market_ranking(api, personal):
         key = st.selectbox('排名基準', tuple(labels), key='defensive_market_benchmark',
                            format_func=labels.__getitem__)
 
-    ranking = snapshot['periods'][str(years)][key]
+    periods = snapshot['periods']
+    if 'screened_periods' in snapshot:
+        use_screen = st.toggle('套用基本面與技術篩選', value=True, key='defensive_market_screen')
+        counts = snapshot['screen_counts']
+        st.caption(f"篩選通過 {counts['passed']} 檔｜未達規則 {counts['failed_rules']} 檔"
+                   f"｜必要資料不足 {counts['missing_data']} 檔")
+        if use_screen:
+            periods = snapshot['screened_periods']
+    ranking = periods[str(years)][key]
     if key == 'combined':
         unavailable = [label for code, label in BENCHMARKS.items()
                        if snapshot['benchmark_status'].get(code, {}).get('state') != 'evaluated']
