@@ -123,7 +123,8 @@ def defensive_swing(symbol: str, holding: bool = False, benchmark: str = 'combin
 def defensive_risk(user=Depends(current_user)):
     from app.services.defensive_notifications import RISK_SNAPSHOT
 
-    return get(RISK_SNAPSHOT, {'state': 'risk_unavailable'})
+    snapshot = get(RISK_SNAPSHOT, {'state': 'risk_unavailable'})
+    return {**snapshot, 'latest_check': get(RISK_SNAPSHOT + ':status')}
 
 
 @app.get('/defensive/line-preference')

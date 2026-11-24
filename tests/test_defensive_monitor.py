@@ -20,6 +20,7 @@ def test_monitor_requires_five_verified_benchmarks_and_does_not_reissue(monkeypa
     monkeypatch.setattr(job, 'market_context', lambda *args, **kwargs: (docs, day, closes, inputs))
     assert job.run(now)['missing'] == {'sox': 'publication_times_missing'}
     assert get(RISK_SNAPSHOT) is None
+    assert get(RISK_SNAPSHOT + ':status')['missing'] == {'sox': 'publication_times_missing'}
     inputs['sox'] = (pd.Series([-.029], index=closes), {'state': 'evaluated'})
     result = job.run(now)
     assert result['state'] == 'updated' and result['level'] == 3

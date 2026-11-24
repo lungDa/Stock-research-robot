@@ -167,6 +167,19 @@ def render_line_preferences(api, personal):
         st.caption(f"最近一次已驗證的收盤風險 Level {risk['level']}｜交易日 {risk['session_date']}")
     elif risk:
         st.info('目前沒有已驗證的收盤風險資料。')
+    check = (risk or {}).get('latest_check')
+    if check:
+        st.caption('最近檢查時間 ' + check['checked_at'])
+        missing = check.get('missing', {})
+        if missing:
+            st.warning('本次資料不足：' + '、'.join(
+                f"{BENCHMARKS.get(key, key)}（{BENCHMARK_STATUS.get(state, '缺少當期報酬')}）"
+                for key, state in missing.items()
+            ))
+        elif check['state'] == 'calendar_missing':
+            st.warning('本次缺少可核對的交易日曆。')
+        elif check['state'] == 'close_timestamp_unverified':
+            st.warning('本次無法核對台股收盤觀測時間。')
     saved = st.session_state.get('defensive_line_preference')
     if saved is None:
         return
