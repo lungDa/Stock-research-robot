@@ -171,3 +171,29 @@ render_market_ranking(api, True)
     app.selectbox(key='defensive_market_benchmark').select('nasdaq_100').run()
     assert not app.exception and not app.dataframe
     assert any('缺少逐日公布時間' in item.value for item in app.info)
+
+
+def test_defensive_swing_view_shows_empty_study_without_zero_returns():
+    app = AppTest.from_string("""
+import streamlit as st
+from app.ui.defensive_research import render_swing
+def api(method, path, **kwargs):
+    assert path == '/defensive/swing/2330.TW'
+    assert kwargs['params'] == {'holding': 'true'}
+    summary = {'count': 0, 'win_rate': None, 'mean_return': None,
+               'cumulative_return': None, 'mean_holding_sessions': None}
+    trials = {str(days): {'summary': summary, 'trades': [], 'limitations': []}
+              for days in (10, 20, 30)}
+    return {'state': 'evaluated', 'symbol': '2330.TW', 'label': '觀望',
+            'as_of': '2026-11-24', 'risk_level': None, 'verified_risk_sessions': 0,
+            'entry_signals': 0, 'backtests': {str(year): trials for year in (1, 3, 5)},
+            'limitations': ['缺歷史風險紀錄']}
+render_swing(api, True)
+""").run()
+    app.checkbox[0].check()
+    app.button[0].click().run()
+    assert not app.exception
+    rows = app.dataframe[0].value
+    assert list(rows['固定持有期']) == [10, 20, 30]
+    assert list(rows['勝率']) == ['—', '—', '—']
+    assert any('風險 缺資料' in item.value for item in app.caption)

@@ -145,14 +145,16 @@ render_admin_console(api, personal, bool(st.session_state.get('is_admin')))
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
 query,watch,screen,strategy_tab,defensive_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定','逆勢研究'])
 with defensive_tab:
-    from app.ui.defensive_research import render as render_defensive_research, render_market_ranking, render_line_preferences
-    individual, market_ranking, line_alerts = st.tabs(['單股統計', '全市場排名', 'LINE 通知'])
+    from app.ui.defensive_research import render as render_defensive_research, render_market_ranking, render_line_preferences, render_swing
+    individual, market_ranking, line_alerts, swing = st.tabs(['單股統計', '全市場排名', 'LINE 通知', '波段與回測'])
     with individual:
         render_defensive_research(api, personal)
     with market_ranking:
         render_market_ranking(api, personal)
     with line_alerts:
         render_line_preferences(api, personal)
+    with swing:
+        render_swing(api, personal)
 with query:
     from app.ui.query_link import apply_symbol_link
     linked_symbol=apply_symbol_link(st.query_params,st.session_state)

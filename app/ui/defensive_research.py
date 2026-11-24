@@ -176,3 +176,64 @@ def render_line_preferences(api, personal):
         if result is not None:
             st.session_state['defensive_line_preference'] = result
             st.rerun()
+
+
+def render_swing(api, personal):
+    if not personal:
+        st.session_state.pop('defensive_swing_report', None)
+        st.info('請先登入個人功能，再查看波段訊號與回測。')
+        return
+    with st.form('defensive_swing'):
+        symbol = st.text_input('台股代號', value='2330.TW', max_chars=12, key='defensive_swing_symbol')
+        holding = st.checkbox('目前持有這檔股票')
+        submit = st.form_submit_button('查詢波段訊號與回測')
+    if submit:
+        st.session_state.pop('defensive_swing_report', None)
+        symbol = symbol.strip().upper()
+        if not re.fullmatch(r'\d{4,6}[A-Z]?\.(TW|TWO)', symbol):
+            st.error('請輸入含市場後綴的台股代號，例如 2330.TW 或 6488.TWO。')
+            return
+        with st.spinner('正在讀取行情與已驗證風險紀錄…'):
+            result = api('GET', '/defensive/swing/' + symbol, params={'holding': str(holding).lower()})
+        if result is not None:
+            st.session_state['defensive_swing_report'] = result, holding
+    saved = st.session_state.get('defensive_swing_report')
+    if saved is None:
+        return
+    result, holding = saved
+    if result['state'] != 'evaluated':
+        st.warning(REPORT_STATUS.get(result['state'], '目前無法產生波段報告。'))
+        return
+    st.subheader(f"{result['symbol']} · {result['label']}")
+    risk = result['risk_level']
+    st.caption(f"訊號日期 {result['as_of']}｜{'持有中' if holding else '未持有'}"
+               f"｜風險 {'缺資料' if risk is None else f'Level {risk}'}"
+               f"｜已驗證風險 {result['verified_risk_sessions']} 日｜進場訊號 {result['entry_signals']} 次")
+    years = st.selectbox('回測期間', (1, 3, 5), key='defensive_swing_years',
+                         format_func=lambda value: f'近 {value} 年')
+    comparisons = result['backtests'][str(years)]
+    rows = []
+    for days, trial in comparisons.items():
+        metrics = trial['summary']
+        row = {'固定持有期': int(days), '交易次數': metrics['count']}
+        for key, label, fmt in (('win_rate', '勝率', '.1%'), ('mean_return', '平均報酬', '.2%'),
+                                ('cumulative_return', '累積報酬', '.2%'),
+                                ('mean_holding_sessions', '平均持有日數', '.1f')):
+            value = metrics[key]
+            row[label] = format(value, fmt) if value is not None else '—'
+        rows.append(row)
+    st.dataframe(rows, hide_index=True)
+    with st.expander('進出場紀錄與回測限制'):
+        days = st.selectbox('查看持有期', tuple(comparisons), key='defensive_swing_duration',
+                            format_func=lambda value: f'{value} 個交易日')
+        trial = comparisons[days]
+        if trial['trades']:
+            st.dataframe([
+                {'進場': item['entry'], '退場': item['exit'],
+                 '報酬': format(item['return'], '.2%'), '進場時風險': item['level']}
+                for item in trial['trades']
+            ], hide_index=True)
+        else:
+            st.info('選定期間沒有已完成的模擬交易。')
+        for limitation in [*result['limitations'], *trial['limitations']]:
+            st.caption(limitation)
