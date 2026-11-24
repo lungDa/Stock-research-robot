@@ -7,3 +7,5 @@ python-dotenv>=1,<2
 pypdf>=5,<7
 
 exchange-calendars>=4.11,<5
+
+xlrd>=2.0.1,<3
