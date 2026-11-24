@@ -12,7 +12,7 @@ def test_audit_reports_coverage_separately_from_query_latency():
     assert empty['coverage']['current_adjusted_stocks'] is None
     put('recommendations:calendar:2026', {'year': 2026, 'closed': [], 'opened': []})
     put(audit.CATALOG, {'verified': True, 'symbols': ['2330.TW', '2317.TW'], 'at': now.timestamp()})
-    put('defensive:adjusted:2330.TW', {'as_of': '2026-11-24', 'rows': [{'date': '2026-11-24'}],
+    put('defensive:adjusted:2330.TW', {'as_of': '2026-11-24', 'rows': [{'date': '2026-11-24', 'close': 100}],
                                      'coverage': {'1': {'observed': 5, 'sessions': 10}}})
     put(audit.SNAPSHOT, {'state': 'evaluated', 'as_of': '2026-11-24',
                          'periods': {'1': {'tw_electronics': {'eligible': 1}}}, 'coverage': {'current_history': 1}})
