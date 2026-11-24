@@ -134,8 +134,11 @@ def run_scheduled(now=None, progress=None):
         return {'state': 'waiting_for_session_close'}
     previous = get(SNAPSHOT, {})
     combined = previous.get('periods', {}).get('1', {}).get('combined', {})
+    screened = previous.get('screened_periods', {}).get('1', {}).get('combined', {})
+    missing_screen_data = previous.get('screen_counts', {}).get('missing_data', 0)
+    waiting_for_screen = missing_screen_data > 0 and screened.get('eligible', 0) == 0
     if (previous.get('state') == 'evaluated' and previous.get('as_of') == str(end)
-            and combined.get('eligible', 0) > 0):
+            and combined.get('eligible', 0) > 0 and not waiting_for_screen):
         return {'state': 'cached', 'as_of': str(end)}
     return run(now, progress)
 

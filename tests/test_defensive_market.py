@@ -70,3 +70,20 @@ def test_scheduled_rank_waits_for_close_and_reuses_same_session(monkeypatch):
     put(job.SNAPSHOT, {**snapshot, 'periods': {'1': {'combined': {'eligible': 5, 'matched': 0}}}})
     assert job.run_scheduled(now.replace(hour=21)) == {'state': 'cached', 'as_of': '2026-11-24'}
     assert rank.call_count == 2
+
+
+def test_scheduled_rank_retries_when_screen_has_missing_data(monkeypatch):
+    from unittest.mock import Mock
+
+    now = datetime(2026, 11, 24, 20, tzinfo=TAIPEI)
+    put('recommendations:calendar:2026', {'year': 2026, 'closed': [], 'opened': []})
+    rank = Mock(return_value={'state': 'evaluated'})
+    monkeypatch.setattr(job, 'run', rank)
+    snapshot = {'state': 'evaluated', 'as_of': '2026-11-24',
+                'periods': {'1': {'combined': {'eligible': 5}}},
+                'screened_periods': {'1': {'combined': {'eligible': 0}}}}
+    put(job.SNAPSHOT, {**snapshot, 'screen_counts': {'missing_data': 2}})
+    assert job.run_scheduled(now)['state'] == 'evaluated'
+    put(job.SNAPSHOT, {**snapshot, 'screen_counts': {'missing_data': 0}})
+    assert job.run_scheduled(now)['state'] == 'cached'
+    rank.assert_called_once_with(now, None)
