@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from app.services.defensive_model import (
-    BENCHMARK_WEIGHTS, RiskRule, align_released_returns, backtest, downside_statistics, risk_level,
+    BENCHMARK_WEIGHTS, RiskRule, align_released_returns, backtest, downside_statistics, rank_candidates, risk_level,
 )
 
 
@@ -48,3 +48,17 @@ def test_backtest_executes_at_following_open_and_excludes_unfinished_trades():
     assert report['trades'][0]['exit'] == dates[11].isoformat()
     assert report['levels'][3]['mean_return'] == pytest.approx(111 / 101 - 1)
     assert report['benchmarks']['sox']['count'] == 1
+
+
+def test_rankings_relax_only_empty_tiers_and_exclude_unavailable_scores():
+    candidates = [
+        {'symbol': 'A', 'eligible': True, 'scores': dict.fromkeys(BENCHMARK_WEIGHTS, .95)},
+        {'symbol': 'B', 'eligible': True, 'scores': dict.fromkeys(BENCHMARK_WEIGHTS, .70)},
+        {'symbol': 'C', 'eligible': True, 'scores': {'sox': 1}},
+        {'symbol': 'D', 'eligible': False, 'scores': dict.fromkeys(BENCHMARK_WEIGHTS, 1)},
+    ]
+    rankings = rank_candidates(candidates, [.99, .90, .60])
+    assert rankings['combined']['relaxation_tier'] == 1
+    assert [item['symbol'] for item in rankings['combined']['items']] == ['A']
+    assert rankings['sox']['relaxation_tier'] == 0
+    assert [item['symbol'] for item in rankings['sox']['items']] == ['C']

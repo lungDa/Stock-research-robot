@@ -155,3 +155,45 @@ def _performance(trades):
         'cumulative_return': float((1 + returns).prod() - 1),
         'mean_holding_sessions': sum(trade['holding_sessions'] for trade in trades) / len(trades),
     }
+
+
+def rank_candidates(candidates, thresholds, weights=None):
+    """Rank verified, comparable 0–1 scores for the five benchmarks.
+
+    Thresholds are ordered from strict to relaxed. Missing scores stay excluded
+    in every tier. Technical and fundamental eligibility belongs to the caller.
+    """
+    weights = BENCHMARK_WEIGHTS if weights is None else weights
+    if (set(weights) != set(BENCHMARK_WEIGHTS) or not all(
+            isfinite(weight) and weight >= 0 for weight in weights.values())
+            or sum(weights.values()) <= 0):
+        raise ValueError('invalid benchmark weights')
+    thresholds = tuple(thresholds)
+    if (not thresholds or any(not isfinite(value) or not 0 <= value <= 1 for value in thresholds)
+            or any(current < following for current, following in zip(thresholds, thresholds[1:]))):
+        raise ValueError('provide thresholds in descending order')
+    scores = {key: [] for key in ('combined', *BENCHMARK_WEIGHTS)}
+    if len({candidate['symbol'] for candidate in candidates}) != len(candidates):
+        raise ValueError('duplicate candidate symbols')
+    denominator = sum(weights.values())
+    for candidate in candidates:
+        if candidate.get('eligible') is not True:
+            continue
+        row = candidate['scores']
+        valid = {key: row[key] for key in BENCHMARK_WEIGHTS
+                 if row.get(key) is not None and isfinite(row[key]) and 0 <= row[key] <= 1}
+        for key, score in valid.items():
+            scores[key].append({'symbol': candidate['symbol'], 'score': score})
+        if len(valid) == len(weights):
+            score = sum(valid[key] * weight for key, weight in weights.items()) / denominator
+            scores['combined'].append({'symbol': candidate['symbol'], 'score': score})
+    reports = {}
+    for key, items in scores.items():
+        ordered = sorted(items, key=lambda item: (-item['score'], item['symbol']))
+        for tier, threshold in enumerate(thresholds):
+            matches = [item for item in ordered if item['score'] >= threshold]
+            if matches:
+                break
+        reports[key] = {'items': matches[:10], 'matched': len(matches),
+                        'eligible': len(ordered), 'relaxation_tier': tier}
+    return reports

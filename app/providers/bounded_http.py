@@ -8,23 +8,34 @@ class ResourceLimitError(RuntimeError):
     pass
 
 
-def _extract(buffer, decoder, records):
+def _extract(buffer, decoder, records, state):
     while True:
         buffer = buffer.lstrip()
-        if buffer.startswith(','):
-            buffer = buffer[1:].lstrip()
-        if buffer.startswith(']'):
-            return buffer[1:], True
         if not buffer:
-            return buffer, False
+            return buffer, state
+        if state == 'closed':
+            raise ValueError('市場JSON陣列後有額外內容')
+        if buffer.startswith(']'):
+            if state == 'item':
+                raise ValueError('市場JSON陣列末尾有多餘逗號')
+            state = 'closed'
+            buffer = buffer[1:]
+            continue
+        if state == 'separator':
+            if not buffer.startswith(','):
+                raise ValueError('市場JSON紀錄缺少分隔逗號')
+            state = 'item'
+            buffer = buffer[1:]
+            continue
+        if not buffer.startswith('{'):
+            raise ValueError('市場資料必須為JSON物件陣列')
         try:
             item, end = decoder.raw_decode(buffer)
         except json.JSONDecodeError:
-            return buffer, False
-        if not isinstance(item, dict):
-            raise ValueError('市場資料必須為JSON物件陣列')
+            return buffer, state
         records.append(item)
         buffer = buffer[end:]
+        state = 'separator'
 
 
 def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, headers=None, socket_timeout=(2,2)):
@@ -34,7 +45,7 @@ def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, he
     buffer = ''
     records = []
     opened = False
-    complete = False
+    array_state = 'first'
     consumed = 0
     reason = ''
     try:
@@ -61,16 +72,17 @@ def fetch_json(url, params=None, *, max_bytes=131072, seconds=6, array=False, he
                                 raise ValueError('市場來源未回傳JSON陣列')
                             opened = True; buffer = buffer[1:]
                     if opened:
-                        buffer, complete = _extract(buffer, json_decoder, records)
-                    if complete:
-                        break
-                if len(chunk) > remaining or consumed >= max_bytes:
+                        buffer, array_state = _extract(buffer, json_decoder, records, array_state)
+                if len(chunk) > remaining:
                     reason = '大小預算'; break
     except requests.RequestException:
         if not array or not records:
             raise
         reason = '連線中斷'
+    if not reason:
+        buffer += decoder.decode(b'', final=True)
     if array:
+        complete = array_state == 'closed' and not reason
         if not records:
             raise ResourceLimitError('沒有取得完整市場紀錄')
         return {'records': records, 'complete': complete, 'reason': reason or ('回應未完整結束' if not complete else '')}
