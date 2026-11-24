@@ -211,11 +211,14 @@ def render_swing(api, personal):
                f"｜已驗證風險 {result['verified_risk_sessions']} 日｜進場訊號 {result['entry_signals']} 次")
     years = st.selectbox('回測期間', (1, 3, 5), key='defensive_swing_years',
                          format_func=lambda value: f'近 {value} 年')
-    comparisons = result['backtests'][str(years)]
+    managed = ('managed_backtests' in result and st.toggle(
+        '套用減碼與提早退場', key='defensive_swing_managed', help='首次減碼賣出原持倉 50%。'))
+    comparisons = result['managed_backtests' if managed else 'backtests'][str(years)]
     rows = []
     for days, trial in comparisons.items():
         metrics = trial['summary']
-        row = {'固定持有期': int(days), '交易次數': metrics['count']}
+        period_label = '最長持有期' if managed else '固定持有期'
+        row = {period_label: int(days), '交易次數': metrics['count']}
         for key, label, fmt in (('win_rate', '勝率', '.1%'), ('mean_return', '平均報酬', '.2%'),
                                 ('cumulative_return', '累積報酬', '.2%'),
                                 ('mean_holding_sessions', '平均持有日數', '.1f')):
@@ -230,7 +233,10 @@ def render_swing(api, personal):
         if trial['trades']:
             st.dataframe([
                 {'進場': item['entry'], '退場': item['exit'],
-                 '報酬': format(item['return'], '.2%'), '進場時風險': item['level']}
+                 '報酬': format(item['return'], '.2%'), '進場時風險': item['level'],
+                 **({'減碼': item['reduction'] or '—',
+                     '退場原因': '退場訊號' if item['exit_reason'] == 'signal' else '持有期到期'}
+                    if managed else {})}
                 for item in trial['trades']
             ], hide_index=True)
         else:

@@ -36,3 +36,24 @@ def test_archive_backtest_uses_following_open_and_retains_missing_session_slots(
     assert trade['entry'].startswith(days[63]) and trade['exit'].startswith(days[83])
     assert trade['holding_sessions'] == 20
     assert result['backtests']['1']['20']['benchmarks']['combined']['count'] == 1
+
+
+def test_managed_backtest_reduces_once_and_exits_at_next_open():
+    from app.services.defensive_model import backtest
+
+    opens = pd.bdate_range(start='2026-11-02', periods=9, tz=TAIPEI) + pd.Timedelta(hours=9)
+    prices = pd.Series([99., 100., 105., 120., 130., 125., 110., 115., 116.], index=opens)
+    signals = {opens[0] + pd.Timedelta(hours=8): {
+        'action': 'buy', 'level': 3, 'benchmark': 'combined'}}
+    management = {opens[2] + pd.Timedelta(hours=8): 'reduce',
+                  opens[3] + pd.Timedelta(hours=8): 'reduce',
+                  opens[5] + pd.Timedelta(hours=8): 'exit'}
+    trial = backtest(prices, signals, opens[-1], 1, 10, management=management)
+    trade = trial['trades'][0]
+    assert trade['entry'] == opens[1].isoformat()
+    assert trade['reduction'] == opens[3].isoformat()
+    assert trade['exit'] == opens[6].isoformat()
+    assert trade['exit_reason'] == 'signal'
+    assert trade['holding_sessions'] == 5
+    assert abs(trade['return'] - .15) < 1e-9
+    assert backtest(prices, signals, opens[5], 1, 10, management=management)['trades'] == []

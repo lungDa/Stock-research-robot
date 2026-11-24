@@ -1,4 +1,5 @@
 """Point-in-time calculations for downside research on verified price series."""
+from bisect import bisect_right
 from dataclasses import dataclass
 from math import isfinite
 
@@ -102,7 +103,8 @@ def _finite_or_none(value):
     return float(value) if isfinite(value) else None
 
 
-def backtest(adjusted_opens, signals, as_of, years, holding_sessions, *, allow_missing_opens=False):
+def backtest(adjusted_opens, signals, as_of, years, holding_sessions, *,
+             allow_missing_opens=False, management=None):
     """Enter at the next session open and avoid overlapping trades in one symbol.
 
     Signals are indexed by the time they became available and contain their
@@ -119,21 +121,48 @@ def backtest(adjusted_opens, signals, as_of, years, holding_sessions, *, allow_m
     start = as_of - pd.DateOffset(years=years)
     trades = []
     last_exit = -1
+    exits, reductions = [], []
+    if management is not None:
+        for stamp, action in sorted(management.items()):
+            if stamp > as_of or action not in ('exit', 'reduce'):
+                continue
+            position = prices.index.searchsorted(stamp, side='right')
+            if position < len(prices) and not pd.isna(prices.iloc[position]):
+                (exits if action == 'exit' else reductions).append(position)
     for available_at, signal in sorted(signals.items()):
         if not start <= available_at <= as_of or signal['action'] != 'buy':
             continue
         entry = prices.index.searchsorted(available_at, side='right')
+        if entry <= last_exit or entry >= len(prices) or pd.isna(prices.iloc[entry]):
+            continue
         exit_ = entry + holding_sessions
-        if entry <= last_exit or exit_ >= len(prices):
+        exit_reason = 'time_limit'
+        reduced = None
+        if management is not None:
+            early = bisect_right(exits, entry)
+            if early < len(exits) and exits[early] < exit_:
+                exit_ = exits[early]
+                exit_reason = 'signal'
+            reduction = bisect_right(reductions, entry)
+            if reduction < len(reductions) and reductions[reduction] < exit_:
+                reduced = reductions[reduction]
+        if exit_ >= len(prices) or pd.isna(prices.iloc[exit_]):
+            if management is not None:
+                last_exit = exit_
             continue
-        if pd.isna(prices.iloc[entry]) or pd.isna(prices.iloc[exit_]):
-            continue
-        trades.append({
+        exit_price = prices.iloc[exit_]
+        if reduced is not None:
+            exit_price = (prices.iloc[reduced] + exit_price) / 2
+        trade = {
             'entry': prices.index[entry].isoformat(), 'exit': prices.index[exit_].isoformat(),
-            'return': float(prices.iloc[exit_] / prices.iloc[entry] - 1),
-            'holding_sessions': holding_sessions, 'level': signal['level'],
+            'return': float(exit_price / prices.iloc[entry] - 1),
+            'holding_sessions': int(exit_ - entry), 'level': signal['level'],
             'benchmark': signal['benchmark'],
-        })
+        }
+        if management is not None:
+            trade['exit_reason'] = exit_reason
+            trade['reduction'] = prices.index[reduced].isoformat() if reduced is not None else None
+        trades.append(trade)
         last_exit = exit_
     return {
         'trades': trades,

@@ -47,6 +47,7 @@ def report(symbol, now, *, holding=False):
     ma60 = prices.rolling(60).mean()
     keys = [f'{RISK_SNAPSHOT}:session:{day}' for day in days]
     signals = {}
+    management = {}
     levels = {}
     for offset in range(0, len(keys), 80):
         observed = get_many(keys[offset:offset + 80])
@@ -67,6 +68,7 @@ def report(symbol, now, *, holding=False):
                 continue
             levels[day] = level
             action = swing_action(prices[day], ma20[day], ma60[day], level, holding=False)
+            management[stamp] = swing_action(prices[day], ma20[day], ma60[day], level, holding=True)
             if action == 'buy':
                 signals[stamp] = {'action': action, 'level': level, 'benchmark': 'combined'}
 
@@ -74,9 +76,12 @@ def report(symbol, now, *, holding=False):
                               for day in days])
     opening_prices = pd.Series([bars.get(day, {}).get('open') for day in days], index=opens, dtype=float)
     # Keep the full exchange index. Missing bars suppress affected trades, not sessions.
-    results = {str(years): {str(duration): backtest(opening_prices, signals, closes[-1], years,
-                                                  duration, allow_missing_opens=True)
-                            for duration in HOLDING_SESSIONS} for years in LOOKBACK_YEARS}
+    def simulate(position_signals):
+        return {str(years): {str(duration): backtest(
+            opening_prices, signals, closes[-1], years, duration,
+            allow_missing_opens=True, management=position_signals,
+        ) for duration in HOLDING_SESSIONS} for years in LOOKBACK_YEARS}
+
     today = str(end)
     action = (swing_action(prices[today], ma20[today], ma60[today], levels.get(today), holding)
               if today in levels else 'watch')
@@ -84,10 +89,10 @@ def report(symbol, now, *, holding=False):
         'state': 'evaluated', 'symbol': symbol, 'as_of': today,
         'action': action, 'label': LABELS[action], 'risk_level': levels.get(today),
         'verified_risk_sessions': len(levels), 'entry_signals': len(signals),
-        'backtests': results,
+        'backtests': simulate(None), 'managed_backtests': simulate(management),
         'limitations': [
             '僅採本系統曾保存的已驗證收盤風險，早期日期缺檔時不產生歷史訊號。',
-            '回測比較固定持有期，未模擬減碼或技術提早退場。進場規則使用五基準綜合風險。',
+            '持倉管理模式首次減碼賣出原持倉 50%，剩餘部位依退場訊號或持有期出場。進場規則使用五基準綜合風險。',
             '使用資料源目前提供的還原日線，未核對歷史版本修訂或逐日財報公布時點。',
         ],
     }
