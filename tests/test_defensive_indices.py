@@ -48,3 +48,23 @@ def test_worker_preserves_an_index_if_new_download_regresses(monkeypatch):
     assert job.run(now)['indices']['sox']['state'] == 'cached'
     assert job.run(now.replace(hour=14))['state'] == 'partial'
     assert get(job.PREFIX + 'nasdaq_100')['rows'] == recent
+
+
+def test_first_seen_is_recorded_only_for_latest_completed_session_and_survives_restart():
+    from app.providers.us_index_observations import availability, session_closes
+
+    closes = session_closes(date(2025, 7, 2), date(2025, 7, 7))
+    assert list(closes.index.strftime('%Y-%m-%d')) == ['2025-07-02', '2025-07-03', '2025-07-07']
+    assert closes.iloc[1].hour == 17  # 13:00 in New York during summer time.
+    rows = [{'date': '2025-07-02', 'close': 100}, {'date': '2025-07-03', 'close': 110}]
+    before_boundary = datetime(2025, 7, 3, 18, tzinfo=timezone.utc)
+    assert availability(rows, {}, closes, before_boundary)['published_at'] == {}
+    first_seen = datetime(2025, 7, 3, 21, tzinfo=timezone.utc)
+    cached = {'rows': rows, **availability(rows, {}, closes, first_seen)}
+    assert cached['published_at'] == {'2025-07-03': first_seen.isoformat()}
+    rows = [*rows, {'date': '2025-07-07', 'close': 120}]
+    later = datetime(2025, 7, 7, 21, tzinfo=timezone.utc)
+    updated = availability(rows, cached, closes, later)
+    assert updated['published_at'] == {'2025-07-03': first_seen.isoformat(), '2025-07-07': later.isoformat()}
+    corrected = [rows[0], {**rows[1], 'close': 111}, rows[-1]]
+    assert availability(corrected, cached, closes, later)['published_at'] == {'2025-07-07': later.isoformat()}

@@ -52,7 +52,7 @@
 
 `python -m jobs.refresh_defensive_indices` 從 FRED 下載 Nasdaq-100（NASDAQ100）與費城半導體（NASDAQSOX）的近五年日收盤值。每次最多兩次有時間與大小上限的請求。同一小時重複執行會使用快取，來源失敗或最新觀測日倒退時保留已存資料。
 
-FRED CSV 的日期是觀測日，缺少逐筆可取得時間。研究函式 `align_us_index_history` 需要已核對的美國交易日收盤時刻及逐筆公布時間，才能分配到其後第一個台灣開盤。跨美國缺失交易日或缺公布時間的報酬保留缺值。還未接入歷史公布時間資料源，因此 FRED 收盤資料本身不能啟用歷史訊號。台灣電子類及半導體類指數也尚未接入。
+FRED CSV 的日期是觀測日，缺少逐筆可取得時間。研究函式 `align_us_index_history` 需要已核對的美國交易日收盤時刻及逐筆公布時間，才能分配到其後第一個台灣開盤。跨美國缺失交易日或缺公布時間的報酬保留缺值。還未接入歷史公布時間資料源，因此 FRED 收盤資料本身不能啟用歷史訊號。台灣類股指數則由證交所報表回補。
 
 - [FRED NASDAQ100](https://fred.stlouisfed.org/series/NASDAQ100)
 - [FRED NASDAQSOX](https://fred.stlouisfed.org/series/NASDAQSOX)
@@ -87,7 +87,7 @@ Level 2 初次進入時提醒，Level 3～4 可附近一年五基準篩選榜。
 
 收盤風險工作 `python -m jobs.monitor_defensive_risk` 在台灣交易日 18:17 後核對五個當期基準報酬，只有五項齊備才發布風險等級。同一交易日重跑會重用快照。可透過資料庫文件 `defensive:risk:configuration` 設定四級的 `single_drop`、`multi_drop`、`declining_count`、`weighted_drop` 及五基準 `weights`，跌幅以小數表示。Streamlit 的 LINE 通知分頁可查看最近一次已驗證的收盤風險。
 
-新增 GitHub Actions 每小時依台灣交易日曆檢查，只有 `DEFENSIVE_RISK_ENABLED=true` 才會執行，LINE 另須 `DEFENSIVE_LINE_SEND=true` 才發送。此流程以已存行情為輸入，盤中報價及美股逐日公布時間來源仍待完成。正式執行前需在測試環境驗證資料及通知。
+新增 GitHub Actions 每小時依台灣交易日曆檢查，只有 `DEFENSIVE_RISK_ENABLED=true` 才會執行，LINE 另須 `DEFENSIVE_LINE_SEND=true` 才發送。此流程以已存行情為輸入，盤中報價及歷史美股逐日公布時間來源仍待完成。正式執行前需在測試環境驗證資料及通知。
 
 啟用收盤風險排程後，會先執行 `python -m jobs.refresh_defensive_inputs`，依序更新 FRED 兩個指數、證交所兩個指數及台積電還原日線。沿用各來源的快取、請求上限及 FinMind 共用額度。單一來源失敗會獨立回報，其餘來源與風險核對仍會執行。缺 FinMind 金鑰的環境仍可更新指數資料。基準更新與全市場個股回補分開控制。
 
@@ -116,3 +116,5 @@ Streamlit 入口在「逆勢研究 → 波段與回測」。可選持倉情境�
 涵蓋率報告會列出核對過的母體、具有當日還原行情的檔數，以及這批個股的 1／3／5 年交易日涵蓋率。歷史分母仍未扣除未掛牌或停牌時間，且未納入財務及基準資料，正式「已公開且適用資料達 99%」需另行驗收。
 
 本機 SQLite 記憶體試跑使用 50 檔合成歷史、每檔 1,260 筆，三組各 20 次讀取。P95 分別為還原行情快取 1.730 ms、資料庫批次讀取 2.682 ms、排名快照 0.384 ms。另以空資料庫確認不會把快速空結果算成通過。這些數字只用於驗證測量流程。
+
+美股指數工作會為最新一個已完成交易日的收盤值保存「本系統首次讀到」的時間，供台股時段對齊。以 `exchange-calendars` 的 XNYS 排程核對開市日，並保守等到紐約 16:00 後才接受當日收盤值，含提前收盤日。這是系統可取得時間；歷史值未留存時間時，仍無法回推。數值遭修訂時不沿用原時間。從首次啟用開始，需累積相鄰兩個美股交易日的可取得時間才會輸出日報酬。
