@@ -63,9 +63,18 @@ def run(now=None):
             if cached.get('rows') and 0 <= now.timestamp() - cached.get('checked_at', 0) < CACHE_SECONDS:
                 results[benchmark] = {'state': 'cached', 'latest': cached['rows'][-1]['date']}
                 continue
+            if now.timestamp() < cached.get('next_attempt_at', 0):
+                results[benchmark] = {'state': 'cooldown',
+                                      'next_attempt_at': cached['next_attempt_at']}
+                continue
             try:
                 rows, loaded, retry_at, history_error = update_rows(benchmark, cached, start, end, now)
             except (ValueError, OSError, RuntimeError) as exc:
+                retry_at = cached.get('history_retry_at', 0)
+                if not cached.get('historical_window_loaded') and retry_at <= now.timestamp():
+                    retry_at = now.timestamp() + HISTORY_RETRY_SECONDS
+                put(key, {**cached, 'history_retry_at': retry_at,
+                          'next_attempt_at': now.timestamp() + CACHE_SECONDS})
                 results[benchmark] = {'state': 'failed', **describe(exc, '美股指數歷史')}
                 continue
             observed_at = now if fixed_clock else datetime.now(timezone.utc)
@@ -76,7 +85,7 @@ def run(now=None):
             results[benchmark] = {'state': 'updated', 'latest': rows[-1]['date'],
                                   'observations': len(rows), 'timed_observations': len(availability['published_at']),
                                   'history_error': history_error, 'historical_window_loaded': loaded}
-    return {'state': 'partial' if any(row['state'] == 'failed' for row in results.values())
+    return {'state': 'partial' if any(row['state'] in ('failed', 'cooldown') for row in results.values())
             else 'finished', 'indices': results}
 
 

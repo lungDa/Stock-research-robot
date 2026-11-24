@@ -101,3 +101,18 @@ def test_bootstrap_timeout_falls_back_to_recent_with_history_cooldown(monkeypatc
                     start, end, now)
     assert [call.args[1] for call in fetch.call_args_list] == [
         start, date(2025, 6, 24), date(2025, 6, 24)]
+
+
+def test_both_fetches_failing_persists_cooldowns_across_worker_runs(monkeypatch):
+    import requests
+
+    now = datetime(2025, 7, 8, 22, tzinfo=timezone.utc)
+    fetch = Mock(side_effect=requests.ReadTimeout())
+    monkeypatch.setattr(fred_indices, 'fetch', fetch)
+    assert job.run(now)['state'] == 'partial'
+    assert fetch.call_count == 4
+    assert job.run(now)['indices']['sox']['state'] == 'cooldown'
+    assert fetch.call_count == 4
+    assert job.run(now.replace(hour=23))['state'] == 'partial'
+    assert fetch.call_count == 6
+    assert all(call.args[1] == date(2025, 6, 24) for call in fetch.call_args_list[-2:])
