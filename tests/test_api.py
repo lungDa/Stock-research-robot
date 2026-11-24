@@ -90,3 +90,15 @@ def test_defensive_research_route_requires_login_and_reports_missing_data():
         response = client.get(route, headers=A)
         assert response.status_code == 200
         assert response.json() == {'state': 'calendar_missing', 'symbol': '2317.TW'}
+
+
+def test_defensive_market_ranking_reads_snapshot_with_authentication():
+    from app.db import put
+
+    with TestClient(app) as client:
+        route = '/defensive/market-ranking'
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers=A).json() == {'state': 'ranking_missing'}
+        snapshot = {'state': 'evaluated', 'as_of': '2026-11-24'}
+        put('defensive:market_ranking', snapshot)
+        assert client.get(route, headers=A).json() == snapshot

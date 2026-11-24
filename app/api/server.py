@@ -107,6 +107,11 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/market-ranking')
+def defensive_market_ranking(user=Depends(current_user)):
+    return get('defensive:market_ranking', {'state': 'ranking_missing'})
+
+
 @app.get('/defensive/research/{symbol}')
 def defensive_research(
     symbol: str,
