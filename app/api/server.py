@@ -107,6 +107,18 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/line-preference')
+def defensive_line_preference(user=Depends(current_user)):
+    from app.services.defensive_notifications import preference
+    return preference(user)
+
+
+@app.put('/defensive/line-preference')
+def defensive_line_preference_update(body: Notice, user=Depends(current_user)):
+    from app.services.defensive_notifications import save_preference
+    return save_preference(user, body.enabled)
+
+
 @app.get('/defensive/market-ranking')
 def defensive_market_ranking(user=Depends(current_user)):
     return get('defensive:market_ranking', {'state': 'ranking_missing'})

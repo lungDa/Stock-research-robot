@@ -102,3 +102,12 @@ def test_defensive_market_ranking_reads_snapshot_with_authentication():
         snapshot = {'state': 'evaluated', 'as_of': '2026-11-24'}
         put('defensive:market_ranking', snapshot)
         assert client.get(route, headers=A).json() == snapshot
+
+
+def test_defensive_line_preferences_are_opt_in_and_private():
+    with TestClient(app) as client:
+        route = '/defensive/line-preference'
+        assert client.get(route).status_code == 401
+        assert client.get(route, headers=A).json() == {'enabled': False}
+        assert client.put(route, headers=A, json={'enabled': True}).json() == {'enabled': True}
+        assert client.get(route, headers=B).json() == {'enabled': False}

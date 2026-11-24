@@ -150,3 +150,22 @@ def render_market_ranking(api, personal):
         for index, item in enumerate(ranking['items'], start=1)
     ], hide_index=True)
     st.caption('命中率依歷史下跌日統計。綜合榜以五個基準的命中率加權計算。')
+
+
+def render_line_preferences(api, personal):
+    if not personal:
+        st.session_state.pop('defensive_line_preference', None)
+        st.info('請先登入個人功能，再設定 LINE 通知。')
+        return
+    if st.button('讀取 LINE 通知設定', key='load_defensive_line_preference'):
+        st.session_state['defensive_line_preference'] = api('GET', '/defensive/line-preference')
+    saved = st.session_state.get('defensive_line_preference')
+    if saved is None:
+        return
+    st.write('目前已開啟' if saved['enabled'] else '目前已關閉')
+    label = '關閉逆勢通知' if saved['enabled'] else '開啟逆勢通知'
+    if st.button(label, key='save_defensive_line_preference'):
+        result = api('PUT', '/defensive/line-preference', json={'enabled': not saved['enabled']})
+        if result is not None:
+            st.session_state['defensive_line_preference'] = result
+            st.rerun()
