@@ -26,3 +26,29 @@ def test_input_refresh_attempts_all_sources_and_keeps_errors_separate(monkeypatc
         'tw_indices': {'state': 'partial', 'observed': 2},
         'tsmc_adjusted': {'state': 'not_configured'},
     }
+
+
+def test_universe_backfill_preserves_first_unprocessed_symbol_on_budget_stop(monkeypatch):
+    from datetime import datetime
+    from app.db import get, put
+    from app.services.freshness import TAIPEI
+    from jobs import refresh_defensive_universe as universe
+
+    now = datetime(2026, 11, 24, 19, tzinfo=TAIPEI)
+    put('v26:universe:verified_symbols', {'at': now.timestamp(), 'verified': True,
+        'symbols': ['2330.TW', '2303.TW', '2317.TW', '6488.TWO']})
+    batches = []
+
+    def refresh(batch):
+        batches.append(batch)
+        if len(batches) == 1:
+            return {'state': 'partial', 'symbols': {
+                '2303.TW': {'state': 'updated'}, '2317.TW': {'state': 'budget'}}}
+        return {'state': 'finished', 'symbols': {symbol: {'state': 'cached'} for symbol in batch}}
+
+    monkeypatch.setattr(universe.refresh_defensive_history, 'run', refresh)
+    assert universe.run(now)['advanced'] == 1
+    assert get(universe.CURSOR)['last_symbol'] == '2303.TW'
+    assert universe.run(now)['advanced'] == 2
+    assert universe.run(now)['advanced'] == 2
+    assert batches == [['2303.TW', '2317.TW'], ['2317.TW', '6488.TWO'], ['2303.TW', '2317.TW']]

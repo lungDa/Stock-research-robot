@@ -18,6 +18,7 @@ jobs:
       USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
       LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      DEFENSIVE_UNIVERSE_BACKFILL: ${{ vars.DEFENSIVE_UNIVERSE_BACKFILL }}
       DEFENSIVE_LINE_SEND: ${{ vars.DEFENSIVE_LINE_SEND }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +34,9 @@ jobs:
           python -m jobs.maintenance_guard
           python -m jobs.refresh_defensive_inputs
           python -m jobs.monitor_defensive_risk
+          if [ "$DEFENSIVE_UNIVERSE_BACKFILL" = "true" ]; then
+            python -m jobs.refresh_defensive_universe
+          fi
           if [ "$DEFENSIVE_LINE_SEND" = "true" ]; then
             python -m jobs.notify_defensive --send
           else
