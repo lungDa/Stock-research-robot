@@ -13,6 +13,7 @@ BENCHMARKS = {
 REPORT_STATUS = {
     'calendar_missing': '缺少可核對的歷史交易日曆。',
     'stock_history_missing': '這檔股票尚無已驗證的還原日線。',
+    'self_benchmark': '個股與基準相同，請選擇其他基準。',
 }
 BENCHMARK_STATUS = {
     'benchmark_history_missing': '缺少基準歷史行情',
@@ -183,8 +184,10 @@ def render_swing(api, personal):
         st.session_state.pop('defensive_swing_report', None)
         st.info('請先登入個人功能，再查看波段訊號與回測。')
         return
+    labels = {'combined': '五基準綜合風險', **BENCHMARKS}
     with st.form('defensive_swing'):
         symbol = st.text_input('台股代號', value='2330.TW', max_chars=12, key='defensive_swing_symbol')
+        benchmark = st.selectbox('回測基準', tuple(labels), format_func=labels.__getitem__)
         holding = st.checkbox('目前持有這檔股票')
         submit = st.form_submit_button('查詢波段訊號與回測')
     if submit:
@@ -194,7 +197,7 @@ def render_swing(api, personal):
             st.error('請輸入含市場後綴的台股代號，例如 2330.TW 或 6488.TWO。')
             return
         with st.spinner('正在讀取行情與已驗證風險紀錄…'):
-            result = api('GET', '/defensive/swing/' + symbol, params={'holding': str(holding).lower()})
+            result = api('GET', '/defensive/swing/' + symbol, params={'holding': str(holding).lower(), 'benchmark': benchmark})
         if result is not None:
             st.session_state['defensive_swing_report'] = result, holding
     saved = st.session_state.get('defensive_swing_report')
@@ -206,7 +209,8 @@ def render_swing(api, personal):
         return
     st.subheader(f"{result['symbol']} · {result['label']}")
     risk = result['risk_level']
-    st.caption(f"訊號日期 {result['as_of']}｜{'持有中' if holding else '未持有'}"
+    benchmark_label = labels.get(result.get('benchmark', 'combined'), '未提供')
+    st.caption(f"{benchmark_label}｜訊號日期 {result['as_of']}｜{'持有中' if holding else '未持有'}"
                f"｜風險 {'缺資料' if risk is None else f'Level {risk}'}"
                f"｜已驗證風險 {result['verified_risk_sessions']} 日｜進場訊號 {result['entry_signals']} 次")
     years = st.selectbox('回測期間', (1, 3, 5), key='defensive_swing_years',
@@ -241,5 +245,13 @@ def render_swing(api, personal):
             ], hide_index=True)
         else:
             st.info('選定期間沒有已完成的模擬交易。')
+        by_level = trial.get('levels', {})
+        if any(metrics['count'] for metrics in by_level.values()):
+            st.dataframe([
+                {'進場時風險': f'Level {level}', '交易次數': metrics['count'],
+                 '勝率': format(metrics['win_rate'], '.1%') if metrics['win_rate'] is not None else '—',
+                 '平均報酬': format(metrics['mean_return'], '.2%') if metrics['mean_return'] is not None else '—'}
+                for level, metrics in by_level.items()
+            ], hide_index=True)
         for limitation in [*result['limitations'], *trial['limitations']]:
             st.caption(limitation)

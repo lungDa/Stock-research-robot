@@ -48,6 +48,15 @@ def risk_level(returns, rules, weights=None):
                 or weighted <= -rule.weighted_drop), default=0)
 
 
+def single_benchmark_levels(returns, rules):
+    """Use only each level's single-benchmark threshold for its own return."""
+    return {
+        key: max((level for level, rule in enumerate(rules, 1)
+                  if value <= -rule.single_drop), default=0)
+        for key, value in returns.items()
+    }
+
+
 def align_released_returns(released, taiwan_opens):
     """Assign each release once, to the first verified Taiwan open strictly after release.
 

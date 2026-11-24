@@ -57,3 +57,24 @@ def test_managed_backtest_reduces_once_and_exits_at_next_open():
     assert trade['holding_sessions'] == 5
     assert abs(trade['return'] - .15) < 1e-9
     assert backtest(prices, signals, opens[5], 1, 10, management=management)['trades'] == []
+
+
+def test_single_benchmark_uses_only_the_archived_level(monkeypatch):
+    from app.services import defensive_swing as service
+
+    now = datetime(2026, 11, 24, 19, tzinfo=TAIPEI)
+    closes = pd.bdate_range(end=now.date(), periods=81, tz=TAIPEI)
+    dates = closes.strftime('%Y-%m-%d')
+    history = {'rows': [{'date': day, 'open': 100 + i, 'close': 101 + i}
+                        for i, day in enumerate(dates)]}
+    monkeypatch.setattr(service, 'market_context', lambda *args: (
+        {'defensive:adjusted:2317.TW': history}, now.date(), closes, {}))
+    for day, levels in ((dates[60], {'sox': 2}), (dates[62], {})):
+        put(f'{RISK_SNAPSHOT}:session:{day}', {'verified': True, 'level': 4, 'session_date': day,
+                                            'observed_at': day + 'T18:25:00+08:00',
+                                            'benchmark_levels': levels})
+    assert report('2317.TW', now)['entry_signals'] == 0
+    result = report('2317.TW', now, benchmark='sox')
+    assert result['verified_risk_sessions'] == 1
+    assert result['backtests']['1']['10']['benchmarks']['sox']['count'] == 1
+    assert report('2330.TW', now, benchmark='2330.TW')['state'] == 'self_benchmark'

@@ -3,7 +3,7 @@ from datetime import datetime, time
 import json
 
 from app.db import get, init_db, leased, put_many
-from app.services.defensive_model import BENCHMARK_WEIGHTS, RiskRule, risk_level
+from app.services.defensive_model import BENCHMARK_WEIGHTS, RiskRule, risk_level, single_benchmark_levels
 from app.services.defensive_notifications import RISK_SNAPSHOT
 from app.services.defensive_research import market_context
 from app.services.freshness import TAIPEI, local_now
@@ -71,6 +71,7 @@ def run(now=None):
             'verified': True, 'level': level, 'session_date': str(end),
             'observed_at': max(observed, datetime.combine(end, time(18, 17), TAIPEI)).isoformat(),
             'ranking_as_of': str(end), 'returns': returns, 'basis': 'verified_daily_close',
+            'benchmark_levels': single_benchmark_levels(returns, rules),
         }
         put_many({RISK_SNAPSHOT: snapshot, f'{RISK_SNAPSHOT}:session:{end}': snapshot})
         return {'state': 'updated', 'session_date': str(end), 'level': level}

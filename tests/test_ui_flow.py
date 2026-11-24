@@ -179,7 +179,7 @@ import streamlit as st
 from app.ui.defensive_research import render_swing
 def api(method, path, **kwargs):
     assert path == '/defensive/swing/2330.TW'
-    assert kwargs['params'] == {'holding': 'true'}
+    assert kwargs['params'] == {'holding': 'true', 'benchmark': 'combined'}
     summary = {'count': 0, 'win_rate': None, 'mean_return': None,
                'cumulative_return': None, 'mean_holding_sessions': None}
     trials = {str(days): {'summary': summary, 'trades': [], 'limitations': []}
