@@ -62,3 +62,17 @@ def test_rankings_relax_only_empty_tiers_and_exclude_unavailable_scores():
     assert [item['symbol'] for item in rankings['combined']['items']] == ['A']
     assert rankings['sox']['relaxation_tier'] == 0
     assert [item['symbol'] for item in rankings['sox']['items']] == ['C']
+
+
+def test_adjusted_returns_never_bridge_a_missing_session():
+    from app.services.defensive_model import adjusted_stock_returns
+
+    sessions = pd.date_range('2025-01-06 13:30', periods=4, tz='Asia/Taipei')
+    history = {'rows': [
+        {'date': '2025-01-06', 'close': 100},
+        {'date': '2025-01-08', 'close': 110},
+        {'date': '2025-01-09', 'close': 121},
+    ]}
+    result = adjusted_stock_returns(history, sessions)
+    assert result.iloc[:3].isna().all()
+    assert result.iloc[3] == pytest.approx(.10)

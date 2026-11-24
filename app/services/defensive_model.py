@@ -197,3 +197,21 @@ def rank_candidates(candidates, thresholds, weights=None):
         reports[key] = {'items': matches[:10], 'matched': len(matches),
                         'eligible': len(ordered), 'relaxation_tier': tier}
     return reports
+
+
+def adjusted_stock_returns(history, sessions):
+    """Build close-to-close returns, leaving gaps on both sides of a missing bar.
+
+    Sessions come from the verified exchange calendar and must include one
+    preceding session for the first requested return.
+    """
+    sessions = pd.DatetimeIndex(sessions)
+    if not sessions.is_unique or not sessions.is_monotonic_increasing or sessions.hasnans:
+        raise ValueError('valid ordered exchange sessions required')
+    days = sessions.strftime('%Y-%m-%d')
+    if not days.is_unique:
+        raise ValueError('one session timestamp per trading day required')
+    prices = pd.Series({row['date']: row['close'] for row in history['rows']}, dtype=float)
+    prices = prices.reindex(days)
+    prices.index = sessions
+    return prices.pct_change(fill_method=None)
