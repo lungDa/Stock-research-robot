@@ -12,7 +12,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
@@ -93,8 +93,29 @@ jobs:
         run: |
           python -m jobs.maintenance_guard
           python -m jobs.scan --limit 30 --seconds 120
+
+  notify:
+    needs: scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - name: Install worker dependencies
+        timeout-minutes: 4
+        run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Validate shared database
+        run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql')), 'Set PostgreSQL DATABASE_URL secret'"
       - name: Send opted-in digest
-        timeout-minutes: 1
+        timeout-minutes: 2
         run: |
           python -m jobs.maintenance_guard
           python -m jobs.notify
