@@ -1,5 +1,10 @@
 name: Audit defensive data readiness
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/defensive-readiness.yml'
+      - 'jobs/audit_defensive_readiness.py'
+      - 'app/db.py'
   workflow_dispatch:
     inputs:
       samples:
@@ -10,6 +15,7 @@ permissions:
   contents: read
 jobs:
   audit:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -48,3 +54,79 @@ jobs:
           name: defensive-readiness
           path: defensive-readiness.json
           if-no-files-found: error
+  postgres-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: smoke_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-worker.txt
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Seed isolated PostgreSQL and create a SELECT-only role
+        env:
+          DATABASE_URL: postgresql://postgres:smoke_admin@127.0.0.1:5432/postgres
+        run: |
+          python - <<'PY'
+          from sqlalchemy import text
+
+          from app.db import engine, get, init_db, put_many
+          from app.services.freshness import local_now
+          from app.services.trading_calendar import expected_close
+          from jobs.audit_defensive_readiness import CATALOG, SNAPSHOT
+
+          init_db()
+          now = local_now()
+          put_many({f'recommendations:calendar:{year}': {'year': year, 'closed': [], 'opened': []}
+                    for year in (now.year - 1, now.year)})
+          day = str(expected_close(now, get))
+          put_many({
+              CATALOG: {'verified': True, 'symbols': ['2330.TW', '2317.TW'], 'at': now.timestamp()},
+              'defensive:adjusted:2330.TW': {'as_of': day, 'rows': [{'date': day, 'close': 100}],
+                                            'coverage': {'1': {'observed': 5, 'sessions': 10}}},
+              SNAPSHOT: {'state': 'evaluated', 'as_of': day, 'coverage': {'current_history': 1},
+                         'periods': {'1': {'combined': {'eligible': 1}}}},
+          })
+          with engine.begin() as connection:
+              connection.execute(text("CREATE ROLE audit_reader LOGIN PASSWORD 'smoke_reader'"))
+              connection.execute(text("GRANT USAGE ON SCHEMA public TO audit_reader"))
+              connection.execute(text("GRANT SELECT ON documents TO audit_reader"))
+          PY
+      - name: Verify audit as the SELECT-only role
+        env:
+          DATABASE_URL: postgresql://audit_reader:smoke_reader@127.0.0.1:5432/postgres
+        run: |
+          python -m jobs.audit_defensive_readiness --samples 2 > defensive-readiness.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from sqlalchemy import text
+
+          from app.db import engine
+
+          with engine.connect() as connection:
+              assert not connection.execute(text(
+                  "SELECT has_table_privilege(current_user, 'documents', 'INSERT')"
+              )).scalar_one()
+          result = json.loads(Path('defensive-readiness.json').read_text())
+          assert result['database'] == 'postgresql'
+          assert result['latency']['precomputed_ranking_read']['usable_samples'] == 2
+          assert result['coverage']['current_history_ratio'] == .5
+          assert result['coverage']['published_applicable_data_99_percent'] == 'unverified'
+          PY
