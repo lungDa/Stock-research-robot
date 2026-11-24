@@ -1,7 +1,7 @@
 """At most two short Taiwan daily requests, sharing the FinMind budget."""
 import os,time,re
 from datetime import timedelta
-from app.db import init_db,get,put,leased
+from app.db import init_db,get,put,put_many,leased
 from app.providers.bounded_http import fetch_json
 from app.providers.annual_free import FINMIND,TW_DATASETS
 from app.providers.finmind_batch import SourceRejected
@@ -42,9 +42,12 @@ def run(symbols=None,max_requests=2):
                     headers={'Authorization':'Bearer '+token},max_bytes=262144,seconds=6)
                 if not isinstance(payload,dict) or payload.get('status')!=200:raise SourceRejected(payload.get('status') if isinstance(payload,dict) else None)
                 result=parse(symbol,payload.get('data',[]),today,now,get('quote:'+symbol,{}))
-                put('twdaily:quote:'+symbol,result);updated+=1
-                put(key,{'status':'ok','date':result['date'],'history_count':result['history_count'],
-                         'next_attempt':now+6*3600,'last_success':now})
+                put_many({
+                    'twdaily:quote:' + symbol: result,
+                    key: {'status': 'ok', 'date': result['date'], 'history_count': result['history_count'],
+                          'next_attempt': now + 6 * 3600, 'last_success': now},
+                })
+                updated += 1
             except Exception as exc:
                 failed+=1;status=getattr(exc,'status',None) or getattr(getattr(exc,'response',None),'status_code',None)
                 if status in (401,403,429):put('annual:source:finmind',{'next_attempt':now+86400})

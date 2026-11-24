@@ -3,7 +3,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import pandas as pd
-from app.db import get,put,init_db,leased
+from app.db import get,put,init_db,leased,get_many
 from app.providers.taiwan_official import month
 
 
@@ -25,13 +25,15 @@ def run():
         today=datetime.now(ZoneInfo('Asia/Taipei')).date();now=time.time()
         cursor=get('history:cursor',{}).get('cursor',0)%len(symbols)
         attempted=completed=0;started=time.monotonic()
+        plan=months(today)
         for i in range(len(symbols)):
             if attempted>=2 or time.monotonic()-started>15:break
             symbol=symbols[(cursor+i)%len(symbols)];code,market=symbol.rsplit('.',1)
             put('history:cursor',{'cursor':(cursor+i+1)%len(symbols)})
             if now<get('history:state:'+symbol,{}).get('next_attempt',0):continue
-            plan=months(today)
-            records={d:get(f'official:month:{market}:{code}:{d:%Y%m}') for d in plan}
+            month_keys = {day: f'official:month:{market}:{code}:{day:%Y%m}' for day in plan}
+            cached_months = get_many(month_keys.values())
+            records = {day: cached_months.get(key) for day, key in month_keys.items()}
             # Missing older months come before repeatedly expiring current months.
             missing=[d for d in plan if not records[d]]
             expired=[d for d in plan if records[d] and now-records[d]['at']>=(3600 if d==plan[0] else 7*86400)]

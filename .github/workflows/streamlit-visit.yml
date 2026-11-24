@@ -23,9 +23,9 @@ jobs:
       - name: Install browser controller
         timeout-minutes: 1
         run: pip install --disable-pip-version-check 'playwright>=1.56,<2'
-      - name: Check Render health
+      - name: Check Render and database readiness
         timeout-minutes: 2
-        run: python scripts/check_render_health.py
+        run: python scripts/check_render_health.py --ready
       - name: Visit public app and request wake-up if shown
         if: ${{ !cancelled() }}
         timeout-minutes: 2
