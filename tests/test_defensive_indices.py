@@ -68,3 +68,36 @@ def test_first_seen_is_recorded_only_for_latest_completed_session_and_survives_r
     assert updated['published_at'] == {'2025-07-03': first_seen.isoformat(), '2025-07-07': later.isoformat()}
     corrected = [rows[0], {**rows[1], 'close': 111}, rows[-1]]
     assert availability(corrected, cached, closes, later)['published_at'] == {'2025-07-07': later.isoformat()}
+
+
+def test_recent_refresh_replaces_its_window_without_downloading_five_years(monkeypatch):
+    now = datetime(2025, 7, 8, 22, tzinfo=timezone.utc)
+    old = [
+        {'date': '2021-07-06', 'close': 89},
+        {'date': '2025-07-03', 'close': 90},
+        {'date': '2025-07-07', 'close': 100},
+    ]
+    recent = [{'date': '2025-07-07', 'close': 101}, {'date': '2025-07-08', 'close': 102}]
+    fetch = Mock(return_value=recent)
+    monkeypatch.setattr(fred_indices, 'fetch', fetch)
+    rows, loaded, _, _ = job.update_rows('sox', {'rows': old, 'historical_window_loaded': True},
+                                         date(2020, 7, 1), date(2025, 7, 8), now)
+    fetch.assert_called_once_with('sox', date(2025, 6, 24), date(2025, 7, 8))
+    assert rows == old[:1] + recent and loaded is True
+
+
+def test_bootstrap_timeout_falls_back_to_recent_with_history_cooldown(monkeypatch):
+    import requests
+
+    now = datetime(2025, 7, 8, 22, tzinfo=timezone.utc)
+    recent = [{'date': '2025-07-08', 'close': 100}]
+    fetch = Mock(side_effect=[requests.ReadTimeout(), recent, recent])
+    monkeypatch.setattr(fred_indices, 'fetch', fetch)
+    start, end = date(2020, 7, 1), date(2025, 7, 8)
+    rows, loaded, retry_at, error = job.update_rows('sox', {}, start, end, now)
+    assert rows == recent and loaded is False
+    assert error == 'timeout' and retry_at > now.timestamp()
+    job.update_rows('sox', {'rows': rows, 'history_retry_at': retry_at},
+                    start, end, now)
+    assert [call.args[1] for call in fetch.call_args_list] == [
+        start, date(2025, 6, 24), date(2025, 6, 24)]
