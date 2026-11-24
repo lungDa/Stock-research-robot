@@ -27,11 +27,13 @@ def deliver(user,key,texts,dry_run,remaining):
     return remaining
 
 def run(slot,dry_run=True,now=None):
-    init_db();now=(now or local_now()).astimezone(TAIPEI);today=now.date()
+    now=(now or local_now()).astimezone(TAIPEI);today=now.date()
     if slot not in ('morning','evening'):raise ValueError('slot錯誤')
     if not dry_run:
         start=(11,30) if slot=='morning' else (19,30);minute=now.hour*60+now.minute
-        if not start[0]*60+start[1]<=minute<start[0]*60+start[1]+60:raise RuntimeError('超過本時段一小時發送窗口，不補發過期排名')
+        if not start[0]*60+start[1]<=minute<start[0]*60+start[1]+60:
+            return {'status': 'outside_send_window', 'date': str(today), 'slot': slot}
+    init_db()
     if not is_session(today):return {'status':'closed','date':str(today)}
     with leased('recommendations:worker',seconds=840) as acquired:
         if not acquired:raise RuntimeError('另一排名工作執行中')

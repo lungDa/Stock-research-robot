@@ -166,7 +166,8 @@ def test_job_send_idempotent_and_outside_window(monkeypatch):
     now=datetime(2026,11,10,11,30,tzinfo=TAIPEI)
     j.run('morning',False,now);j.run('morning',False,now)
     assert len(calls)==2
-    with pytest.raises(RuntimeError):j.run('morning',False,now.replace(hour=13))
+    assert j.run('morning', False, now.replace(hour=13))['status'] == 'outside_send_window'
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize('main_sent',[False,True])
@@ -229,3 +230,16 @@ def test_relax_upward_for_upper_bound_and_streak_rounding():
     r=m.relaxed(c,1)
     assert r['stock_rules'][0]['threshold']>10 and r['stock_rules'][1]['threshold']==9
 
+
+
+def test_late_recommendation_skips_before_probe_or_delivery(monkeypatch):
+    from datetime import datetime
+    from jobs import recommend
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError('a missed send window must not touch services')
+
+    monkeypatch.setattr(recommend, 'init_db', unexpected)
+    monkeypatch.setattr(recommend, 'push', unexpected)
+    now = datetime(2026, 11, 24, 12, 30, tzinfo=recommend.TAIPEI)
+    assert recommend.run('morning', dry_run=False, now=now)['status'] == 'outside_send_window'

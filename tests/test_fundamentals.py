@@ -77,3 +77,22 @@ def test_worker_failure_keeps_data_and_rotates(monkeypatch):
     assert len(results)==2
     assert get('fundamentals:cursor')['value']==2
     assert attach(base())['pe']==20
+
+
+def test_timeout_retries_earlier_without_erasing_last_success(monkeypatch):
+    import requests
+    from app.db import get, put
+
+    now = 10000
+    key = 'fundamentals:feed:https://one'
+    monkeypatch.setattr(job, 'FEEDS', [('TW', 'eps', 'https://one'), ('TWO', 'eps', 'https://two')])
+    monkeypatch.setattr(job.time, 'time', lambda: now)
+
+    def timeout(*args, **kwargs):
+        raise requests.ReadTimeout('source unavailable')
+
+    monkeypatch.setattr(job, 'fetch_json', timeout)
+    put(key, {'updated_at': 2000, 'count': 100, 'complete': True})
+    assert job._run()[0]['status'] == 'failed:ReadTimeout'
+    assert get(key) == {'updated_at': 2000, 'count': 100, 'complete': True,
+                        'next_attempt': now + 3600}
