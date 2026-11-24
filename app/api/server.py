@@ -1,5 +1,5 @@
 import asyncio,json,logging,time
-from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks
+from fastapi import FastAPI,Depends,HTTPException,Request,BackgroundTasks,Query
 from pydantic import BaseModel,Field
 from app.db import init_db,get,put
 from app.api.security import current_user,current_admin,is_admin
@@ -107,6 +107,22 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/research/{symbol}')
+def defensive_research(
+    symbol: str,
+    min_pairs: int = Query(60, ge=2, le=1300),
+    severe_drop: float = Query(.02, gt=0, le=1),
+    user=Depends(current_user),
+):
+    from app.services.defensive_research import report
+    from app.services.freshness import local_now
+
+    try:
+        return report(symbol.upper(), local_now(), min_pairs=min_pairs, severe_drop=severe_drop)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get('/watchlist')
 def watchlist(user=Depends(current_user)): return watches(user)
 @app.post('/watchlist')

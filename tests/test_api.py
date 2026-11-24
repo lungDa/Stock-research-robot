@@ -79,3 +79,14 @@ def test_signed_webhook_in_maintenance_gets_notice_without_running_command(monke
     assert '維護中' in reply.call_args.args[1]
     assert get('event:maintenance-test') is None
     assert get('system:maintenance')['enabled'] is True
+
+
+def test_defensive_research_route_requires_login_and_reports_missing_data():
+    with TestClient(app) as client:
+        route = '/defensive/research/2317.TW'
+        assert client.get(route).status_code == 401
+        assert client.get(route + '?min_pairs=1', headers=A).status_code == 422
+        assert client.get('/defensive/research/AAPL', headers=A).status_code == 400
+        response = client.get(route, headers=A)
+        assert response.status_code == 200
+        assert response.json() == {'state': 'calendar_missing', 'symbol': '2317.TW'}
