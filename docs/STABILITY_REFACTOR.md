@@ -81,6 +81,10 @@ Streamlit 入口在「逆勢研究 → 全市場排名」。按「讀取最新�
 
 ## LINE 逆勢通知
 
-Streamlit 的「逆勢研究 → LINE 通知」允許已登入使用者各自開關，預設關閉。通知工作預設只預覽待發事件數，帶 `--send` 才會透過 LINE 官方帳號推送。已驗證且尚在 90 分鐘內的風險快照存於 `defensive:risk`，需有 `verified`、`level`、`observed_at` 欄位，高風險可用 `ranking_as_of` 指定同一收盤日排名。風險監控及每小時排程尚未接入。
+Streamlit 的「逆勢研究 → LINE 通知」允許已登入使用者各自開關，預設關閉。通知工作預設只預覽待發事件數，帶 `--send` 才會透過 LINE 官方帳號推送。已驗證且尚在 90 分鐘內的風險快照存於 `defensive:risk`，需有 `verified`、`level`、`observed_at` 欄位，高風險可用 `ranking_as_of` 指定同一收盤日排名。是否啟用收盤風險監控及每小時排程由下方變數控制。
 
 Level 2 初次進入時提醒，Level 3～4 可附近一年五基準篩選榜。風險升級、前三名順序變動或至少兩檔換入換出、回落至 Level 0～1 時推送。無已驗證的新觀測便停止推播。工作重用既有 LINE 配額與重送識別碼。
+
+收盤風險工作 `python -m jobs.monitor_defensive_risk` 在台灣交易日 18:17 後核對五個當期基準報酬，只有五項齊備才發布風險等級。同一交易日重跑會重用快照。可透過資料庫文件 `defensive:risk:configuration` 設定四級的 `single_drop`、`multi_drop`、`declining_count`、`weighted_drop` 及五基準 `weights`，跌幅以小數表示。Streamlit 的 LINE 通知分頁可查看最近一次已驗證的收盤風險。
+
+新增 GitHub Actions 每小時依台灣交易日曆檢查，只有 `DEFENSIVE_RISK_ENABLED=true` 才會執行，LINE 另須 `DEFENSIVE_LINE_SEND=true` 才發送。此流程以已存行情為輸入，盤中報價、美股逐日公布時間來源與自動回補串接仍待完成。正式執行前需在測試環境驗證資料及通知。

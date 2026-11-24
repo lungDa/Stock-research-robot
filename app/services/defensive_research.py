@@ -50,10 +50,13 @@ def report(symbol, now, *, min_pairs=60, severe_drop=.02):
             'severe_drop': severe_drop, 'min_pairs': min_pairs, 'benchmarks': metrics}
 
 
-def market_context(now, symbol=None):
+def market_context(now, symbol=None, *, history_days=None):
     now = now.astimezone(TAIPEI)
-    start = (pd.Timestamp(now.date()) - pd.DateOffset(years=max(LOOKBACK_YEARS))).date()
-    start -= timedelta(days=14)
+    if history_days is None:
+        start = (pd.Timestamp(now.date()) - pd.DateOffset(years=max(LOOKBACK_YEARS))).date()
+        start -= timedelta(days=14)
+    else:
+        start = now.date() - timedelta(days=history_days)
     stock_keys = ['defensive:adjusted:' + symbol] if symbol else []
     tsmc_key = 'defensive:adjusted:2330.TW'
     tw_key = 'defensive:tw_indices'

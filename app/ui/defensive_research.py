@@ -155,10 +155,17 @@ def render_market_ranking(api, personal):
 def render_line_preferences(api, personal):
     if not personal:
         st.session_state.pop('defensive_line_preference', None)
+        st.session_state.pop('defensive_risk', None)
         st.info('請先登入個人功能，再設定 LINE 通知。')
         return
     if st.button('讀取 LINE 通知設定', key='load_defensive_line_preference'):
         st.session_state['defensive_line_preference'] = api('GET', '/defensive/line-preference')
+        st.session_state['defensive_risk'] = api('GET', '/defensive/risk')
+    risk = st.session_state.get('defensive_risk')
+    if risk and risk.get('verified'):
+        st.caption(f"最近一次已驗證的收盤風險 Level {risk['level']}｜交易日 {risk['session_date']}")
+    elif risk:
+        st.info('目前沒有已驗證的收盤風險資料。')
     saved = st.session_state.get('defensive_line_preference')
     if saved is None:
         return

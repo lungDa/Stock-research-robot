@@ -107,6 +107,13 @@ def ready():
         with Session() as session:session.execute(text('SELECT 1'))
         return {'status':'ok','database':'ok'}
     except Exception:raise HTTPException(503,'資料庫暫不可用')
+@app.get('/defensive/risk')
+def defensive_risk(user=Depends(current_user)):
+    from app.services.defensive_notifications import RISK_SNAPSHOT
+
+    return get(RISK_SNAPSHOT, {'state': 'risk_unavailable'})
+
+
 @app.get('/defensive/line-preference')
 def defensive_line_preference(user=Depends(current_user)):
     from app.services.defensive_notifications import preference
