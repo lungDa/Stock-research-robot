@@ -75,7 +75,7 @@ def evaluate(now):
         return {'state': 'insufficient_data', 'session_date': str(end)}
     snapshot = {
         'verified': True, 'level': level, 'session_date': str(end),
-        'observed_at': max(observed, datetime.combine(end, time(18, 17), TAIPEI)).isoformat(),
+        'observed_at': now.isoformat(), 'tw_close_observed_at': observed.isoformat(),
         'ranking_as_of': str(end), 'returns': returns, 'basis': 'verified_daily_close',
         'benchmark_levels': single_benchmark_levels(returns, rules),
     }

@@ -1,5 +1,5 @@
 """Exercise the close-to-LINE path with stored data and a simulated LINE transport."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -56,8 +56,12 @@ def test_close_pipeline_waits_for_missing_index_then_sends_rank_once(monkeypatch
     assert not rank_defensive_market.run_scheduled(now)['screened_periods']['1']['combined']['items']
 
     put('defensive:index:sox', index)
+    now += timedelta(minutes=100)
     assert monitor_defensive_risk.run(now)['level'] == 3
-    assert get(f'{RISK_SNAPSHOT}:session:{today}') == get(RISK_SNAPSHOT)
+    snapshot = get(RISK_SNAPSHOT)
+    assert snapshot['observed_at'] == now.isoformat()
+    assert snapshot['tw_close_observed_at'] == today + 'T18:20:00+08:00'
+    assert get(f'{RISK_SNAPSHOT}:session:{today}') == snapshot
     board = rank_defensive_market.run_scheduled(now)['screened_periods']['1']['combined']
     assert [item['symbol'] for item in board['items']] == [symbol]
     assert notify_defensive.run(send=True, now=now)['events'] == 1
