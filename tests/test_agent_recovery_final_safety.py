@@ -12,6 +12,6 @@ def test_old_evidence_not_extended():
 def test_disappeared_incident_blocked():
     s=RecoverySimulation()
     k=plan(s)["plans"][0]["id"]
-    assert s.transition(k,"approve",NOW,operation_id="a")
+    assert s.transition(k,"approve",NOW,operation_id="a",expected_version=s._states[k]["version"])
     s.plan(incident="test",now=NOW,evidence={"monitor":{"source":"monitor","at":NOW,"report":{"mode":"shadow","checks":[{"code":"database","severity":"ok"}]}}})
     assert not s.transition(k,"simulate_failure",NOW,operation_id="b")

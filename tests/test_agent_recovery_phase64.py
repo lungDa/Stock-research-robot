@@ -7,15 +7,15 @@ from test_agent_recovery_phase63 import plan,NOW
 def test_required_id():
     s=RecoverySimulation();k=plan(s)["plans"][0]["id"]
     assert not s.transition(k,"approve",NOW)
-    assert s.transition(k,"approve",NOW,operation_id="a")
+    assert s.transition(k,"approve",NOW,operation_id="a",expected_version=s._states[k]["version"])
 
 def test_reopen_and_renew():
     s=RecoverySimulation();k=plan(s)["plans"][0]["id"]
-    assert s.transition(k,"approve",NOW,operation_id="a")
+    assert s.transition(k,"approve",NOW,operation_id="a",expected_version=s._states[k]["version"])
     for i in range(3):assert s.transition(k,"simulate_failure",NOW,operation_id=str(i))
     later=NOW+timedelta(minutes=16)
     plan(s,later)
-    assert s.transition(k,"approve",later,operation_id="renew")
+    assert s.transition(k,"approve",later,operation_id="renew",expected_version=s._states[k]["version"])
     assert s.transition(k,"simulate_probe",later,operation_id="probe")
     assert s.transition(k,"simulate_probe_failure",later,operation_id="failed")
     p=next(p for p in plan(s,later)["plans"] if p["id"]==k)
@@ -30,7 +30,7 @@ def test_dependency():
     r=s.plan(incident="a",now=NOW,evidence=e)
     p=next(p for p in r["plans"] if p["source"]=="notification")
     assert p["blocked_by_dependency"] and p["action"]=="hold_and_review"
-    assert s.transition(p["id"],"approve",NOW,operation_id="a")
+    assert s.transition(p["id"],"approve",NOW,operation_id="a",expected_version=p["evidence_version"])
     assert not s.transition(p["id"],"simulate_failure",NOW,operation_id="b")
 
 def test_independent_fixture_samples():

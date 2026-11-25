@@ -6,14 +6,14 @@ def plan(s,now=NOW):
     return s.plan(incident="test",now=now,evidence={"monitor":{"source":"monitor","at":now,"report":{"mode":"shadow","checks":[{"code":"database","severity":"critical"}]}}})
 def test_concurrent_idempotency():
     s=RecoverySimulation();k=plan(s)["plans"][0]["id"]
-    assert s.transition(k,"approve",NOW,operation_id="approve")
+    assert s.transition(k,"approve",NOW,operation_id="approve",expected_version=s._states[k]["version"])
     with ThreadPoolExecutor(max_workers=8) as pool:
         results=list(pool.map(lambda _:s.transition(k,"simulate_failure",NOW,operation_id="same"),range(20)))
     assert sum(results)==1
     assert s.export_history()["executed"] is False
 def test_probe_success():
     s=RecoverySimulation();k=plan(s)["plans"][0]["id"]
-    assert s.transition(k,"approve",NOW,operation_id="approve")
+    assert s.transition(k,"approve",NOW,operation_id="approve",expected_version=s._states[k]["version"])
     for i in range(3):assert s.transition(k,"simulate_failure",NOW,operation_id=str(i))
     later=NOW+timedelta(minutes=15)
     assert s.transition(k,"simulate_probe",later,operation_id="probe")
@@ -22,7 +22,7 @@ def test_probe_success():
     assert p["circuit"]=="closed"
 def test_expired_approval():
     s=RecoverySimulation();k=plan(s)["plans"][0]["id"]
-    assert s.transition(k,"approve",NOW,operation_id="approve")
+    assert s.transition(k,"approve",NOW,operation_id="approve",expected_version=s._states[k]["version"])
     assert not s.transition(k,"simulate_failure",NOW+timedelta(minutes=16),operation_id="expired")
 def test_outbox():
     s=RecoverySimulation()

@@ -1,0 +1,1 @@
+Approval, rejection and revocation require the expected evidence version under the state lock. Accepted outbox content is included in a private canonical digest; only the combined evidence version is exposed. Inputs are copied; callers must not mutate them during copying. Oldest accepted source timestamp bounds simulation freshness. No production execution or persistence.

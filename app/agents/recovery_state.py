@@ -2,6 +2,7 @@
 from hashlib import sha256
 import json
 from threading import RLock
+from copy import deepcopy
 from datetime import datetime
 from app.agents.notification_policy import recovery_advice
 from app.agents.recovery_policy import fresh,circuit,approval,plan_incident,compare
@@ -13,6 +14,8 @@ class RecoverySimulation:
         self._lock=RLock()
     def plan(self, *, incident, now, evidence, outbox=None):
         if not isinstance(evidence,dict):raise ValueError("evidence")
+        evidence=deepcopy(evidence)
+        outbox=deepcopy(outbox)
         reports={}
         observed={}
         for source in ("monitor","data","notification"):
@@ -24,7 +27,10 @@ class RecoverySimulation:
         if isinstance(outbox,dict) and outbox.get("incident")==incident and fresh(outbox.get("at"),now) and isinstance(outbox.get("key"),str) and 0<len(outbox["key"])<=512:
             advice=recovery_advice(outbox.get("document"),now,same_day=outbox.get("same_day") is True,eligible=outbox.get("eligible"),duplicate=bool(blockers) or any(p["category"]=="notification_duplicate" for p in result["plans"]),error=outbox.get("error","unknown"))
             result["outbox_review"]={"target":sha256(outbox["key"].encode()).hexdigest(),"advice":advice,"execution_allowed":False}
-        version=sha256(json.dumps({"reports":reports,"observed":{k:v.isoformat() for k,v in observed.items()},"outbox":result.get("outbox_review")},sort_keys=True,allow_nan=False).encode()).hexdigest()
+        outbox_digest=None
+        if "outbox_review" in result:
+            outbox_digest=sha256(json.dumps({**outbox,"at":outbox["at"].isoformat()},sort_keys=True,allow_nan=False).encode()).hexdigest()
+        version=sha256(json.dumps({"reports":reports,"observed":{k:v.isoformat() for k,v in observed.items()},"outbox":result.get("outbox_review"),"outbox_digest":outbox_digest},sort_keys=True,allow_nan=False).encode()).hexdigest()
         with self._lock:
             active={p["id"] for p in result["plans"]}
             for key,state in self._states.items():
@@ -43,7 +49,7 @@ class RecoverySimulation:
                 s["version"]=version
                 p["evidence_version"]=version
                 s["incident"]=incident
-                s["observed_at"]=observed.get(p["source"],now)
+                s["observed_at"]=min(observed.values()) if observed else now
                 if s["approval"]=="approved" and not fresh(s["approved_at"],now):
                     s["probe"]=False
                 s["blocked"]=p.get("blocked_by_dependency",False)
@@ -63,7 +69,7 @@ class RecoverySimulation:
                     p["action"]="hold_and_review" if p["action"]!="do_not_resend" else p["action"]
                 p["execution_allowed"]=False
         return result
-    def transition(self,key,event,now,operation_id=None):
+    def transition(self,key,event,now,operation_id=None,expected_version=None):
         with self._lock:
             s=self._states.get(key)
             if s is None or len(s["history"])>=32 or not isinstance(now,datetime) or now.utcoffset() is None or now<s["last_at"]:return False
@@ -71,6 +77,7 @@ class RecoverySimulation:
             if not isinstance(event,str):return False
             if event.startswith("simulate_") and (s.get("blocked") or s.get("approved_version")!=s.get("version") or not fresh(s["approved_at"],now) or not fresh(s["observed_at"],now)):return False
             if event in ("approve","reject","revoke"):
+                if expected_version!=s["version"]:return False
                 if s["approval"]=="approved" and not fresh(s["approved_at"],now):
                     s["approval"]="pending";s["probe"]=False
                 if event=="approve" and not fresh(s["observed_at"],now):return False
