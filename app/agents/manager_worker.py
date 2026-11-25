@@ -5,6 +5,7 @@ os.environ['PYTHON_DOTENV_DISABLED']='1'
 os.environ['DATABASE_URL']='sqlite:///:memory:'
 if __name__=='__main__':
     import resource
+    resource.setrlimit(resource.RLIMIT_AS,(512*1024**2,512*1024**2))
     resource.setrlimit(resource.RLIMIT_CPU,(18,19))
     resource.setrlimit(resource.RLIMIT_FSIZE,(2000000,2000000))
     resource.setrlimit(resource.RLIMIT_NOFILE,(128,128))

@@ -1,5 +1,5 @@
 """Bounded Linux CI fault probes; not a production capacity benchmark."""
-import os,sys,time
+import os,sys,time,math,statistics,gc,json
 from concurrent.futures import ThreadPoolExecutor
 import pytest
 from app.api import agent_manager as m
@@ -22,7 +22,8 @@ def test_resource_fault_contained(monkeypatch,script):
     monkeypatch.setattr(m.subprocess,"run",original)
     assert m.invoke("system_monitor",GOOD)["report"]["status"]=="ok"
 
-def test_mixed_worker_load_and_parent_health():
+@pytest.mark.parametrize("soak",[False,pytest.param(True,marks=pytest.mark.skipif(os.getenv("AGENT_SOAK_CI")!="1",reason="isolated soak CI only"))])
+def test_mixed_worker_load_and_parent_health(soak):
     from datetime import datetime,timedelta
     from zoneinfo import ZoneInfo
     from copy import deepcopy
@@ -43,11 +44,21 @@ def test_mixed_worker_load_and_parent_health():
         assert client.get("/health").status_code==200
         assert get("agent:test:mixed")=={"value":3}
         return time.monotonic()-start
-    baseline=[health() for _ in range(3)]
+    baseline=[health() for _ in range(20)]
+    def resources():
+        gc.collect()
+        with open("/proc/self/status") as f:
+            rss=int(next(line.split()[1] for line in f if line.startswith("VmRSS:")))
+        with open(f"/proc/self/task/{os.getpid()}/children") as f:
+            children=set(f.read().split())
+        return rss,children
+    rss_before,children_before=resources()
+    started=time.monotonic()
+    cycles=0
     fd_before=len(os.listdir("/proc/self/fd"))
     timings=[]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        for _ in range(3):
+        while cycles<3 or (soak and time.monotonic()-started<600):
             for i in range(0,len(inputs),2):
                 futures=[pool.submit(m.invoke,*item) for item in inputs[i:i+2]]
                 timings.append(health())
@@ -56,7 +67,15 @@ def test_mixed_worker_load_and_parent_health():
                     assert r["execution_allowed"] is False
                     assert r["report"]["mode"]=="shadow"
                     assert r["report"].get("status") not in ("unknown","error","denied")
+            cycles+=1
+    rss_after,children_after=resources()
+    assert children_after<=children_before
+    assert rss_after-rss_before<64*1024
     assert len(os.listdir("/proc/self/fd"))<=fd_before+4
-    print("health baseline seconds",baseline,"under load",timings)
+    def stats(values):
+        return {"mean":statistics.mean(values),"p95":sorted(values)[math.ceil(.95*len(values))-1],"max":max(values),"n":len(values)}
+    print("AGENT_SOAK_METRICS",json.dumps({"elapsed":time.monotonic()-started,"cycles":cycles,"workers":cycles*6,"baseline":stats(baseline),"loaded":stats(timings),"rss_delta_kib":rss_after-rss_before,"fd_delta":len(os.listdir("/proc/self/fd"))-fd_before}),flush=True)
+    if soak:assert time.monotonic()-started>=600
+    assert stats(timings)["p95"]<1
     assert max(timings)<5
     assert not m.PENDING
