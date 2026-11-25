@@ -3,7 +3,7 @@ import os, time, re
 from datetime import timedelta
 from app.db import init_db, get, put, leased
 from app.providers.annual_free import FINMIND
-from app.providers.corporate_actions import FEEDS, compact
+from app.providers.corporate_actions import FEEDS, compact, request_parameters
 from app.providers.bounded_http import fetch_json
 from app.providers.finmind_batch import SourceRejected
 from app.services.freshness import local_now
@@ -45,8 +45,7 @@ def run(symbols=None, max_requests=2):
             count+=1
             put(key,{**old,'next_attempt':now+3600})
             try:
-                payload=fetch_json(FINMIND,{'dataset':feed,'data_id':symbol.split('.')[0],
-                    'start_date':start,'end_date':end},headers={'Authorization':'Bearer '+token},
+                payload=fetch_json(FINMIND,request_parameters(feed, symbol, start, end),headers={'Authorization':'Bearer '+token},
                     max_bytes=262144,seconds=6)
                 if not isinstance(payload,dict) or payload.get('status')!=200:
                     raise SourceRejected(payload.get('status') if isinstance(payload,dict) else None)

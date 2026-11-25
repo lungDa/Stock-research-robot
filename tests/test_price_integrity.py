@@ -143,7 +143,11 @@ def test_worker_resumes_all_four_feeds_with_shared_budget(monkeypatch):
     assert worker.run(['2330.TW'])['action_requests']==2
     assert worker.run(['2330.TW'])['action_requests']==0
     assert {c.args[1]['dataset'] for c in loader.call_args_list}==set(FEEDS)
-    assert all(c.args[1]['data_id']=='2330' for c in loader.call_args_list)
+    params = {c.args[1]['dataset']:c.args[1] for c in loader.call_args_list}
+    assert params['TaiwanStockSplitPrice'] == {'dataset':'TaiwanStockSplitPrice'}
+    assert set(params['TaiwanStockParValueChange']) == {'dataset','start_date'}
+    assert all(params[feed]['data_id']=='2330' for feed in FEEDS
+               if feed not in ('TaiwanStockSplitPrice','TaiwanStockParValueChange'))
     assert 'TaiwanStockPriceAdj' not in str(loader.call_args_list)
 
 

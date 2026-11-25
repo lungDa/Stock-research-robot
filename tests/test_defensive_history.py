@@ -37,7 +37,8 @@ def test_worker_reuses_same_close_and_preserves_history_on_provider_failure(monk
     put(history.STAGING + '2330.TW:' + history.DATASET, {
         'coverage_windows':[window], 'records':[{'date':'2025-01-06','open':100,'close':102}]})
     for feed in list(history.FEEDS)[:-1]:
-        put(history.STAGING + '2330.TW:' + feed, {'coverage_windows':[window], 'records':[]})
+        put(history.STAGING + '2330.TW:' + feed, {'coverage_windows':[window], 'records':[],
+                                                    'catalog_contract':history.CATALOG_CONTRACT})
     fetch = Mock(side_effect=[{'status':200,'data':[]}, {'status':429}])
     monkeypatch.setattr(history, 'fetch_json', fetch)
     assert history.run(['2330.TW'])['symbols']['2330.TW']['state'] == 'updated'
@@ -95,3 +96,31 @@ def test_missing_historical_calendar_is_filled_before_provider_call(monkeypatch)
     assert history.run(['2330.TW']) == {'state': 'calendar_updated', 'year': 2025}
     calendar.assert_called_once_with(2025)
     fetch.assert_not_called()
+
+
+def test_catalog_request_does_not_send_unsupported_company_parameters():
+    assert history.request_parameters('TaiwanStockSplitPrice','2330.TW','2020-01-06','2025-01-06') == {
+        'dataset':'TaiwanStockSplitPrice'}
+    assert history.request_parameters('TaiwanStockParValueChange','2330.TW','2020-01-06','2025-01-06') == {
+        'dataset':'TaiwanStockParValueChange','start_date':'2020-01-06'}
+    assert history.request_parameters('TaiwanStockPrice','2330.TW','2020-01-06','2025-01-06')['data_id'] == '2330'
+
+
+def test_catalog_cache_is_shared_without_another_provider_request(monkeypatch, stored_calendar):
+    monkeypatch.setenv('FINMIND_TOKEN', 'fixture')
+    monkeypatch.setattr(history, 'local_now', lambda: datetime(2025,1,6,19,tzinfo=TAIPEI))
+    window = {'start':'2020-01-06','end':'2025-01-06'}
+    feed = 'TaiwanStockSplitPrice'
+    for symbol in ('2330.TW','2317.TW'):
+        for name in (history.DATASET, *history.FEEDS):
+            if name == feed:
+                continue
+            put(history.STAGING + symbol + ':' + name, {
+                'coverage_windows':[window], 'records':([{'date':'2025-01-06','open':100,'close':102}]
+                                                         if name == history.DATASET else []),
+                'catalog_contract':history.CATALOG_CONTRACT})
+    fetch = Mock(return_value={'status':200,'data':[{'stock_id':'9999','date':'2025-01-06'}]})
+    monkeypatch.setattr(history,'fetch_json',fetch)
+    result = history.run(['2330.TW','2317.TW'])
+    assert fetch.call_count == 1
+    assert all(row['state']=='updated' for row in result['symbols'].values())
