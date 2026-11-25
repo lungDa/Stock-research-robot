@@ -1,0 +1,36 @@
+name: One-time LINE delivery test
+on:
+  push:
+    branches: [test/line-delivery-once]
+    paths: [.github/workflows/line-delivery-once.yml]
+permissions:
+  contents: read
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Send one test message
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from app.channels.line import push
+          from app.services.watchlist import subscribed
+
+          if not os.environ.get('DATABASE_URL', '').startswith(('postgres://', 'postgresql')):
+              raise SystemExit('PostgreSQL configuration required')
+          recipients = subscribed()
+          if len(recipients) != 1 or not re.fullmatch(r'U[0-9a-f]{32}', recipients[0]):
+              raise SystemExit('Stopped: expected exactly one LINE subscriber')
+          push(recipients[0], '股海燈塔｜LINE 推播測試。收到這則訊息即代表推播已送達。', 'ea605fd4-281f-45ea-a578-5c2541ae6344')
+          print('LINE API accepted the test message for one subscriber.')
+          PY
