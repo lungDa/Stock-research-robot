@@ -83,3 +83,47 @@ render(api,True,True)
     assert ui.session_state["legacy"]=="2412"
     assert "agent_manager_cache" not in ui.session_state
     assert not ui.exception
+
+
+def test_refresh_and_personal_settings_survive_shadow(monkeypatch):
+    from jobs import refresh_data
+    from app.db import put
+    from contextlib import nullcontext
+    from subprocess import CompletedProcess
+    c=deepcopy(multifactor.DEFAULT)
+    c["stock_rules"][0]["threshold"]=4
+    multifactor.save_settings("Ualice",c)
+    before=[multifactor.settings_for(u) for u in ("Ualice","Ubob")]
+    monkeypatch.setattr(refresh_data,"STEPS",["annual","paid"])
+    monkeypatch.setattr(refresh_data,"init_db",lambda:None)
+    monkeypatch.setattr(refresh_data,"leased",lambda *a:nullcontext(True))
+    real_run=refresh_data.subprocess.run
+    def run(args,**kwargs):
+        if args[1:3]==["-m","jobs.refresh_step"]:
+            if args[-1]=="annual":
+                put("annual:shared:2330.TW",annual())
+                snapshot=deepcopy(get("jobs:data_refresh"))
+                result=invoke("system_monitor",{"database_ready":True,"failed_jobs":0,"stale_jobs":0})
+                assert result["report"]["mode"]=="shadow"
+                assert get("jobs:data_refresh")==snapshot
+            return CompletedProcess(args,0,stdout='{"state":"finished"}',stderr="")
+        return real_run(args,**kwargs)
+    monkeypatch.setattr(refresh_data.subprocess,"run",run)
+    result=refresh_data.run()
+    assert result["state"]=="finished"
+    assert get("jobs:data_refresh")==result
+    assert get("annual:shared:2330.TW")==annual()
+    assert [multifactor.settings_for(u) for u in ("Ualice","Ubob")]==before
+
+def test_defensive_results_survive_shadow():
+    import pandas as pd
+    from app.services.defensive_model import downside_statistics,rank_candidates,BENCHMARK_WEIGHTS
+    dates=pd.date_range("2025-01-01",periods=4,tz="UTC")
+    market=pd.Series([-.02,-.01,.01,-.20],index=dates)
+    candidates=[{"symbol":"A","eligible":True,"scores":dict.fromkeys(BENCHMARK_WEIGHTS,.95)}]
+    def evaluate():
+        return downside_statistics(-market,market,dates[2],1,severe_drop=.015,min_pairs=3),rank_candidates(candidates,[.99,.90,.60])
+    before=evaluate()
+    assert before[0]["pearson"]==pytest.approx(-1)
+    assert invoke("system_monitor",{"database_ready":False,"failed_jobs":1,"stale_jobs":0})["report"]["mode"]=="shadow"
+    assert evaluate()==before
