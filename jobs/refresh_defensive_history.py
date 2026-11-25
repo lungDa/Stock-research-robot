@@ -9,7 +9,7 @@ import time
 from app.db import get, get_many, init_db, leased, put, put_many
 from app.providers.annual_free import FINMIND, finite, valid_day
 from app.providers.bounded_http import ResourceLimitError, fetch_json
-from app.providers.corporate_actions import FEEDS, adjust, compact
+from app.providers.corporate_actions import CATALOG_FEEDS, FEEDS, adjust, compact, request_parameters
 from app.providers.date_windows import covers, replace_window
 from app.providers.finmind_batch import SourceRejected
 from app.providers.source_errors import describe
@@ -21,6 +21,8 @@ from app.services.trading_calendar import expected_close, session, valid_calenda
 DATASET = 'TaiwanStockPrice'
 SOURCE = 'FinMind / TaiwanStockPrice + verified corporate action references'
 STAGING = 'defensive:free_history:'
+CATALOG_CONTRACT = 'whole_catalog_v1'
+CATALOG_PREFIX = 'defensive:action_catalog:'
 PREFIX = 'defensive:adjusted:'
 
 
@@ -138,6 +140,7 @@ def assemble(symbol, start, end, states, read):
     history['raw_rows'] = sorted(raw, key=lambda row: row['date'])
     history['adjustment_events'] = events
     history['price_basis'] = 'latest_price_adjusted'
+    history['catalog_contract'] = CATALOG_CONTRACT
     return history
 
 
@@ -178,19 +181,19 @@ def run(symbols):
         for symbol in symbols:
             key = PREFIX + symbol
             previous = get(key, {})
-            if previous.get('as_of') == str(end) and previous.get('source') == SOURCE:
+            if previous.get('as_of') == str(end) and previous.get('source') == SOURCE and previous.get('catalog_contract') == CATALOG_CONTRACT:
                 results[symbol] = {'state': 'cached', 'coverage': previous['coverage']}
                 continue
             keys = {feed: STAGING + symbol + ':' + feed for feed in (DATASET, *FEEDS)}
             saved = get_many(keys.values())
             states = {feed: saved.get(doc_key, {}) for feed, doc_key in keys.items()}
+            for catalog_feed in CATALOG_FEEDS:
+                if states[catalog_feed].get('catalog_contract') != CATALOG_CONTRACT:
+                    states[catalog_feed] = {}
             missing = [(feed, next_window(state, start, end, 366 if feed == DATASET else 1830))
                        for feed, state in states.items()]
             missing = [(feed, window) for feed, window in missing if window is not None]
             if missing:
-                if stamp < get('annual:source:finmind', {}).get('next_attempt', 0):
-                    results[symbol] = {'state':'cooldown'}
-                    continue
                 # Each symbol advances one verified source window per call.
                 available = [(feed, window) for feed, window in missing
                              if stamp >= states[feed].get('next_attempt', 0)]
@@ -198,15 +201,23 @@ def run(symbols):
                     results[symbol] = {'state':'cooldown'}
                     continue
                 feed, window = available[0]
-                if not source_slot('defensive_history', 24) or not source_slot('finmind', 100):
-                    results[symbol] = {'state':'budget'}
-                    break
                 state = states[feed]
+                catalog = get(CATALOG_PREFIX + feed, {}) if feed in CATALOG_FEEDS else {}
+                cached_catalog = (catalog.get('catalog_contract') == CATALOG_CONTRACT and
+                    covers(catalog.get('coverage_windows', []), window['start'], window['end']))
                 try:
-                    payload = fetch_json(FINMIND, {'dataset':feed, 'data_id':symbol.split('.')[0],
-                                                 'start_date':window['start'], 'end_date':window['end']},
-                                         headers={'Authorization':'Bearer ' + token},
-                                         max_bytes=786432, seconds=10, socket_timeout=(3,4))
+                    if cached_catalog:
+                        payload = {'status':200,'data':catalog['records']}
+                    else:
+                        if stamp < get('annual:source:finmind', {}).get('next_attempt', 0):
+                            results[symbol] = {'state':'cooldown'}
+                            continue
+                        if not source_slot('defensive_history', 24) or not source_slot('finmind', 100):
+                            results[symbol] = {'state':'budget'}
+                            break
+                        payload = fetch_json(FINMIND, request_parameters(feed, symbol, window['start'], window['end']),
+                                             headers={'Authorization':'Bearer ' + token},
+                                             max_bytes=786432, seconds=10, socket_timeout=(3,4))
                     if not isinstance(payload, dict) or payload.get('status') != 200:
                         raise SourceRejected(payload.get('status') if isinstance(payload, dict) else None)
                     if feed == DATASET:
@@ -216,7 +227,16 @@ def run(symbols):
                             raise ValueError('latest verified session is missing')
                         records = list(price.values())
                     else:
-                        records = compact(feed, payload.get('data'), symbol, window['start'], window['end'])
+                        raw_events = payload.get('data')
+                        if feed in CATALOG_FEEDS:
+                            if not isinstance(raw_events, list) or not raw_events:
+                                raise ValueError('whole company action catalog is empty or invalid')
+                            if not cached_catalog:
+                                put(CATALOG_PREFIX + feed, {'records':raw_events,
+                                    'coverage_windows':[{'start':window['start'],'end':str(end)}],
+                                    'catalog_contract':CATALOG_CONTRACT})
+                            state = {**state,'catalog_contract':CATALOG_CONTRACT}
+                        records = compact(feed, raw_events, symbol, window['start'], window['end'])
                     state = {**state, 'records':[row for row in replace_window(state.get('records', []), records, window)
                                         if row['date'] >= str(start)],
                              'coverage_windows':merge_coverage(state.get('coverage_windows', []) + [window], start),
@@ -224,13 +244,18 @@ def run(symbols):
                     states[feed] = state
                     put(keys[feed], state)
                 except ResourceLimitError as exc:
+                    if feed in CATALOG_FEEDS:
+                        put(keys[feed], {**state,'catalog_contract':CATALOG_CONTRACT,'next_attempt':stamp+3600})
+                        results[symbol] = {'state':'failed','feed':feed,'reason':'catalog_exceeded_budget'}
+                        continue
                     days = (date.fromisoformat(window['end']) - date.fromisoformat(window['start'])).days + 1
                     put(keys[feed], {**state,'window_days':max(1, days//2),'next_attempt':stamp+60 if days>1 else stamp+3600})
                     results[symbol] = {'state':'backfilling','feed':feed,'reason':'window_split' if days>1 else 'window_limit'}
                     continue
                 except Exception as exc:
                     detail = describe(exc, '台股原始行情／公司行動')
-                    put(keys[feed], {**state,'next_attempt':stamp+3600,'last_failure':detail})
+                    put(keys[feed], {**state,'next_attempt':stamp+3600,'last_failure':detail,
+                                     **({'catalog_contract':CATALOG_CONTRACT} if feed in CATALOG_FEEDS else {})})
                     if detail['error_code'] in ('http_401', 'http_403', 'http_429'):
                         put('annual:source:finmind', {'next_attempt':stamp+86400})
                     results[symbol] = {'state':'failed','feed':feed,**detail}
