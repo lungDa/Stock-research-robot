@@ -4,6 +4,8 @@ on:
     # UTC +8 = Taipei 11:30 / 19:30; Python checks exchange calendar.
     - cron: '30 3 * * 1-5'
     - cron: '30 11 * * 1-5'
+    # Same-day retries recover missing/delayed runs; sent outboxes are skipped.
+    - cron: '7,37 4-15 * * 1-5'
   workflow_dispatch:
     inputs:
       slot:
@@ -30,7 +32,7 @@ jobs:
       LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
       PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || secrets.PUBLIC_APP_URL }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
-      RANKING_SLOT: ${{ github.event.schedule == '30 3 * * 1-5' && 'morning' || inputs.slot || 'evening' }}
+      RANKING_SLOT: ${{ github.event_name == 'schedule' && 'auto' || inputs.slot || 'evening' }}
       SEND_RANKING: ${{ github.event_name == 'schedule' || inputs.send }}
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +45,13 @@ jobs:
         run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))"
+      - name: Send daily watchlist report
+        if: github.event_name == 'schedule' || inputs.send
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.watch_digest
       - name: Build personal market recommendations
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           args=(--slot "$RANKING_SLOT")
