@@ -1,6 +1,6 @@
 """Bounded, one-level portfolio evidence; no external I/O."""
 from datetime import date,timedelta
-from math import isfinite
+from math import isfinite,isclose
 from app.agents.audit_policy import origin
 from app.agents.research_evidence import timestamp,technical_evidence
 from app.services.trading_calendar import session
@@ -31,8 +31,16 @@ def holdings(p,now):
     for r in rows:
         if not isinstance(r,dict) or not isinstance(r.get("symbol"),str) or not CODE.fullmatch(r["symbol"]) or r.get("kind")!="STOCK" or r["symbol"] in seen or not num(r.get("weight")) or not 0<r["weight"]<=1:return None
         seen.add(r["symbol"])
-    if sum(r["weight"] for r in rows)>1+1e-10:return None
+    if sum(r["weight"] for r in rows)>1:return None
     return rows
+
+def constituent_sector(row,now):
+    e=row.get("sector_evidence")
+    if not isinstance(e,dict):return "unknown"
+    at=timestamp(e.get("observed_at"))
+    label=e.get("sector")
+    if e.get("symbol")==row["symbol"] and isinstance(label,str) and 0<len(label.strip())<=64 and origin(e.get("source_url")) in ("twse.com.tw","tpex.org.tw") and at is not None and 0<=(now-at).total_seconds()<=8*86400:return label.strip()
+    return "unknown"
 
 def exposures(positions,weights,sectors,now):
     underlying={}; groups={}; contributors={}; unknown=0.
@@ -47,9 +55,13 @@ def exposures(positions,weights,sectors,now):
         if rows is None:unknown+=w;continue
         for r in rows:
             # Reuse direct verified sector evidence; constituent labels alone are not proof.
-            add(r["symbol"],w*r["weight"],sectors.get(r["symbol"],"unknown"),k)
+            direct=sectors.get(r["symbol"],"unknown")
+            indirect=constituent_sector(r,now)
+            label=indirect if direct=="unknown" else direct if indirect in ("unknown",direct) else "unknown"
+            add(r["symbol"],w*r["weight"],label,k)
         unknown+=w*max(0.,1-sum(r["weight"] for r in rows))
     if unknown>1e-10:groups["unknown"]=groups.get("unknown",0.)+unknown
+    if not isclose(sum(underlying.values())+unknown,sum(weights.values()),abs_tol=1e-9) or not isclose(sum(groups.values()),sum(weights.values()),abs_tol=1e-9):raise ValueError("exposure conservation")
     return {"underlying":underlying,"sectors":groups,"unknown_weight":unknown,"overlaps":{k:v for k,v in contributors.items() if len(v)>1},"scope":"one_level_long_only_snapshot","verified":False}
 
 def liquidity(p,value,now):
@@ -61,4 +73,6 @@ def liquidity(p,value,now):
     if any(b.get("volume_unit")!="shares" or not num(b.get("raw_volume")) or b["raw_volume"]<0 or not num(b.get("raw_close")) or b["raw_close"]<=0 for b in recent):return missing
     adv=sum(b["raw_volume"]*b["raw_close"] for b in recent)/20
     if not isfinite(adv) or adv<=0:return missing
-    return {"status":"available","average_daily_value_twd":adv,"days_at_10pct_adv":value/(.1*adv),"samples":20,"scope":"illustrative_no_market_impact"}
+    days=value/(.1*adv)
+    if not isfinite(days):return missing
+    return {"status":"available","average_daily_value_twd":adv,"days_at_10pct_adv":days,"samples":20,"scope":"illustrative_no_market_impact"}

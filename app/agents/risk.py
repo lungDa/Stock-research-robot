@@ -51,7 +51,7 @@ class RiskAgent:
             reports[symbol]={"research_version":r["evidence_version"],"confidence":r["confidence"],"financial_audit":r["financial_audit"],"downside_beta":r["defensive"].get("downside_beta")}
             reports[symbol]["warnings"]=[]
             audit=r["financial_audit"]
-            if sectors[symbol]=="unknown":reports[symbol]["warnings"].append("sector_unconfirmed")
+            if sectors[symbol]=="unknown" and q["kind"]=="STOCK":reports[symbol]["warnings"].append("sector_unconfirmed")
             if r["confidence"]<100:reports[symbol]["warnings"].append("research_coverage_insufficient")
             if audit and (audit["conflicts"] or audit["invalid"] or audit["stale_sources"]):reports[symbol]["warnings"].append("financial_evidence_issue")
             if audit and any(e["field"]=="eps" and e["value"]<0 and e["year"]==str(now.year-1) for e in r["annual_evidence"]):reports[symbol]["warnings"].append("negative_latest_annual_eps")
