@@ -1,0 +1,30 @@
+name: Bounded scan phase timing
+on:
+  push:
+    branches: [diagnose/scan-phase-timing]
+    paths: [.github/workflows/scan-phase-timing.yml]
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-scan
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Run existing bounded batch without LINE notification
+        run: |
+          python -c "from app.db import engine; assert engine.dialect.name == 'postgresql'"
+          python -m jobs.maintenance_guard
+          python -m jobs.scan --limit 30 --seconds 120
