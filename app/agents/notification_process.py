@@ -2,11 +2,14 @@
 import json,os,subprocess,sys
 from datetime import datetime
 
+def _run_child(command,timeout):
+    return subprocess.run(command,capture_output=True,timeout=timeout,check=True)
+
 def collect(*,now,days=7,timeout=35):
     if os.getenv("AGENT_NOTIFICATION_DB_READ")!="1":return {"mode":"shadow","status":"denied"}
     if now.tzinfo is None or type(days) is not int or not 1<=days<=14 or type(timeout) not in (int,float) or not 0<timeout<=60:return {"mode":"shadow","status":"unknown"}
     try:
-        p=subprocess.run([sys.executable,"-m","app.agents.notification_process",now.isoformat(),str(days)],capture_output=True,timeout=timeout,check=True)
+        p=_run_child([sys.executable,"-m","app.agents.notification_process",now.isoformat(),str(days)],timeout)
         if len(p.stdout)>2_000_000:return {"mode":"shadow","status":"unknown"}
         r=json.loads(p.stdout)
         if not isinstance(r,dict) or r.get("mode")!="shadow" or r.get("status") not in ("complete","unknown","denied"):raise ValueError()

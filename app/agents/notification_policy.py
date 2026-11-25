@@ -34,13 +34,13 @@ def recovery_advice(doc,now,*,same_day,eligible=None,duplicate=False,error="unkn
     if state in ("partial","pending"):return "review_existing_retry_keys"
     return "manual_review"
 
-def paged(fetch,*,max_pages=3):
+def paged(fetch,*,max_pages=3, collection="jobs"):
     """Fixed caller endpoint; incomplete or duplicate results never claim coverage."""
     rows=[];seen=set();total=None
     for page in range(1,max_pages+1):
         try:
             doc=fetch(page)
-            items=doc["jobs"];count=doc["total_count"]
+            items=doc[collection];count=doc["total_count"]
             if type(count) is not int or count<0 or not isinstance(items,list) or len(items)>100 or (total is not None and total!=count):break
             total=count
             for item in items:
@@ -51,3 +51,11 @@ def paged(fetch,*,max_pages=3):
             if not items or len(rows)>total:break
         except Exception:break
     return rows,False
+
+
+def isolated_evidence(*, snapshot, day, slot, report, user, event, cron, error, outbox, now, duplicate=False):
+    users=subscription_snapshot(snapshot,day,slot,report)
+    eligible=None if users is None else user in users
+    failure=error_evidence(error)
+    from zoneinfo import ZoneInfo
+    return {"mode":"shadow","eligible":eligible,"trigger":cron_evidence(event,cron),"error":failure,"advice":recovery_advice(outbox,now,same_day=day==now.astimezone(ZoneInfo("Asia/Taipei")).date(),eligible=eligible,duplicate=duplicate,error=failure)}

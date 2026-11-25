@@ -90,10 +90,18 @@ def read_notifications(*, now, days=7):
         result["workflow_history"]=[]
         result["job_evidence"]=[]
         seen=set()
+        result["run_coverage"]={}
+        run_cache={}
         if os.getenv("AGENT_NOTIFICATION_GITHUB_READ")=="1":
             for code,h,m in (("ranking_workflow",11,30),("ranking_workflow",19,30),("scan_workflow",18,17)):
                 try:
-                    runs=read_json(GITHUB+WORKFLOWS[code]+"/runs?branch=main&per_page=100")["workflow_runs"]
+                    if code not in run_cache:
+                        def fetch_runs(page):
+                            if time.monotonic()>deadline:raise TimeoutError()
+                            return read_json(GITHUB+WORKFLOWS[code]+f"/runs?branch=main&per_page=100&page={page}&created={now.date()-timedelta(days=days-1)}..{now.date()}")
+                        run_cache[code]=paged(fetch_runs,max_pages=5,collection="workflow_runs")
+                    runs,complete=run_cache[code]
+                    result["run_coverage"][code]={"returned":len(runs),"pages_complete":complete}
                     result["workflow_history"].extend(workflow_history(runs,now,days,h,m))
                     for run in runs[:5]:
                         if time.monotonic()>deadline:break
@@ -108,6 +116,7 @@ def read_notifications(*, now, days=7):
                             result["job_evidence"].append({**job_evidence(run,jobs),"job_pages_complete":complete})
                         except Exception:pass
                 except Exception:pass
+        result["run_scope"]="bounded_date_query_up_to_five_pages_per_workflow"
         result["job_scope"]="up_to_five_recent_runs_per_workflow_not_exhaustive"
         result["historical_subscription_status"]="unknown_no_snapshot"
         states=[k for row in result["history"] for k in row["counts"]]
