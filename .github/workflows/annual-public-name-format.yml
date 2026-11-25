@@ -18,11 +18,25 @@ jobs:
       - name: Observe public company metadata
         run: |
           python - <<'PY'
-          from scripts.check_tw_financial_contract import probe
+          import ast, inspect
+          from datetime import date
+          from app.providers import mopsfin
           from app.providers.source_errors import describe
+          errors = {node.args[0].value for node in ast.walk(ast.parse(inspect.getsource(mopsfin)))
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == 'ValueError' and node.args and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)}
+          stage = 'catalog'
           try:
-              print(probe('6488.TWO'))
+              catalog = mopsfin.parse_catalog(mopsfin.request('/'))
+              stage = 'company'
+              display = mopsfin.parse_company(mopsfin.request('/suggestCompany', params={'query':'6488'}), '6488.TWO')
+              for field in ('eps', 'roe_pct'):
+                  stage = field
+                  body = mopsfin.request('/compare/data', form=mopsfin.annual_fields(field, display, catalog[field]))
+                  rows = mopsfin.parse_annual(body, '6488.TWO', field, display, date.today(), catalog[field])
+                  print(field, 'verified years', sorted(rows))
           except Exception as exc:
-              print(describe(exc, '官方年度來源'))
+              print(describe(exc, stage), 'fixed_reason:', str(exc) if str(exc) in errors else type(exc).__name__)
               raise SystemExit(1)
           PY
