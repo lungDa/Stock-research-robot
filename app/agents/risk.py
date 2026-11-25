@@ -12,6 +12,7 @@ from app.services.defensive_model import risk_level,BENCHMARK_WEIGHTS,single_ben
 from app.services.freshness import TAIPEI
 from app.agents.risk_evidence import valid_returns,sector_evidence,beta as taiex_beta
 from jobs.monitor_defensive_risk import DEFAULT_RULES
+from app.agents.portfolio_evidence import exposures, liquidity, continuous_sessions
 
 def num(x):
     return type(x) in (float,int) and isfinite(x)
@@ -26,8 +27,8 @@ def metrics(r):
     wealth=pd.concat([pd.Series([1.]),(1+r).cumprod().reset_index(drop=True)],ignore_index=True)
     result={"samples":len(r),"annual_volatility":float(r.std()*sqrt(252)),
             "max_drawdown":float((1-wealth/wealth.cummax()).max()),
-            "var95_daily":var,"cvar95_daily":max(var,es)}
-    return result if all(isfinite(v) for v in result.values()) else None
+            "var95_daily":var,"cvar95_daily":max(var,es),"tail_samples":ceil(len(r)*.05)}
+    return {**result,"tail_confidence":"limited" if len(r)<252 else "larger_sample_not_calibrated"} if all(isfinite(v) for v in result.values()) else None
 
 class RiskAgent:
     def analyze(self, *, positions, now, cash=0, limits=None, benchmarks=None, taiex=None):
@@ -64,10 +65,14 @@ class RiskAgent:
         total=sum(values.values())+cash
         if not isfinite(total) or total<=0:raise ValueError("total")
         weights={k:v/total for k,v in values.items()}
-        sector_weights={}
-        for k,w in weights.items():sector_weights[sectors[k]]=sector_weights.get(sectors[k],0)+w
+        exposure=exposures(positions,weights,sectors,now)
+        sector_weights=exposure["sectors"]
+        for p in positions:
+            k=p["research"]["symbol"]
+            reports[k]["liquidity"]=liquidity(p,values[k],now)
         breaches=[{"type":"single","symbol":k} for k,w in weights.items() if w>limits["single"]]
-        breaches += [{"type":"sector","sector":k} for k,w in sector_weights.items() if w>limits["sector"]]
+        breaches += [{"type":"sector","sector":k} for k,w in sector_weights.items() if k!="unknown" and w>limits["sector"]]
+        breaches += [{"type":"underlying","symbol":k} for k,w in exposure["underlying"].items() if w>limits["single"]]
         if sum(weights.values())>limits["equity"]:breaches.append({"type":"equity"})
         portfolio=None
         correlation=None
@@ -93,9 +98,9 @@ class RiskAgent:
         digest=hashlib.sha256(json.dumps([positions,cash,limits,benchmarks,taiex,now.isoformat()],sort_keys=True,allow_nan=False).encode()).hexdigest()
         return {"mode":"shadow","status":"risk_only","execution_allowed":False,"verified":False,
                 "evidence_version":digest,"as_of":now.isoformat(),"currency":"TWD","weights":weights,"cash_weight":cash/total,
-                "sector_weights":sector_weights,"sector_scope":"snapshot_metadata_checked_no_lookthrough","limits":limits,"breaches":breaches,
+                "sector_weights":sector_weights,"sector_scope":"one_level_snapshot_lookthrough","exposure":exposure,"schema_version":2,"limits":limits,"breaches":breaches,
                 "positions":reports,"portfolio_metrics":portfolio,"stress_returns":stress,"beta_stress_returns":differentiated,"correlation":correlation,"market_risk":market,
-                "risk_grade":"limit_breach" if breaches else "incomplete" if portfolio is None or "unknown" in sector_weights or market["level"] is None or any(beta.get(k) is None or reports[k]["warnings"] for k in weights) else "within_configured_limits",
+                "risk_grade":"limit_breach" if breaches else "incomplete" if portfolio is None or portfolio["samples"]<252 or exposure["unknown_weight"]>1e-8 or "unknown" in sector_weights or any(r["liquidity"]["status"]!="available" for r in reports.values()) or market["level"] is None or any(beta.get(k) is None or reports[k]["warnings"] for k in weights) else "within_configured_limits",
                 "scope":"constant_weight_historical_simulation_not_actual_portfolio_performance"}
 
 # Existing market monitoring thresholds, copied as immutable snapshot defaults.
@@ -132,7 +137,8 @@ def market_snapshot(data,now,documents):
                 a,b=row.get("previous"),row.get("close")
                 if not num(a) or not num(b) or a<=0 or b<=0 or not num(row.get("return")) or not isclose(b/a-1,row["return"],abs_tol=1e-8) or not -1<row["return"]<=10:return missing
                 days.append(d.isoformat());values.append(row["return"]);releases.add(at)
-            if days!=sorted(set(days)) or days[-1]!=now.date().isoformat():return missing
+            if days!=sorted(set(days)) or days[-1]!=now.date().isoformat() or not continuous_sessions(days,documents):return missing
+            if any(not isclose(a["close"],b["previous"],rel_tol=1e-8) for a,b in zip(rows,rows[1:])):return missing
             series[key]=pd.Series(values,index=days,dtype=float)
         if not all(s.index.equals(next(iter(series.values())).index) for s in series.values()):return missing
         returns={k:float(s.iloc[-1]) for k,s in series.items()}

@@ -17,7 +17,7 @@ def test_beta_and_correlation():
 
 def test_market_positive_and_future():
     days=sorted(d for i in range(100) if (d:=NOW.date()-timedelta(days=i)).weekday()<5)
-    data={k:[{"date":str(d),"benchmark_id":k,"published_at":str(d)+("T08:00:00+08:00" if k in ("nasdaq_100","sox") else "T14:00:00+08:00"),"source_url":"https://twse.com.tw","previous":100,"close":94,"return":-.06} for d in days] for k in BENCHMARK_WEIGHTS}
+    data={k:[{"date":str(d),"benchmark_id":k,"published_at":str(d)+("T08:00:00+08:00" if k in ("nasdaq_100","sox") else "T14:00:00+08:00"),"source_url":"https://twse.com.tw","previous":100*.94**i,"close":100*.94**(i+1),"return":-.06} for i,d in enumerate(days)] for k in BENCHMARK_WEIGHTS}
     assert market_snapshot(data,NOW,DOC)["level"]==4
     data["sox"][-1]["published_at"]=str(days[-1])+"T10:00:00+08:00"
     assert market_snapshot(data,NOW,DOC)["level"] is None
