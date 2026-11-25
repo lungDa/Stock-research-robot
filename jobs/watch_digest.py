@@ -28,7 +28,7 @@ def report(user, day, symbols, rows=None):
             close = history[max(previous)]
             if isinstance(close, (int, float)) and math.isfinite(close) and close > 0:
                 change = f'{(price / close - 1) * 100:+.2f}%'
-        age_note = '（舊行情／待更新）' if symbol.endswith(('.TW','.TWO')) and date != str(day) else ''
+        age_note = '（舊行情／待更新）' if symbol.endswith(('.TW','.TWO')) and (date != str(day) or row.get('data_status') == 'stale') else ''
         lines.append(f"{row.get('name', symbol)}（{symbol}）｜{row.get('currency', '')} {price:.2f}｜{change}｜{row['rating']['grade']}｜{date}{age_note}")
     if not symbols:
         lines.append('目前沒有追蹤標的。')
@@ -39,7 +39,7 @@ def report(user, day, symbols, rows=None):
 def run(now=None):
     now = now or local_now()
     day = now.date()
-    if (now.hour, now.minute) < (18, 17):
+    if (now.hour, now.minute) < (19, 30):
         return {'status': 'outside_send_window'}
     init_db()
     if not is_session(day):
@@ -65,14 +65,8 @@ def run(now=None):
                 rows = None
                 if not state:
                     rows = {row['symbol']: row for row in assistant.personal_ratings(user)}
-                    missing_current = any(symbol.endswith(('.TW','.TWO')) and (
-                        (rows.get(symbol) or {}).get('date') != str(day)
-                        or (rows.get(symbol) or {}).get('price') is None
-                        or (rows.get(symbol) or {}).get('data_status') == 'stale'
-                    ) for symbol in symbols)
-                    if missing_current and (now.hour, now.minute) < (22, 30):
-                        waiting += 1
-                        continue
+                    # Send the scheduled report with actual dates and missing-data labels.
+                    # Do not wait until 22:30 for an unavailable market feed.
                 if remaining is None:
                     remaining = quota()
                 before = remaining
