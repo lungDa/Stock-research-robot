@@ -8,25 +8,37 @@ from app.services.v26_coverage_adapter import PREFIXES
 
 @contextmanager
 def readonly_session():
-    from app.db import Session
+    from app.db import Session,engine
     from sqlalchemy import text
+    if engine.dialect.name=="sqlite":
+        # Pin the physical connection until its original state is restored.
+        with engine.connect() as conn:
+            original=conn.exec_driver_sql("PRAGMA query_only").scalar_one()
+            try:
+                conn.exec_driver_sql("PRAGMA query_only=ON")
+                conn.exec_driver_sql("BEGIN")
+                with Session(bind=conn) as session:
+                    yield session
+            finally:
+                try:
+                    conn.rollback()
+                    conn.exec_driver_sql("PRAGMA query_only="+("ON" if original else "OFF"))
+                    conn.rollback()
+                except BaseException:
+                    conn.invalidate()
+                    raise
+        return
     with Session() as session:
         dialect=session.bind.dialect.name
         if dialect=="postgresql":
             session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             session.execute(text("SET LOCAL statement_timeout = '4000ms'"))
-        elif dialect=="sqlite":
-            session.execute(text("PRAGMA query_only=ON"))
-            session.execute(text("BEGIN"))
         else:
             raise ValueError("unsupported database")
         try:
             yield session
         finally:
             session.rollback()
-            if dialect=="sqlite":
-                session.execute(text("PRAGMA query_only=OFF"))
-                session.rollback()
 
 def aggregate(symbols, rows):
     expected=set(symbols)
