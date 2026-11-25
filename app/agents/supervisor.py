@@ -24,3 +24,9 @@ class Supervisor:
     def monitor(self, *, is_admin=False, timeout=15):
         from app.agents.monitor_v2 import collect
         return collect(enabled=self._enabled, is_admin=is_admin, timeout=timeout)
+
+    def audit_data(self, symbols, documents, *, now, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","rows":[]}
+        from app.agents.data_auditor import audit
+        return audit(symbols, documents, now=now)
