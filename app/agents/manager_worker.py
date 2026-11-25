@@ -16,7 +16,11 @@ def analyze(name,p):
     s=Supervisor(enabled=True)
     now=datetime.now(timezone.utc)
     if name=="system_monitor":
-        return asdict(s.run(Task("system_monitor",Capability.READ_SNAPSHOT),Snapshot(**p),is_admin=True))
+        result=asdict(s.run(Task("system_monitor",Capability.READ_SNAPSHOT),Snapshot(**p),is_admin=True))
+        mapping={"database_unready":"database","database_unknown":"database","failed_jobs":"scan_workflow","failed_jobs_unknown":"scan_workflow","stale_jobs":"refresh_workflow","stale_jobs_unknown":"refresh_workflow"}
+        result["checks"]=[{"code":mapping[x["code"]],"severity":x["severity"]} for x in result["findings"]]
+        if not result["checks"] and result["status"]=="ok":result["checks"]=[{"code":"database","severity":"ok"}]
+        return result
     if name=="data_auditor":
         return s.audit_data(p["symbols"],p["documents"],now=now,is_admin=True)
     if name=="notification":

@@ -1,0 +1,2 @@
+# Phase 10.1
+Snapshot-only integration through existing API, worker, registry, supervisor and recovery simulation. Preserve structured findings and evidence timestamps across report boundaries. Research and risk independently compute evidence versions using their own clocks; versions are not assumed equal. No production mount or live collectors. UI browser integration and authenticated evidence provenance remain later acceptance items. CI pending.
