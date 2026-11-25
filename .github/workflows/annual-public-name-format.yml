@@ -17,18 +17,4 @@ jobs:
       - run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Observe public company metadata
         run: |
-          python - <<'PY'
-          import re
-          from app.providers.mopsfin import request, parse_catalog, parse_company, annual_fields, clean
-          symbol = '6488.TWO'
-          catalog = parse_catalog(request('/'))
-          display = parse_company(request('/suggestCompany', params={'query':'6488'}), symbol)
-          def safe(value):
-              v = clean(value)
-              return v if isinstance(value, str) and len(v) < 100 and re.fullmatch(r'[0-9A-Za-z\u3400-\u9fff\s()（）.＆&－\-]+', v) else '[unrecognized format]'
-          print('public lookup:', safe(display))
-          for field in ('eps', 'roe_pct'):
-              result = request('/compare/data', form=annual_fields(field, display, catalog[field]))
-              print(field, {key:[safe(x) for x in result.get(key, [])[:2]] for key in ('displayCompanyId','checkedNameList')})
-              print('labels:', [safe(x.get('label')) for x in result.get('graphData', [])[:2]])
-          PY
+          python -m scripts.check_tw_financial_contract --symbol 6488.TWO
