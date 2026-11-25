@@ -34,6 +34,11 @@ jobs:
               for field in ('eps', 'roe_pct'):
                   stage = field
                   body = mopsfin.request('/compare/data', form=mopsfin.annual_fields(field, display, catalog[field]))
+                  extra = body.get('extraNameList')
+                  known = {'產業平均','同業平均','公司平均','上市平均','上櫃平均','全體平均',''}
+                  print(field, 'extraNameList shape:', type(extra).__name__,
+                        'entries:', [(type(x).__name__, mopsfin.clean(x) if mopsfin.clean(x) in known else '[other]') for x in extra[:10]] if isinstance(extra,list) else None,
+                        'graph series:', len(body.get('graphData', [])))
                   rows = mopsfin.parse_annual(body, '6488.TWO', field, display, date.today(), catalog[field])
                   print(field, 'verified years', sorted(rows))
           except Exception as exc:
