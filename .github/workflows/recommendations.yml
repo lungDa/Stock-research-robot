@@ -6,7 +6,7 @@ on:
     - cron: '30 11 * * 1-5'
     # Same-day retries recover missing/delayed runs; sent outboxes are skipped.
     - cron: '7,37 4-15 * * 1-5'
-  # Other successful scheduling pathways also wake the same due-report worker.
+  # Other completed scheduling pathways also wake the same due-report worker.
   workflow_run:
     workflows:
       - Check Render backend every 10 minutes (best effort)
@@ -58,7 +58,7 @@ jobs:
       - name: Validate shared database
         run: python -c "import os; assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))"
       - name: Send daily watchlist report
-        if: github.event_name == 'schedule' || inputs.send
+        if: env.SEND_RANKING == 'true'
         run: |
           python -m jobs.maintenance_guard
           python -m jobs.watch_digest

@@ -29,7 +29,7 @@ def test_watch_report_includes_prices_changes_and_missing(monkeypatch):
     assert '2330.TW｜行情不足' in message
 
 
-def test_watch_digest_waits_for_today_then_sends_labeled_fallback(monkeypatch):
+def test_watch_digest_waits_until_evening_slot_then_sends_labeled_fallback(monkeypatch):
     from contextlib import nullcontext
 
     monkeypatch.setattr(watch_digest, 'init_db', lambda: None)
@@ -51,7 +51,7 @@ def test_watch_digest_waits_for_today_then_sends_labeled_fallback(monkeypatch):
         return remaining - len(texts)
     monkeypatch.setattr(watch_digest, 'deliver', deliver)
     now = datetime(2026, 11, 25, 19, 0, tzinfo=TAIPEI)
-    assert watch_digest.run(now)['waiting_for_today'] == 1
+    assert watch_digest.run(now)['status'] == 'outside_send_window'
     assert messages == []
     result = watch_digest.run(now.replace(hour=23))
     assert result['messages_sent'] == 1
