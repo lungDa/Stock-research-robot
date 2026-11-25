@@ -1,0 +1,2 @@
+# Phase 09.1
+Isolated router not mounted on production server. Default-off global and per-agent environment switches, strict lighthouse admin dependency, bounded snapshot requests, 20-second subprocess timeout, session-local report display for 60 seconds. No live collectors, persistent audit or approval yet. UI opt-in only. No production deployment. Snapshot contents are caller supplied, not verified.
