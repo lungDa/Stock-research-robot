@@ -38,7 +38,14 @@ def test_capacity_and_recovery(monkeypatch):
 def test_invalid_snapshot_is_contained(name):
     result=m.invoke(name,{"unexpected":None,"positions":"invalid","symbols":False})
     assert result["execution_allowed"] is False
-    assert result.get("status",result.get("report",{}).get("status")) in ("unknown","error")
+    if name=="recovery":
+        report=result["report"]
+        assert report["status"]=="planned" and report["executed"] is False
+        assert len(report["plans"])==3
+        assert {p["source"] for p in report["plans"]}=={"monitor","data","notification"}
+        assert all(p["category"]=="unknown" and p["action"]=="collect_evidence" and p["execution_allowed"] is False for p in report["plans"])
+    else:
+        assert result.get("status",result.get("report",{}).get("status")) in ("unknown","error")
     assert m.invoke("system_monitor",GOOD)["report"]["status"]=="ok"
 
 @pytest.mark.parametrize("script,expected",[
