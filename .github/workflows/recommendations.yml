@@ -6,13 +6,24 @@ on:
     - cron: '30 11 * * 1-5'
     # Same-day retries recover missing/delayed runs; sent outboxes are skipped.
     - cron: '7,37 4-15 * * 1-5'
+  # Other successful scheduling pathways also wake the same due-report worker.
+  workflow_run:
+    workflows:
+      - Check Render backend every 10 minutes (best effort)
+      - Check Render and Streamlit (best effort)
+      - Daily scan and digest
+      - Replenish data and clean expired records
+      - V2.6 Taiwan financial background backfill
+      - V2.6.4 Verified market paid-dividend backfill
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       slot:
-        description: 'morning = previous session close; evening = today close'
+        description: 'auto = due reports; morning = previous session close; evening = today close'
         type: choice
-        options: [morning, evening]
-        default: evening
+        options: [auto, morning, evening]
+        default: auto
       send:
         description: 'Actually send LINE (unchecked = preview only)'
         type: boolean
@@ -24,6 +35,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   recommend:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'schedule')
     runs-on: ubuntu-24.04
     timeout-minutes: 27
     env:
@@ -32,8 +44,8 @@ jobs:
       LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
       PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || secrets.PUBLIC_APP_URL }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
-      RANKING_SLOT: ${{ github.event_name == 'schedule' && 'auto' || inputs.slot || 'evening' }}
-      SEND_RANKING: ${{ github.event_name == 'schedule' || inputs.send }}
+      RANKING_SLOT: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'auto' || inputs.slot || 'evening' }}
+      SEND_RANKING: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || inputs.send }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
