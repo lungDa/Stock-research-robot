@@ -18,7 +18,7 @@ jobs:
       - name: Observe public company metadata
         run: |
           python - <<'PY'
-          import ast, inspect
+          import ast, inspect, re
           from datetime import date
           from app.providers import mopsfin
           from app.providers.source_errors import describe
@@ -37,7 +37,7 @@ jobs:
                   extra = body.get('extraNameList')
                   known = {'產業平均','同業平均','公司平均','上市平均','上櫃平均','全體平均',''}
                   print(field, 'extraNameList shape:', type(extra).__name__,
-                        'entries:', [(type(x).__name__, mopsfin.clean(x) if mopsfin.clean(x) in known else '[other]') for x in extra[:10]] if isinstance(extra,list) else None,
+                        'entries:', [(type(x).__name__, mopsfin.clean(x) if isinstance(x,str) and re.fullmatch(r'[0-9A-Za-z\u3400-\u9fff ()（）.－-]{1,80}', mopsfin.clean(x)) else '[other]') for x in extra[:10]] if isinstance(extra,list) else None,
                         'graph series:', len(body.get('graphData', [])))
                   rows = mopsfin.parse_annual(body, '6488.TWO', field, display, date.today(), catalog[field])
                   print(field, 'verified years', sorted(rows))
