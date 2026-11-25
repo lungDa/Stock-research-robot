@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install --disable-pip-version-check -r requirements-worker.txt
-      - name: Observe public company metadata
+      - name: Verify public annual EPS and ROE after legend correction
         run: |
           python - <<'PY'
           import ast, inspect, re
