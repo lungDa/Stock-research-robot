@@ -380,3 +380,23 @@ def test_split_multiple_company_columns_keep_distinct_identity_and_zero():
     assert rows['2330.TW']['cash_dividends_paid']==100000
     assert rows['6488.TWO']['cash_dividends_paid']==0
     with pytest.raises(ValueError):parse(html.replace('<td>-100</td>',''),['2330.TW','6488.TWO'],2025,TODAY,METRIC)
+
+
+@pytest.mark.parametrize("failure", [requests.ReadTimeout("timeout"), requests.ConnectionError("connection"), requests.HTTPError("unavailable", response=Mock(status_code=503))])
+def test_transient_cash_source_outage_stops_batch_and_recovers(monkeypatch, failure):
+    import jobs.refresh_cash_dividends as job
+    seed_catalog()
+    loader=Mock(side_effect=failure)
+    monkeypatch.setattr(job,'request',loader)
+    monkeypatch.setattr(job,'source_slot',lambda *args:True)
+    result=job.run(SYMBOLS,max_requests=2,years=1)
+    assert result['state']=='partial' and result['failed_feeds']==len(SYMBOLS)
+    assert result['failure_details'][0]['affected_symbols']==len(SYMBOLS)
+    assert loader.call_count==1
+    assert all(not get(f'cashflow:state:{symbol}:2025',{}) for symbol in SYMBOLS)
+    assert job.run(SYMBOLS,max_requests=2,years=1)['state']=='cooldown'
+    assert loader.call_count==1
+    put('cashflow:catalog_state',{'next_attempt':0,'parser_version':2})
+    loader.side_effect=lambda path,**kw:report(SYMBOLS,year=int(kw['form']['ys'][:4]))
+    recovered=job.run(SYMBOLS,max_requests=1,years=1)
+    assert recovered['updated_fields']>0 and recovered['failed_feeds']==0
