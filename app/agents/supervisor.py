@@ -35,3 +35,9 @@ class Supervisor:
             return {"mode":"shadow","status":"denied","rows":[]}
         from app.agents.audit_reader import read_audit
         return read_audit(symbols, now=now)
+
+    def audit_market(self, *, now, offset=0, expected_snapshot_at=None, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","rows":[]}
+        from app.agents.audit_reader import read_market_page
+        return read_market_page(now=now,offset=offset,expected_snapshot_at=expected_snapshot_at)
