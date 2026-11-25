@@ -26,6 +26,22 @@ jobs:
           python -c "from app.db import engine; assert engine.dialect.name == 'postgresql'"
           python -m jobs.maintenance_guard
           python - <<'PY'
-          from jobs.refresh_defensive_history import run
-          print(run(['2330.TW']))
+          from jobs.refresh_defensive_history import run, STAGING, DATASET, FEEDS, PREFIX
+          from app.db import get
+          from jobs.maintenance_guard import assert_writable
+          for _ in range(12):
+              assert_writable()
+              result = run(['2330.TW'])
+              print(result, flush=True)
+              item = result.get('symbols', {}).get('2330.TW', {})
+              if item.get('state') != 'backfilling' or item.get('reason'):
+                  break
+          for feed in (DATASET, *FEEDS):
+              state = get(STAGING + '2330.TW:' + feed, {})
+              print({'feed':feed, 'records':len(state.get('records', [])),
+                     'verified_windows':state.get('coverage_windows', [])}, flush=True)
+          published = get(PREFIX + '2330.TW', {})
+          print({'published_date':published.get('as_of'),
+                 'adjusted_rows': len(published.get('rows', [])),
+                 'coverage':published.get('coverage')}, flush=True)
           PY
