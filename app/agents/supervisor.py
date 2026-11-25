@@ -20,3 +20,7 @@ class Supervisor:
             return Result(task.agent, "attention" if findings else "ok", findings)
         except Exception:
             return Result(task.agent, "error")
+
+    def monitor(self, *, is_admin=False, timeout=15):
+        from app.agents.monitor_v2 import collect
+        return collect(enabled=self._enabled, is_admin=is_admin, timeout=timeout)
