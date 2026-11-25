@@ -97,13 +97,19 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
     label=clean(series.get('label',''))
     if label not in aliases:raise ValueError('Company series does not match verified identity')
     code_verified=label in (display,code)
+    # The live comparison endpoint appends a market/industry label to the
+    # exact verified display, e.g. 6488 環球晶 (上櫃半導體業).
+    market = '上櫃' if symbol.endswith('.TWO') else '上市'
+    annotated_display = re.compile(re.escape(display) + r' \(' + market + r'[\u3400-\u9fffA-Za-z0-9]+業\)')
     for key in ('displayCompanyId','checkedNameList'):
         values=payload.get(key)
         if values in (None,[]):continue
         if not isinstance(values,list):raise ValueError(key+' metadata type mismatch')
         if len(values)!=1:raise ValueError(key+' metadata count mismatch')
-        if clean(values[0]) not in aliases:raise ValueError(key+' metadata identity mismatch')
-        code_verified=code_verified or clean(values[0]) in (code,display)
+        value = clean(values[0])
+        annotated = bool(annotated_display.fullmatch(value))
+        if value not in aliases and not annotated:raise ValueError(key+' metadata identity mismatch')
+        code_verified=code_verified or value in (code,display) or annotated
     if not code_verified:raise ValueError('Company code cannot be bound to this series')
     if payload.get('extraNameList'):raise ValueError('Average series must not be used')
     years=[]
