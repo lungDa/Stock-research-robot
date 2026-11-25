@@ -88,3 +88,16 @@ def test_annotated_identity_still_rejects_mismatch(invalid):
     body['checkedNameList'] = [invalid]
     with pytest.raises(ValueError, match='displayCompanyId metadata identity mismatch'):
         parse_annual(body, '6488.TWO', 'eps', DISPLAY, TODAY)
+
+
+@pytest.mark.parametrize('field', ['eps', 'roe_pct'])
+def test_observed_average_legend_is_not_a_numeric_series(field):
+    body = payload(field)
+    body['graphData'][0]['label'] = '環球晶'
+    body['displayCompanyId'] = ['6488 環球晶 (上櫃半導體業)']
+    body['checkedNameList'] = ['6488 環球晶 (上櫃半導體業)']
+    body['extraNameList'] = ['公司平均數']
+    assert parse_annual(body, '6488.TWO', field, DISPLAY, TODAY)['2025'][field] == 4.5
+    body['graphData'].append({'label': '公司平均數', 'data': [[2, 99]]})
+    with pytest.raises(ValueError, match='Unexpected company or average series'):
+        parse_annual(body, '6488.TWO', field, DISPLAY, TODAY)
