@@ -20,9 +20,11 @@ def deliver(user,key,texts,dry_run,remaining):
         if entry['sent']:continue
         if remaining<=5:raise RuntimeError('LINE配額不足，保留未確認訊息')
         if isinstance(entry['text'],dict):
-            push_message(user,entry['text'],entry['retry_key'])
+            receipt=push_message(user,entry['text'],entry['retry_key'])
         else:
-            push(user,entry['text'],entry['retry_key'])
+            receipt=push(user,entry['text'],entry['retry_key'])
+        if isinstance(receipt,dict):
+            entry['acceptance']=receipt
         entry['sent']=True;remaining-=1;put(key,state)
     return remaining
 
