@@ -111,7 +111,10 @@ def parse_annual(payload,symbol,field,display,today,metric=None):
         if value not in aliases and not annotated:raise ValueError(key+' metadata identity mismatch')
         code_verified=code_verified or value in (code,display) or annotated
     if not code_verified:raise ValueError('Company code cannot be bound to this series')
-    if payload.get('extraNameList'):raise ValueError('Average series must not be used')
+    # Live responses include this single UI legend even with companyAvg=false.
+    # The graph above still must contain exactly one verified company series.
+    extra = payload.get('extraNameList')
+    if extra not in (None, [], ['公司平均數']):raise ValueError('Average series must not be used')
     years=[]
     for axis in axes:
         match=re.fullmatch(r'(20\d{2})Q4',str(axis))
