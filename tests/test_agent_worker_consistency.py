@@ -56,3 +56,63 @@ def test_parallel_snapshots_do_not_mix():
         assert r["execution_allowed"] is False
     assert results[0]["report"]["status"]=="ok"
     assert results[1]["report"]["status"]!="ok"
+
+
+@pytest.mark.parametrize("name",["data_auditor","notification","recovery","research","risk"])
+def test_other_worker_matches_parent_supervisor(name):
+    from datetime import datetime,timedelta
+    from zoneinfo import ZoneInfo
+    from copy import deepcopy
+    from app.agents.supervisor import Supervisor
+    from app.services.trading_calendar import expected_close
+    from test_agent_risk import position
+    now=datetime.now(ZoneInfo("Asia/Taipei"))
+    docs={f"recommendations:calendar:{y}":{"year":y,"closed":[],"opened":[]} for y in (now.year-1,now.year)}
+    day=now.date()-timedelta(days=1)
+    while day.weekday()>=5:
+        day-=timedelta(days=1)
+    docs[f"recommendations:outbox:{day}:morning:fixture"]={"messages":[{"retry_key":"same"},{"retry_key":"same"}]}
+    pos=deepcopy(position())
+    pos["research"]["documents"]=docs
+    pos["research"]["quote"]["date"]=str(expected_close(now,docs.get))
+    payloads={
+        "data_auditor":{"symbols":["2330.TW"],"documents":docs},
+        "notification":{"users":["fixture"],"documents":docs,"days":7},
+        "recovery":{"monitor":{"mode":"shadow","status":"attention","checks":[{"code":"database","severity":"critical"}]}},
+        "research":pos["research"],
+        "risk":{"positions":[pos],"cash":1000},
+    }
+    payload=payloads[name]
+    original=deepcopy(payload)
+    result=api.invoke(name,payload)
+    actual=result["report"]
+    assert actual["mode"]=="shadow"
+    assert actual["status"] not in ("unknown","denied","error","timeout")
+    assert result["execution_allowed"] is False
+    assert payload==original
+    canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),allow_nan=False)
+    assert result["snapshot_digest"]==hashlib.sha256((name+":"+canonical).encode()).hexdigest()
+    # Use worker completion time for the parent reference. Compare stable
+    # business fields rather than wall-clock-derived evidence versions.
+    observed=datetime.fromisoformat(result["observed_at"])
+    sup=Supervisor(enabled=True)
+    if name=="data_auditor":
+        expected=sup.audit_data(**payload,now=observed,is_admin=True)
+        fields=("status","rows","repair_priority")
+    elif name=="notification":
+        expected=sup.audit_notifications(now=observed,read=docs.get,users=payload["users"],days=7,is_admin=True)
+        fields=("status","history")
+    elif name=="recovery":
+        expected=sup.plan_recovery(monitor=payload["monitor"],data=None,notification=None,now=observed,is_admin=True)
+        fields=("status","plans","executed")
+        assert actual["executed"] is False
+    elif name=="research":
+        expected=sup.research(**payload,now=observed,is_admin=True)
+        fields=("status","confidence","input_digest","execution_allowed")
+    else:
+        expected=sup.risk(**payload,now=observed,is_admin=True)
+        fields=("status","weights","stress_returns","risk_grade","execution_allowed")
+    expected=json.loads(json.dumps(expected,allow_nan=False))
+    for field in fields:
+        assert field in expected and field in actual
+        assert actual[field]==expected[field],field
