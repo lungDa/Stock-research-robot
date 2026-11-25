@@ -17,4 +17,7 @@ class Registry:
         if name == "research":
             from app.agents.research import ResearchAgent
             return ResearchAgent()
+        if name == "risk":
+            from app.agents.risk import RiskAgent
+            return RiskAgent()
         return None

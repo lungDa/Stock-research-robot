@@ -106,3 +106,11 @@ class Supervisor:
             return Registry().resolve("research").batch(**snapshot)
         except Exception:
             return {"mode":"shadow","status":"unknown","execution_allowed":False}
+
+    def risk(self, *, is_admin=False, **snapshot):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","execution_allowed":False}
+        try:
+            return Registry().resolve("risk").analyze(**snapshot)
+        except Exception:
+            return {"mode":"shadow","status":"unknown","execution_allowed":False}
