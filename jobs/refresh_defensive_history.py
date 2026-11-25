@@ -77,7 +77,7 @@ def anniversary(day, years):
         return day.replace(year=day.year - years, day=28)
 
 
-def next_window(state, start, end):
+def next_window(state, start, end, limit_days=366):
     """Select the first uncovered interval, bounded by the last successful request size."""
     cursor = start
     for window in sorted(state.get('coverage_windows', []), key=lambda w: w['start']):
@@ -92,8 +92,23 @@ def next_window(state, start, end):
             return None
     if cursor > end:
         return None
-    limit = max(1, min(int(state.get('window_days', 366)), 366))
+    limit = max(1, min(int(state.get('window_days', limit_days)), limit_days))
     return {'start': str(cursor), 'end': str(min(end, cursor + timedelta(days=limit-1)))}
+
+
+def merge_coverage(windows, start):
+    """Compact adjoining verified intervals; keep at most the retained history."""
+    merged = []
+    for window in sorted(windows, key=lambda value: value['start']):
+        a = max(date.fromisoformat(window['start']), start)
+        b = date.fromisoformat(window['end'])
+        if a > b:
+            continue
+        if merged and a <= date.fromisoformat(merged[-1]['end']) + timedelta(days=1):
+            merged[-1]['end'] = max(merged[-1]['end'], str(b))
+        else:
+            merged.append({'start':str(a), 'end':str(b)})
+    return merged
 
 
 def assemble(symbol, start, end, states, read):
@@ -169,7 +184,8 @@ def run(symbols):
             keys = {feed: STAGING + symbol + ':' + feed for feed in (DATASET, *FEEDS)}
             saved = get_many(keys.values())
             states = {feed: saved.get(doc_key, {}) for feed, doc_key in keys.items()}
-            missing = [(feed, next_window(state, start, end)) for feed, state in states.items()]
+            missing = [(feed, next_window(state, start, end, 366 if feed == DATASET else 1830))
+                       for feed, state in states.items()]
             missing = [(feed, window) for feed, window in missing if window is not None]
             if missing:
                 if stamp < get('annual:source:finmind', {}).get('next_attempt', 0):
@@ -201,8 +217,9 @@ def run(symbols):
                         records = list(price.values())
                     else:
                         records = compact(feed, payload.get('data'), symbol, window['start'], window['end'])
-                    state = {**state, 'records':replace_window(state.get('records', []), records, window),
-                             'coverage_windows':state.get('coverage_windows', []) + [{**window,'at':stamp}],
+                    state = {**state, 'records':[row for row in replace_window(state.get('records', []), records, window)
+                                        if row['date'] >= str(start)],
+                             'coverage_windows':merge_coverage(state.get('coverage_windows', []) + [window], start),
                              'next_attempt':0}
                     states[feed] = state
                     put(keys[feed], state)
