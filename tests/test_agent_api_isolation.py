@@ -1,5 +1,6 @@
 """Isolated API integration with real authentication and synthetic identities."""
 import pytest
+import json
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.api import agent_manager
@@ -18,7 +19,7 @@ PAYLOAD={"database_ready":True,"failed_jobs":0,"stale_jobs":0}
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(settings,"users",{"a"*24:ADMIN,"b"*24:OTHER,"c"*24:ADMIN})
+    monkeypatch.setattr(settings,"users_json",json.dumps({"a"*24:ADMIN,"b"*24:OTHER,"c"*24:ADMIN}))
     monkeypatch.setattr(settings,"login_channel_id","")
     monkeypatch.setenv("ADMIN_LINE_USER_IDS",OTHER)
     monkeypatch.setenv("AGENT_MANAGER_ENABLED","1")
@@ -68,3 +69,47 @@ def test_disabled_and_invalid_requests_do_not_run(client,monkeypatch):
     monkeypatch.setenv("AGENT_MANAGER_SYSTEM_MONITOR","0")
     assert client.post(PREFIX+"/run/system_monitor",headers=A,json=PAYLOAD).status_code==503
     assert not agent_manager.STORE.sessions
+
+@pytest.mark.parametrize("fault",["token_expired","device_expired","device_revoked","password_rotated","member_disabled"])
+def test_active_line_session_revocation(client,monkeypatch,fault):
+    import time
+    from app.api.line_login import digest
+    from app.api import device_sessions
+    from app.db import put
+    monkeypatch.setattr(settings,"login_channel_id","synthetic")
+    token="a"*24
+    now=time.time()
+    member={"active":True,"password_change_required":False,"password_version":1}
+    auth={"user":ADMIN,"stage":"active","expires":now+600,"password_version":1,"session_id":"device-a"}
+    put("member:"+ADMIN,member)
+    put("auth:session:"+digest(token),auth)
+    device_sessions.register("device-a",ADMIN,now+600)
+    assert client.get(PREFIX+"/overview",headers=A).status_code==200
+    if fault=="token_expired":
+        auth["expires"]=now-1
+    elif fault=="device_expired":
+        device_sessions.extend("device-a",now-1)
+    elif fault=="device_revoked":
+        assert device_sessions.revoke("device-a",ADMIN)
+    elif fault=="password_rotated":
+        member["password_version"]=2
+    elif fault=="member_disabled":
+        member["active"]=False
+    put("member:"+ADMIN,member)
+    put("auth:session:"+digest(token),auth)
+    for method,path in [("GET","/overview"),("GET","/history"),("POST","/run/system_monitor"),("POST","/review"),("POST","/clear")]:
+        assert client.request(method,PREFIX+path,headers=A).status_code==403
+    assert not agent_manager.STORE.sessions
+
+def test_cross_session_real_review(client):
+    from datetime import datetime,timezone
+    monitor={"mode":"shadow","status":"warning","observed_at":datetime.now(timezone.utc).isoformat(),"checks":[{"code":"database","severity":"critical"}]}
+    r=client.post(PREFIX+"/run/recovery",headers=A,json={"monitor":monitor})
+    assert r.status_code==200
+    body=r.json()
+    plan=next(p for p in body["report"]["plans"] if p["category"]=="system_failure")
+    request={"review_id":body["review_id"],"plan":plan["id"],"version":plan["evidence_version"],"operation_id":"synthetic-review-1","event":"approve"}
+    assert client.post(PREFIX+"/review",headers=C,json=request).status_code==409
+    assert client.post(PREFIX+"/review",headers=B,json=request).status_code==403
+    assert client.post(PREFIX+"/review",headers=A,json=request).status_code==200
+    assert client.get(PREFIX+"/history",headers=C).json()["review"] is None
