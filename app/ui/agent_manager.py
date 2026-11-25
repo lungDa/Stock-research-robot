@@ -1,5 +1,5 @@
 """Explicit snapshot forms; no automatic Agent execution."""
-import os,json,time,hashlib
+import os,json,time,hashlib,uuid
 import streamlit as st
 LABELS={"system_monitor":"系統監控","data_auditor":"財務資料品質","notification":"通知稽核","recovery":"復原建議","research":"投資研究","risk":"投資風險"}
 def clear():
@@ -40,6 +40,8 @@ def render(api,personal,is_admin):
         if not overview or time.monotonic()-cache.get("at",0)>60:
             cache.pop("report",None);return
         st.dataframe(overview["agents"])
+        if st.button("查詢執行與審核紀錄",key="agent_manager_history"):
+            st.json(api("GET","/admin/agents/history"))
         names=[a["name"] for a in overview["agents"] if a["enabled"] and a["registered"]]
         if not names:return
         name=st.selectbox("Agent",names,format_func=lambda n:LABELS[n],key="agent_manager_select")
@@ -64,4 +66,9 @@ def render(api,personal,is_admin):
             if name=="notification" and isinstance(r.get("rows"),list):st.dataframe(r["rows"])
             if name=="recovery" and isinstance(r.get("plans"),list):st.dataframe(r["plans"])
             if name=="research" and isinstance(r.get("factors"),dict):st.json(r["factors"])
+            if name=="recovery" and result.get("review_id") and r.get("plans"):
+                plan=st.selectbox("模擬審核項目",r["plans"],format_func=lambda p:p["category"],key="agent_manager_plan")
+                event=st.selectbox("審核動作",["approve","reject","revoke"],key="agent_manager_event")
+                if st.button("提交模擬審核",key="agent_manager_review"):
+                    st.json(api("POST","/admin/agents/review",json={"review_id":result["review_id"],"plan":plan["id"],"version":plan["evidence_version"],"event":event,"operation_id":uuid.uuid4().hex}))
             st.json(result)
