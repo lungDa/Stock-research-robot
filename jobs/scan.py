@@ -3,17 +3,19 @@ import argparse
 import logging
 import time
 from datetime import datetime, timezone
-from app.db import init_db, get, put
+from app.db import init_db, get, put, put_many
 from app.providers.universe import load
 from app.services.research import research
 from app.services.watchlist import watches
 from app.config import settings
 from app.services.accounts import member_users
 from app.services.freshness import local_now
+from app.services.trading_calendar import calendar_snapshot, cached_read, expected_close
 from app.providers.taiwan_official import history_months
 log=logging.getLogger(__name__)
 
 
+@calendar_snapshot
 def run(limit=30, seconds=120):
     started=time.monotonic()
     init_db()
@@ -29,8 +31,12 @@ def run(limit=30, seconds=120):
     market_count=max(1,limit-len(selected))
     batch=[universe[(cursor+i)%len(universe)] for i in range(min(market_count,len(universe)))]
     symbols=list(dict.fromkeys(selected+batch))[:limit]
+    expected = expected_close(local_now(), cached_read)
+    phase = {'prepare': time.monotonic()-started, 'research': 0.0, 'rating': 0.0, 'checkpoint': 0.0}
+    current_cursor, current_tracked_cursor = cursor, tcursor
     report={'updated_at':datetime.now(timezone.utc).isoformat(),'universe_size':len(universe),
             'target_date':local_now().date().isoformat(),'today_count':0,'data_dates':[],
+            'expected_close_date':str(expected) if expected else None, 'expected_close_count':0,
             'candidates':[],'attempted':0,'failed':[],'income':[],'swing':[],'fresh_count':0,'cursor':cursor,
             'scope':'本次台股小批次結果；最多30檔，不代表全市場；美股暫不主動下載',
             'universe_partial':get('universe:scope',{}).get('partial',True),'budget_seconds':seconds}
@@ -39,6 +45,7 @@ def run(limit=30, seconds=120):
     for symbol in symbols:
         # 留15秒整理報告；來源不補歷史，僅共用官方快照及既有快取。
         if time.monotonic()-started >= max(0,seconds-15): break
+        tick=time.monotonic()
         token=history_months.set(0)
         success=False
         try:
@@ -49,8 +56,10 @@ def run(limit=30, seconds=120):
             log.warning('略過 %s：%s',symbol,type(exc).__name__)
         finally:
             history_months.reset(token)
+            phase['research']+=time.monotonic()-tick
         processed.add(symbol); report['attempted']+=1
         d=(fetched if isinstance(fetched,dict) else get('quote:'+symbol)) if success else None
+        tick=time.monotonic()
         from app.services.freshness import market_usable
         if d and market_usable(d):
             from app.services.multifactor import rated
@@ -59,22 +68,35 @@ def run(limit=30, seconds=120):
             fields=('symbol','name','kind','date','currency','price','adjusted_close','ma20','ma60','yield','yield_basis','expense_ratio','expense_ratio_basis','volatility','volume_ratio','eps','roe','pe','income','swing','price_basis','source','updated_at','warnings','data_status','cached_at','history','technical_basis','adjustment_status','adjustment_reason','adjustment_anchor')
             report['candidates'].append({k:d.get(k) for k in fields})
             if d.get('date') == report['target_date']: report['today_count']+=1
+            if expected and d.get('date') == str(expected): report['expected_close_count']+=1
             if d.get('date') and d['date'] not in report['data_dates']: report['data_dates'].append(d['date'])
             for mode in ('income','swing'):
                 if (d['rating']['grade'] in ('買','強力買') if mode=='income' else d.get(mode,{}).get('matched')):
                     report[mode].append(f"{d['symbol']} {d['name']}｜{d['date']}")
+        phase['rating']+=time.monotonic()-tick
+        tick=time.monotonic()
         # 每檔checkpoint；工作中斷不會遺失整批輪掃位置。
         advanced=0
         for code in batch:
             if code not in processed: break
             advanced+=1
         report['cursor']=(cursor+advanced)%len(universe)
-        put('scan:cursor',{'cursor':report['cursor']})
+        checkpoints={}
+        if report['cursor'] != current_cursor:
+            current_cursor=report['cursor']
+            checkpoints['scan:cursor']={'cursor':current_cursor}
         if tracked:
             done=sum(s in processed for s in selected)
-            put('scan:tracked_cursor',{'cursor':(tcursor+done)%len(tracked)})
+            next_tracked=(tcursor+done)%len(tracked)
+            if next_tracked != current_tracked_cursor:
+                current_tracked_cursor=next_tracked
+                checkpoints['scan:tracked_cursor']={'cursor':current_tracked_cursor}
+        if checkpoints:
+            put_many(checkpoints)
+        phase['checkpoint']+=time.monotonic()-tick
     report['updated_at']=datetime.now(timezone.utc).isoformat()
     report['elapsed_seconds']=round(time.monotonic()-started,2)
+    report['phase_seconds']={key:round(value,3) for key,value in phase.items()}
     if not report['fresh_count']:
         # 不能把失敗執行冒稱新報告，或讓通知推播空報告。
         put('scan:last_failure',report)
