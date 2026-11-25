@@ -20,10 +20,10 @@ on:
   workflow_dispatch:
     inputs:
       slot:
-        description: 'morning = previous session close; evening = today close'
+        description: 'auto = due reports; morning = previous session close; evening = today close'
         type: choice
-        options: [morning, evening]
-        default: evening
+        options: [auto, morning, evening]
+        default: auto
       send:
         description: 'Actually send LINE (unchecked = preview only)'
         type: boolean
