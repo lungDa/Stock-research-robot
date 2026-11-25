@@ -18,7 +18,7 @@ def inspect_outbox(doc, now, same_day):
     accepted=0
     for m in messages:
         r=m.get("acceptance")
-        valid=isinstance(r,dict) and ((r.get("status_code")==200 and bool(r.get("request_id"))) or (r.get("status_code")==409 and bool(r.get("accepted_request_id"))))
+        valid=isinstance(r,dict) and ((r.get("http_status")==200 and bool(r.get("request_id"))) or (r.get("http_status")==409 and bool(r.get("accepted_request_id"))))
         if valid:
             accepted+=1
         if m.get("sent") is True and not valid or valid and m.get("sent") is not True:

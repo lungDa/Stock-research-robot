@@ -20,6 +20,6 @@ def test_pending():
 def test_uncertain():
     assert inspect_outbox(doc(entry(sent=True)),NOW,True)[0]=="receipt_uncertain"
 def test_accepted():
-    assert inspect_outbox(doc(entry(sent=True,receipt={"status_code":200,"request_id":"id"})),NOW,True)[0]=="api_accepted_only"
+    assert inspect_outbox(doc(entry(sent=True,receipt={"http_status":200,"request_id":"id"})),NOW,True)[0]=="api_accepted_only"
 def test_conflict_receipt():
-    assert inspect_outbox(doc(entry(sent=True,receipt={"status_code":409,"accepted_request_id":"id"})),NOW,True)[0]=="api_accepted_only"
+    assert inspect_outbox(doc(entry(sent=True,receipt={"http_status":409,"accepted_request_id":"id"})),NOW,True)[0]=="api_accepted_only"
