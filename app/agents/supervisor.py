@@ -84,3 +84,9 @@ class Supervisor:
             return plan_incident(**evidence)
         except Exception:
             return {"mode":"shadow","status":"unknown","plans":[],"executed":False}
+
+    def recovery_simulation(self, *, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return None
+        from app.agents.recovery_state import RecoverySimulation
+        return RecoverySimulation()
