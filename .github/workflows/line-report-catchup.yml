@@ -1,0 +1,48 @@
+name: Authorized LINE reports catch-up
+on:
+  push:
+    branches: [diagnose/line-report-catchup-20261125]
+    paths: [.github/workflows/line-report-catchup.yml]
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-recommendations
+  cancel-in-progress: false
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 27
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL || secrets.PUBLIC_APP_URL }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Confirm aggregate subscription settings
+        run: |
+          python - <<'PY'
+          from app.db import engine
+          assert engine.dialect.name == 'postgresql'
+          from app.services.accounts import member_users, can_use_personal
+          from app.services.market_recommendations import preferences
+          from app.services.watchlist import subscribed
+          from app.services import assistant
+          from app.day_trader.reporting import preferences as four_preferences
+          members = [u for u in member_users() if can_use_personal(u)]
+          subscribed_users = [u for u in subscribed() if can_use_personal(u)]
+          print({'active_members':len(members),'ranking_enabled':sum(bool(preferences(u).get('enabled')) for u in members),
+                 'four_rankings_enabled':sum(bool(four_preferences(u).get('enabled')) for u in members),
+                 'watch_notifications_enabled':len(subscribed_users),
+                 'daily_brief_enabled':sum(bool(assistant.preferences(u).get('daily_brief')) for u in subscribed_users)})
+          PY
+      - name: Send due reports using normal preferences and deduplication
+        run: |
+          python -m jobs.maintenance_guard
+          python -m jobs.watch_digest
+          python -m jobs.recommend --slot auto --send
