@@ -29,6 +29,16 @@ async def maintenance_gate(request:Request,call_next):
     path=request.url.path
     if path in ('/health','/ready','/version','/maintenance/status','/admin/maintenance'):
         return await call_next(request)
+    if path == '/line/webhook' and request.method == 'POST':
+        body = await request.body()
+        if line.verify(body, request.headers.get('x-line-signature', '')):
+            try:
+                payload = json.loads(body)
+            except (ValueError, UnicodeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get('events') == []:
+                # LINE verifies the endpoint with a signed request containing no events.
+                return JSONResponse({'ok': True})
     try:
         active=bool((await asyncio.to_thread(get,'system:maintenance',{})).get('enabled',False))
     except Exception:
