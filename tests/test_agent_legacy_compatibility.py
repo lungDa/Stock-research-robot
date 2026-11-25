@@ -38,3 +38,48 @@ def test_legacy_api_survives_shadow_worker(monkeypatch):
         assert client.get("/watchlist",headers=B).json()==other
         assert client.get("/health").status_code==200
         assert client.get("/admin/agents/overview",headers=A).status_code==404
+
+import pytest
+from datetime import datetime
+from app.services.freshness import TAIPEI
+from app.db import get
+from test_recommendations import setup_job
+
+@pytest.mark.parametrize("slot,hour,minute", [("morning",11,30),("evening",19,30)])
+def test_legacy_ranking_after_shadow(monkeypatch,slot,hour,minute):
+    j=setup_job(monkeypatch)
+    calls=[]
+    monkeypatch.setattr(j,"quota",lambda:100)
+    monkeypatch.setattr(j,"push",lambda *a:calls.append(a))
+    now=datetime(2026,11,10,hour,minute,tzinfo=TAIPEI)
+    j.run(slot,False,now)
+    key=f"recommendations:outbox:2026-11-10:{slot}:Ualice"
+    before=deepcopy(get(key))
+    assert before and all(x["sent"] for x in before["messages"])
+    result=invoke("system_monitor",{"database_ready":False,"failed_jobs":1,"stale_jobs":0})
+    assert result["report"]["mode"]=="shadow"
+    assert get(key)==before
+    count=len(calls)
+    assert count>0
+    j.run(slot,False,now)
+    assert len(calls)==count
+    assert get(key)==before
+
+def test_disabled_manager_preserves_legacy_ui(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.delenv("AGENT_MANAGER_UI_ENABLED",raising=False)
+    ui=AppTest.from_string("""
+import streamlit as st
+from app.ui.agent_manager import render
+st.session_state.token="fixture"
+st.session_state.agent_manager_cache={"report":"old"}
+def api(*args,**kwargs):
+    raise AssertionError("disabled manager called API")
+st.text_input("Legacy setting",key="legacy")
+render(api,True,True)
+""").run()
+    assert not ui.exception
+    ui.text_input(key="legacy").set_value("2412").run()
+    assert ui.session_state["legacy"]=="2412"
+    assert "agent_manager_cache" not in ui.session_state
+    assert not ui.exception
