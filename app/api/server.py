@@ -29,15 +29,20 @@ async def maintenance_gate(request:Request,call_next):
     path=request.url.path
     if path in ('/health','/ready','/version','/maintenance/status','/admin/maintenance'):
         return await call_next(request)
+    webhook_started = None
+    webhook_log = logging.getLogger('uvicorn.error')
     if path == '/line/webhook' and request.method == 'POST':
         body = await request.body()
         if line.verify(body, request.headers.get('x-line-signature', '')):
+            webhook_started = time.monotonic()
+            webhook_log.info('LINE webhook received; signature valid')
             try:
                 payload = json.loads(body)
             except (ValueError, UnicodeError):
                 payload = None
             if isinstance(payload, dict) and payload.get('events') == []:
                 # LINE verifies the endpoint with a signed request containing no events.
+                webhook_log.info('LINE webhook verification completed in %.3fs', time.monotonic()-webhook_started)
                 return JSONResponse({'ok': True})
     try:
         active=bool((await asyncio.to_thread(get,'system:maintenance',{})).get('enabled',False))
@@ -46,12 +51,17 @@ async def maintenance_gate(request:Request,call_next):
         if path=='/line/webhook':
             return await unavailable_webhook(request,False)
         return JSONResponse(status_code=503,content={'detail':'系統狀態暫不可確認，請稍後再試'})
+    if webhook_started is not None:
+        webhook_log.info('LINE webhook maintenance lookup completed in %.3fs', time.monotonic()-webhook_started)
     if active:
         if path=='/line/webhook':
             return await unavailable_webhook(request,True)
         return JSONResponse(status_code=503,content={'detail':'系統維護中，請稍後再試'},
                             headers={'Retry-After':'300','Cache-Control':'no-store'})
-    return await call_next(request)
+    response = await call_next(request)
+    if webhook_started is not None:
+        webhook_log.info('LINE webhook completed status=%d elapsed=%.3fs', response.status_code, time.monotonic()-webhook_started)
+    return response
 
 
 async def unavailable_webhook(request,maintenance):

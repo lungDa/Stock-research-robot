@@ -14,6 +14,9 @@ def test_scan_continues_after_stock_failure(monkeypatch):
     assert result['failed']==['2330.TW'] and result['fresh_count']==1
     assert result['swing']==[]  # Raw cached averages cannot pass without event coverage.
     assert result['candidates'][0]['adjustment_status']=='missing'
+    assert set(result['phase_seconds']) == {'prepare','research','rating','checkpoint'}
+    assert all(value >= 0 for value in result['phase_seconds'].values())
+    assert result['expected_close_date'] is not None
 
 def setup_signals(monkeypatch):
     import jobs.notify as notify
