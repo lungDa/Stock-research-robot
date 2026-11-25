@@ -51,15 +51,11 @@ def run(code):
             return {"state":"critical" if e.code>=500 else "unknown"}
     if os.getenv("AGENT_MONITOR_DB_READ")!="1":
         return {"state":"unknown"}
-    from app.db import Session, Document
+    from app.db import Document
+    from app.agents.audit_aggregate import readonly_session
     from sqlalchemy import text, select
     from app.config import settings
-    with Session() as s:
-        if s.bind.dialect.name=="postgresql":
-            s.execute(text("SET TRANSACTION READ ONLY"))
-            s.execute(text("SET LOCAL statement_timeout = '4000ms'"))
-        elif s.bind.dialect.name!="sqlite":
-            return {"state":"unknown"}
+    with readonly_session() as s:
         def read(key, default=None):
             row=s.get(Document,key)
             return json.loads(row.payload) if row else default

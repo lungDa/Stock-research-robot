@@ -109,15 +109,11 @@ def database():
     # Explicit operator opt-in to a configured DB; no schema initialization.
     if os.getenv("AGENT_MONITOR_DB_READ") != "1":
         return {}
-    from app.db import Session, Document
+    from app.db import Document
+    from app.agents.audit_aggregate import readonly_session
     from sqlalchemy import text
     out = {}
-    with Session() as session:
-        if session.bind.dialect.name == "postgresql":
-            session.execute(text("SET TRANSACTION READ ONLY"))
-            session.execute(text("SET LOCAL statement_timeout = '4000ms'"))
-        elif session.bind.dialect.name != "sqlite":
-            return {}
+    with readonly_session() as session:
         session.execute(text("SELECT 1"))
         out["database"] = "ok"
         def get_doc(key):

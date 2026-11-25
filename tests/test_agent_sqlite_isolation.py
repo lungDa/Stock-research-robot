@@ -47,3 +47,30 @@ def test_readonly_restores_state_on_begin_failure(isolated_engine):
     with isolated_engine.begin() as c:
         assert c.exec_driver_sql("PRAGMA query_only").scalar_one()==0
         c.exec_driver_sql("UPDATE sample SET value=3")
+
+@pytest.mark.parametrize("reader",["audit","page","monitor","legacy_monitor"])
+def test_reader_paths_preserve_readonly(monkeypatch,reader):
+    from datetime import datetime,timezone
+    from app.db import engine,put
+    from app.agents import audit_reader,monitor_worker_v2,monitor_probe
+    now=datetime.now(timezone.utc)
+    monkeypatch.setenv("AGENT_AUDIT_DB_READ","1")
+    monkeypatch.setenv("AGENT_MONITOR_DB_READ","1")
+    put("v26:universe:verified_symbols",{"verified":True,"method":"OFFICIAL_COMPANY_REGISTRY","at":now.timestamp(),"symbols":["2330.TW"]})
+    with engine.connect() as c:
+        c.exec_driver_sql("PRAGMA query_only=ON")
+    try:
+        if reader=="audit":
+            assert audit_reader.read_audit(["2330.TW"],now=now)["rows"]
+        elif reader=="page":
+            assert audit_reader.read_market_page(now=now)["rows"]
+        elif reader=="monitor":
+            assert monitor_worker_v2.run("database")=={"state":"ok"}
+        else:
+            assert monitor_probe.database()["database"]=="ok"
+        with engine.connect() as c:
+            assert c.exec_driver_sql("PRAGMA query_only").scalar_one()==1
+    finally:
+        with engine.connect() as c:
+            c.exec_driver_sql("PRAGMA query_only=OFF")
+    put("isolation:write_after",{"ok":True})
