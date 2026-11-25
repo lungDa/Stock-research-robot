@@ -1,0 +1,43 @@
+name: Read-only LINE recipient and outbox audit
+on:
+  push:
+    branches: [diagnose/line-recipient-match-20261125]
+    paths: ['.github/workflows/line-recipient-audit.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Compare recipient sets and stored message acceptance flags
+        run: |
+          python - <<'PY'
+          import os
+          assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))
+          from app.db import get
+          from app.services.accounts import member_users,can_use_personal
+          from app.services.watchlist import subscribed
+          from app.services import assistant
+          from app.services.market_recommendations import preferences
+          day='2026-11-25'
+          watch={u for u in subscribed() if can_use_personal(u) and assistant.preferences(u)['daily_brief']}
+          rank={u for u in member_users() if can_use_personal(u) and preferences(u)['enabled']}
+          print({'watch_recipients':len(watch),'ranking_recipients':len(rank),'common_recipients':len(watch & rank)})
+          for group, users in [('common',watch & rank),('watch_only',watch-rank),('rank_only',rank-watch)]:
+              for u in users:
+                  w=get(f'watch_digest:outbox:{day}:{u}') or {}
+                  r=get(f'recommendations:outbox:{day}:evening:{u}') or {}
+                  def stats(state):
+                      msgs=state.get('messages',[])
+                      return {'messages':len(msgs),'marked_sent':sum(bool(m.get('sent')) for m in msgs)}
+                  print({'group':group,'watch':stats(w),'ranking':stats(r)})
+          PY
