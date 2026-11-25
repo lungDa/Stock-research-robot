@@ -1,5 +1,13 @@
 """Snapshot-only worker. No live collectors or external actions."""
-import json,sys
+import json,sys,os
+# Disable dotenv before importing any application modules.
+os.environ['PYTHON_DOTENV_DISABLED']='1'
+os.environ['DATABASE_URL']='sqlite:///:memory:'
+if __name__=='__main__':
+    import resource
+    resource.setrlimit(resource.RLIMIT_CPU,(18,19))
+    resource.setrlimit(resource.RLIMIT_FSIZE,(2000000,2000000))
+    resource.setrlimit(resource.RLIMIT_NOFILE,(128,128))
 from datetime import datetime,timezone
 from dataclasses import asdict
 from app.agents.supervisor import Supervisor

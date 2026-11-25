@@ -3,6 +3,10 @@ from app.agents.manager_review import ReviewStore,safe_report
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest,sys,subprocess
+from copy import deepcopy
+from datetime import datetime,timezone
+from zoneinfo import ZoneInfo
+from app.services.trading_calendar import expected_close
 from test_agent_risk import position
 from test_agent_research import Q,DOC
 
@@ -18,6 +22,12 @@ def test_api_real_worker(monkeypatch,name,payload,status):
     app.dependency_overrides[security.current_lighthouse_admin]=lambda:"isolated"
     monkeypatch.setenv("AGENT_MANAGER_ENABLED","1")
     monkeypatch.setenv("AGENT_MANAGER_"+name.upper(),"1")
+    payload=deepcopy(payload)
+    if name=="risk":
+        now=datetime.now(ZoneInfo("Asia/Taipei"))
+        docs={f"recommendations:calendar:{y}":{"year":y,"closed":[],"opened":[]} for y in (now.year-1,now.year)}
+        payload["positions"][0]["research"]["documents"]=docs
+        payload["positions"][0]["research"]["quote"]["date"]=str(expected_close(now,docs.get))
     r=TestClient(app).post("/admin/agents/run/"+name,json=payload,headers={"Authorization":"Bearer test"}).json()
     assert r["mode"]=="shadow" and r["execution_allowed"] is False
     assert "report" in r and r["report"].get("status") not in ("unknown","error","denied")
@@ -36,7 +46,7 @@ def test_real_timeout(monkeypatch):
 
 def test_review_isolation():
     s=ReviewStore()
-    p={"monitor":{"mode":"shadow","checks":[{"code":"database","severity":"critical"}]}}
+    p={"monitor":{"observed_at":datetime.now(timezone.utc).isoformat(),"mode":"shadow","checks":[{"code":"database","severity":"critical"}]}}
     r=s.record("a","token","recovery",{"mode":"shadow","report":{"status":"planned"}},p)
     plan=r["report"]["plans"][0]
     req={"review_id":r["review_id"],"plan":plan["id"],"version":plan["evidence_version"],"event":"approve","operation_id":"one"}

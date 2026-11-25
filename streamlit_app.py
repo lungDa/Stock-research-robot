@@ -134,6 +134,10 @@ with st.sidebar:
     else:
         st.write('已登入：'+st.session_state.get('login_name','LINE使用者'))
     if st.session_state.get('token') and st.button('登出'):
+        if os.getenv('AGENT_MANAGER_UI_ENABLED')=='1':
+            api('POST','/admin/agents/clear')
+            from app.ui.agent_manager import clear as clear_agent_manager
+            clear_agent_manager()
         api('POST','/auth/logout');st.session_state.browser_logout_pending=True;st.rerun()
 personal=bool(st.session_state.get('personal_active'))
 from app.day_trader.admin_bootstrap_ui import render_admin_bootstrap

@@ -1,5 +1,6 @@
 """Ephemeral, session-bound simulation records; no raw snapshot retention."""
 from datetime import datetime,timezone
+from app.agents.recovery_policy import fresh
 from hashlib import sha256
 from threading import RLock
 from collections import OrderedDict
@@ -30,6 +31,9 @@ class ReviewStore:
             if len(self.sessions)>=32:self.sessions.popitem(last=False)
             self.sessions[key]={"at":now,"runs":[],"sim":None,"review_id":None,"plans":[]}
         return self.sessions[key]
+    def clear(self,user,token):
+        with self.lock:
+            self.sessions.pop(sha256((str(user)+"\\0"+token).encode()).hexdigest(),None)
     def record(self,user,token,name,result,payload):
         with self.lock:
             s=self._session(user,token)
@@ -40,9 +44,18 @@ class ReviewStore:
                 if result.get("report",{}).get("status")=="planned":
                     sim=Supervisor(enabled=True).recovery_simulation(is_admin=True)
                     incident=uuid4().hex
-                    evidence={k:{"source":k,"at":now,"report":payload.get(k)} for k in ("monitor","data","notification")}
+                    evidence={}
+                    for k in ("monitor","data","notification"):
+                        report=payload.get(k)
+                        try:at=datetime.fromisoformat(report["observed_at"])
+                        except (TypeError,KeyError,ValueError):continue
+                        if fresh(at,now):evidence[k]={"source":k,"at":at,"report":report}
+                    if not evidence:
+                        clean["report"]["review_status"]="missing_fresh_evidence"
+                        return clean
                     p=sim.plan(incident=incident,now=now,evidence=evidence)
                     s.update(sim=sim,review_id=incident,plans=safe_report(p["plans"]))
+                    s["reviewable"]={x["id"] for x in p["plans"] if x["source"] in evidence and x["category"]!="unknown"}
                     clean["review_id"]=incident
                     clean["report"]["plans"]=s["plans"]
             s["runs"]=(s["runs"]+[{"agent":name,"at":now.isoformat(),"status":clean.get("report",{}).get("status",clean.get("status","unknown")),"snapshot_digest":clean.get("snapshot_digest")}])[-100:]
@@ -51,6 +64,7 @@ class ReviewStore:
         with self.lock:
             s=self._session(user,token)
             if not s["sim"] or p.get("review_id")!=s["review_id"] or p.get("event") not in ("approve","reject","revoke"):return False
+            if p.get("plan") not in s.get("reviewable",set()):return False
             if not any(x["id"]==p.get("plan") and x["evidence_version"]==p.get("version") for x in s["plans"]):return False
             return s["sim"].transition(p["plan"],p["event"],datetime.now(timezone.utc),operation_id=p.get("operation_id"),expected_version=p["version"])
     def history(self,user,token):

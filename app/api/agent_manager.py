@@ -1,5 +1,5 @@
 """Isolated router: intentionally not mounted on production server."""
-import os,json,subprocess,sys,hashlib,threading
+import os,json,subprocess,sys,hashlib,threading,tempfile,time
 from datetime import datetime,timezone
 from app.agents.manager_review import ReviewStore, safe_report
 from fastapi import Header
@@ -18,16 +18,10 @@ def overview(user=Depends(current_lighthouse_admin)):
 async def run(name:str,request:Request,user=Depends(current_lighthouse_admin),authorization:str=Header(default="")):
     if name not in NAMES:raise HTTPException(404,"Unknown agent")
     if not enabled(name):raise HTTPException(503,"Agent disabled")
-    body=bytearray()
-    async for chunk in request.stream():
-        body.extend(chunk)
-        if len(body)>512000:raise HTTPException(413,"Snapshot too large")
+    payload=await bounded_json(request,512000)
     try:
-        payload=json.loads(body)
-        if not isinstance(payload,dict):raise ValueError()
         from starlette.concurrency import run_in_threadpool
-        result=await run_in_threadpool(invoke,name,payload)
-        return STORE.record(user,authorization,name,result,payload)
+        return await run_in_threadpool(run_once,user,authorization,name,payload)
     except (ValueError,TypeError):raise HTTPException(400,"Invalid snapshot")
 SLOTS=threading.BoundedSemaphore(2)
 def invoke(name,payload):
@@ -37,7 +31,8 @@ def invoke(name,payload):
 def _invoke(name,payload,timeout=20):
     try:
         canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),allow_nan=False)
-        p=subprocess.run([sys.executable,"-m","app.agents.manager_worker",name],input=json.dumps(payload,allow_nan=False),text=True,capture_output=True,timeout=timeout,check=True)
+        with tempfile.TemporaryDirectory(prefix="agent-shadow-") as tmp:
+            p=subprocess.run([sys.executable,"-m","app.agents.manager_worker",name],input=canonical,text=True,capture_output=True,timeout=timeout,check=True,env=worker_env(tmp))
         if len(p.stdout)>1000000:raise ValueError()
         result=json.loads(p.stdout)
         if not isinstance(result,dict) or result.get("mode")!="shadow":raise ValueError()
@@ -51,7 +46,41 @@ def history(user=Depends(current_lighthouse_admin),authorization:str=Header(defa
     return STORE.history(user,authorization)
 
 @router.post("/review")
-def review(payload:dict,user=Depends(current_lighthouse_admin),authorization:str=Header(default="")):
+async def review(request:Request,user=Depends(current_lighthouse_admin),authorization:str=Header(default="")):
     if not enabled("recovery"):raise HTTPException(503,"Agent disabled")
+    payload=await bounded_json(request,4096)
     if not STORE.review(user,authorization,payload):raise HTTPException(409,"Review rejected")
     return STORE.history(user,authorization)
+
+async def bounded_json(request,limit):
+    body=bytearray()
+    async for chunk in request.stream():
+        if len(body)+len(chunk)>limit:raise HTTPException(413,"Snapshot too large")
+        body.extend(chunk)
+    try:
+        value=json.loads(body,parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        if not isinstance(value,dict):raise ValueError()
+        return value
+    except (ValueError,TypeError,RecursionError):raise HTTPException(400,"Invalid snapshot")
+
+def worker_env(tmp):
+    return {"PATH":os.defpath,"HOME":tmp,"TMPDIR":tmp,"PYTHON_DOTENV_DISABLED":"1","DATABASE_URL":"sqlite:///:memory:","OPENBLAS_NUM_THREADS":"1","OMP_NUM_THREADS":"1","MKL_NUM_THREADS":"1","PYTHONNOUSERSITE":"1"}
+
+PENDING=set()
+LOCK=threading.Lock()
+def run_once(user,token,name,payload):
+    key=hashlib.sha256(json.dumps([str(user),token,name,payload],sort_keys=True,allow_nan=False).encode()).hexdigest()
+    with LOCK:
+        if key in PENDING:return {"mode":"shadow","execution_allowed":False,"status":"busy"}
+        if len(PENDING)>=2:return {"mode":"shadow","execution_allowed":False,"status":"busy"}
+        PENDING.add(key)
+    try:
+        result=invoke(name,payload)
+        return STORE.record(user,token,name,result,payload)
+    finally:
+        with LOCK:PENDING.discard(key)
+
+@router.post("/clear")
+def clear(user=Depends(current_lighthouse_admin),authorization:str=Header(default="")):
+    STORE.clear(user,authorization)
+    return {"mode":"shadow","execution_allowed":False,"status":"cleared"}

@@ -54,7 +54,7 @@ def render(api,personal,is_admin):
         report=cache.get("report")
         if not active or not report or report[:2]!=(name,digest) or time.monotonic()-report[2]>=60:
             cache.pop("report",None)
-        if st.button("分析",disabled=not active,key="agent_manager_run"):
+        if st.button("分析",disabled=not active,key="agent_manager_run") and not cache.get("report"):
             cache.pop("report",None)
             result=api("POST","/admin/agents/run/"+name,json=payload)
             if result:cache["report"]=(name,digest,time.monotonic(),result)
