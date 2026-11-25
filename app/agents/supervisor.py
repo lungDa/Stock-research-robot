@@ -55,3 +55,9 @@ class Supervisor:
             return Registry().resolve("notification").audit(now=now,read=read,users=users,days=days)
         except Exception:
             return {"mode":"shadow","status":"unknown"}
+
+    def audit_notification_database(self, *, now, days=7, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied"}
+        from app.agents.notification_evidence import read_notifications
+        return read_notifications(now=now,days=days)
