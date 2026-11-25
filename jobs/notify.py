@@ -31,11 +31,15 @@ def message(d,previous):
 def run():
     init_db();deadline=time.monotonic()+40; now=time.time();day=local_now().date().isoformat()
     remaining=None
-    for user in subscribed():
+    sent=failed=unchanged=0
+    users=subscribed()
+    for user in users:
         if not can_use_personal(user):continue
         c=settings_for(user);revision=config_hash(c)
         for symbol in watches(user)[:30]:
-            if time.monotonic()>deadline-20:return
+            if time.monotonic()>deadline-20:
+                print({'status':'budget_exhausted','subscribers':len(users),'sent':sent,'failed':failed,'unchanged':unchanged})
+                return
             key='signal:state:'+user+':'+symbol;state=get(key,{})
             pending=state.get('pending')
             if pending:
@@ -56,6 +60,7 @@ def run():
                     put(key,{'grade':grade,'config_hash':revision});continue
                 changed=previous!=grade and (previous is not None or grade in ('買','強力買'))
                 if not changed:
+                    unchanged+=1
                     if not state:put(key,{'grade':grade,'config_hash':revision})
                     continue
                 if c['notify_direction']=='up' and RANK[grade]<=RANK.get(previous,-1):
@@ -72,14 +77,18 @@ def run():
             try:
                 push(user,pending['text'],pending['retry_key'])
                 put(key,{'grade':pending['grade'],'config_hash':pending['config_hash'],'sent_at':time.time()})
+                sent+=1
             except Exception as exc:
                 # 明確4xx（409由line.send處理）不盲目重試；網路不確定回應沿用同payload/key。
                 if isinstance(exc,requests.HTTPError) and exc.response is not None and 400<=exc.response.status_code<500:
                     pending['blocked']=True
                     put(key,{**state,'pending':pending})
+                failed+=1
                 log.warning('單檔通知未確認，保留狀態；不新增重複訊息')
 
-        remaining=nudge(user,day,now,remaining,c['daily_cap'],slot,push,deadline,local_now())
+        if not watches(user):
+            remaining=nudge(user,day,now,remaining,c['daily_cap'],slot,push,deadline,local_now())
+    print({'status':'finished','subscribers':len(users),'sent':sent,'failed':failed,'unchanged':unchanged})
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.INFO);run()
