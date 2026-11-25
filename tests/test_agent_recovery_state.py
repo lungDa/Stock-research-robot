@@ -10,8 +10,8 @@ def test_state():
     k=p["id"]
     assert not s.transition(k,"simulate_failure",NOW,operation_id="denied")
     assert s.transition(k,"approve",NOW,operation_id="approve")
-    for _ in range(3):assert s.transition(k,"simulate_failure",NOW)
-    assert not s.transition(k,"simulate_failure",NOW)
+    for i in range(3):assert s.transition(k,"simulate_failure",NOW,operation_id=str(i))
+    assert not s.transition(k,"simulate_failure",NOW,operation_id="fourth")
     assert s.transition(k,"simulate_probe",NOW+timedelta(minutes=15),operation_id="probe")
     assert not s.transition(k,"simulate_probe",NOW+timedelta(minutes=15),operation_id="probe")
     assert len(s.history(k))==5
