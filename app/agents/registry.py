@@ -11,4 +11,7 @@ class Registry:
         if name == "notification":
             from app.agents.notification import NotificationAgent
             return NotificationAgent()
+        if name == "recovery":
+            from app.agents.recovery import RecoveryAgent
+            return RecoveryAgent()
         return None

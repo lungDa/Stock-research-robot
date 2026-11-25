@@ -67,3 +67,11 @@ class Supervisor:
             return {"mode":"shadow","status":"denied"}
         from app.agents.notification_process import collect
         return collect(now=now,days=days,timeout=timeout)
+
+    def plan_recovery(self, *, monitor, data, notification, now, attempts=None, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","plans":[],"executed":False}
+        try:
+            return Registry().resolve("recovery").plan(monitor=monitor,data=data,notification=notification,now=now,attempts=attempts)
+        except Exception:
+            return {"mode":"shadow","status":"unknown","plans":[],"executed":False}
