@@ -15,6 +15,7 @@ def test_version_and_batch():
 
 def test_etf():
     q={**Q,"symbol":"0050.TW","kind":"ETF","yield":4,"yield_basis":"trailing_paid_365d","expense_ratio":.002,"expense_ratio_basis":"annual_total_expense"}
+    q["classification"]={"symbol":q["symbol"],"kind":"ETF","source_url":"https://twse.com.tw","observed_at":NOW.isoformat()}
     for k in ("yield","expense_ratio"):
         q[k+"_evidence"]={"source_url":"https://twse.com.tw","observed_at":NOW.isoformat()}
     r=ResearchAgent().analyze(symbol=q["symbol"],quote=q,documents=DOC,now=NOW)
