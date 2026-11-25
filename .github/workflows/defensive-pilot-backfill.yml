@@ -1,47 +1,31 @@
-name: Defensive adjusted source entitlement check
+name: Free defensive history pilot
 on:
   push:
     branches: [diagnose/defensive-pilot-backfill]
     paths: [.github/workflows/defensive-pilot-backfill.yml]
 permissions:
   contents: read
+concurrency:
+  group: lighthouse-defensive-risk
+  cancel-in-progress: false
 jobs:
-  probe:
+  pilot:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 8
     env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Check a single public-data request and classify provider response
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Advance one free history window without LINE or paid data
         run: |
+          python -c "from app.db import engine; assert engine.dialect.name == 'postgresql'"
+          python -m jobs.maintenance_guard
           python - <<'PY'
-          import os, urllib.request, urllib.parse, urllib.error, json
-          token = os.environ.get('FINMIND_TOKEN','').strip()
-          if not token:
-              print('status: token_not_configured')
-              raise SystemExit(1)
-          params = urllib.parse.urlencode({'dataset':'TaiwanStockPriceAdj','data_id':'2330',
-                                          'start_date':'2026-11-24','end_date':'2026-11-24'})
-          request = urllib.request.Request('https://api.finmindtrade.com/api/v4/data?' + params,
-                                           headers={'Authorization':'Bearer '+token})
-          try:
-              with urllib.request.urlopen(request, timeout=10) as response:
-                  code, raw = response.status, response.read(65536)
-          except urllib.error.HTTPError as exc:
-              code, raw = exc.code, exc.read(65536)
-          except OSError:
-              print('status: network_error')
-              raise SystemExit(1)
-          try:
-              body=json.loads(raw)
-              message=str(body.get('msg', body.get('message',''))).lower()
-          except (ValueError, TypeError):
-              body, message = {}, ''
-          terms = ('sponsor','backer','permission','upgrade','member','權限','贊助','會員','付費')
-          print({'http_status':code, 'provider_status': body.get('status') if type(body.get('status')) is int else None,
-                 'entitlement_indicated':any(term in message for term in terms),
-                 'data_count':len(body['data']) if isinstance(body.get('data'),list) else None})
+          from jobs.refresh_defensive_history import run
+          print(run(['2330.TW']))
           PY
