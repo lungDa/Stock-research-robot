@@ -1,0 +1,56 @@
+name: Authorized evening LINE report recovery
+on:
+  push:
+    branches: [diagnose/line-evening-recovery-20261125]
+    paths: ['.github/workflows/line-evening-recovery.yml']
+permissions:
+  contents: read
+concurrency:
+  group: lighthouse-recommendations
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      USER_TOKENS_JSON: ${{ secrets.USER_TOKENS_JSON }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Recover previously accepted evening report once
+        run: |
+          python -m jobs.maintenance_guard
+          python - <<'PY'
+          import os
+          assert os.environ.get('DATABASE_URL','').startswith(('postgres','postgresql'))
+          from app.db import get,leased
+          from app.services.accounts import member_users,can_use_personal
+          from app.services.watchlist import subscribed
+          from app.services import assistant
+          from app.services.market_recommendations import preferences
+          from app.channels.line import quota
+          from jobs.recommend import deliver
+          from app.services.freshness import local_now
+          day='2026-11-25'
+          assert str(local_now().date())==day, 'Recovery limited to tonight'
+          watch={u for u in subscribed() if can_use_personal(u) and assistant.preferences(u)['daily_brief']}
+          rank={u for u in member_users() if can_use_personal(u) and preferences(u)['enabled']}
+          assert watch==rank and len(rank)==1, 'Recipient scope mismatch'
+          u=next(iter(rank))
+          with leased('recommendations:worker',840) as owned:
+              assert owned
+              original=get(f'recommendations:outbox:{day}:evening:{u}') or {}
+              msgs=original.get('messages',[])
+              assert len(msgs)==2 and all(m.get('sent') for m in msgs), 'Original acceptance state mismatch'
+              recovery=f'recommendations:recovery:{day}:evening:{u}'
+              before=quota()
+              remaining=deliver(u,recovery,[m['text'] for m in msgs],False,before)
+              state=get(recovery) or {}
+              entries=state.get('messages',[])
+              print({'recovery_messages':len(entries),'new_api_acceptances':before-remaining,'http_statuses':[m.get('acceptance',{}).get('http_status') for m in entries],'receipt_ids_present':sum(bool(m.get('acceptance',{}).get('request_id') or m.get('acceptance',{}).get('accepted_request_id')) for m in entries),'original_preserved':True})
+          PY
