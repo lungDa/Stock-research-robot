@@ -90,3 +90,11 @@ class Supervisor:
             return None
         from app.agents.recovery_state import RecoverySimulation
         return RecoverySimulation()
+
+    def research(self, *, is_admin=False, **snapshot):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","execution_allowed":False}
+        try:
+            return Registry().resolve("research").analyze(**snapshot)
+        except Exception:
+            return {"mode":"shadow","status":"unknown","execution_allowed":False}

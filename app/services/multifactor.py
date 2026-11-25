@@ -116,7 +116,7 @@ def annual_rows(user,symbol,documents=None):
         existing['field_sources']=sources
     return rows
 
-def value_for(data,rows,metric,years,today):
+def value_for(data,rows,metric,years,today,*,market_check=None):
     end=today.year-1
     if metric in ANNUAL:
         needed=1 if metric=='eps_latest' else years+1 if metric=='revenue_cagr' else years
@@ -149,7 +149,7 @@ def value_for(data,rows,metric,years,today):
     if data.get('data_status')=='stale':return None
     if data.get('symbol','').endswith(('.TW','.TWO')):
         from app.services.freshness import market_usable
-        if not market_usable(data,today):return None
+        if not (market_check or market_usable)(data,today):return None
         if metric in ('price_ma20','ma20_ma60','volatility') and data.get('adjustment_status')!='verified':return None
     else:
         try:
@@ -174,7 +174,7 @@ def _positive_prefix(values):
         if v<=0:break
         yield v
 
-def evaluate(data,c,rows=None,today=None):
+def evaluate(data,c,rows=None,today=None,*,market_check=None):
     today=today or local_now().date(); rows=rows or {}
     kind=data.get('kind')
     if kind not in ('STOCK','ETF'):return {'grade':'資料不足','score':None,'coverage':0,'checks':[],'reason':'商品分類不明'}
@@ -182,7 +182,7 @@ def evaluate(data,c,rows=None,today=None):
     ops={'>':lambda a,b:a>b,'>=':lambda a,b:a>=b,'<':lambda a,b:a<b,'<=':lambda a,b:a<=b,'==':lambda a,b:a==b}
     for r in c['stock_rules' if kind=='STOCK' else 'etf_rules']:
         if not r['enabled']:continue
-        v=value_for(data,rows,r['metric'],r['years'],today)
+        v=value_for(data,rows,r['metric'],r['years'],today,market_check=market_check)
         if v is not None and (not isinstance(v,(int,float)) or not math.isfinite(v)):v=None
         checks.append({**r,'label':METRICS[r['metric']],'value':v,'passed':None if v is None else ops[r['op']](v,r['threshold'])})
     known=[r for r in checks if r['passed'] is not None]
@@ -191,7 +191,7 @@ def evaluate(data,c,rows=None,today=None):
     missing=len(known)<len(checks)
     required_missing=any(r['required'] and r['passed'] is None for r in checks)
     from app.services.freshness import market_usable
-    market_ok=market_usable(data,today)
+    market_ok=(market_check or market_usable)(data,today)
     if not market_ok or required_missing or not known or (missing and c['missing_policy']=='block'):grade='資料不足'
     elif any(r['required'] and r['passed'] is False for r in checks):grade='觀望'
     elif score>=c['strong_score'] and not missing:grade='強力買'

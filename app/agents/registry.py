@@ -14,4 +14,7 @@ class Registry:
         if name == "recovery":
             from app.agents.recovery import RecoveryAgent
             return RecoveryAgent()
+        if name == "research":
+            from app.agents.research import ResearchAgent
+            return ResearchAgent()
         return None
