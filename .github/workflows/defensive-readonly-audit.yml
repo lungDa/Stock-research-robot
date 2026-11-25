@@ -1,0 +1,35 @@
+name: Defensive production read-only audit
+on:
+  push:
+    branches: [diagnose/defensive-readonly-audit]
+    paths: [.github/workflows/defensive-readonly-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Audit only within read-only database transactions
+        run: |
+          python - <<'PY'
+          import json
+          from sqlalchemy import event
+          from app.db import engine
+          if engine.dialect.name != 'postgresql':
+              raise SystemExit('PostgreSQL required')
+          @event.listens_for(engine, 'begin')
+          def enforce_read_only(connection):
+              connection.exec_driver_sql('SET TRANSACTION READ ONLY')
+              if connection.exec_driver_sql('SHOW transaction_read_only').scalar_one() != 'on':
+                  raise RuntimeError('Read-only transaction could not be verified')
+          from jobs.audit_defensive_readiness import run
+          print(json.dumps(run(samples=5), ensure_ascii=False, allow_nan=False, indent=2))
+          PY
