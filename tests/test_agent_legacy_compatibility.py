@@ -18,10 +18,10 @@ def test_legacy_analysis_contract(monkeypatch):
     assert q==before
 
 def test_legacy_multifactor_contract(monkeypatch):
-    monkeypatch.setattr(multifactor,"market_usable",lambda q:True)
+    monkeypatch.setattr(freshness,"market_usable",lambda q,today=None:True)
     q=quote();rows=annual()
     before=deepcopy((q,rows))
-    assert multifactor.evaluate(q,multifactor.DEFAULT,rows,TODAY)==multifactor.evaluate(q,multifactor.DEFAULT,rows,TODAY,market_check=lambda q:True)
+    assert multifactor.evaluate(q,multifactor.DEFAULT,rows,TODAY)==multifactor.evaluate(q,multifactor.DEFAULT,rows,TODAY,market_check=lambda q,today=None:True)
     assert (q,rows)==before
 
 def test_legacy_api_survives_shadow_worker(monkeypatch):
