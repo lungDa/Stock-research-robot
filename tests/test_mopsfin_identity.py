@@ -64,3 +64,27 @@ def test_worker_preserves_cache_and_summary_exposes_only_fixed_diagnosis(monkeyp
     summary = render_summary({'result': result})
     assert key in summary and '不是預期的陣列' in summary
     assert secret not in summary and '6488' not in summary
+
+
+@pytest.mark.parametrize('field', ['eps', 'roe_pct'])
+def test_observed_official_market_industry_suffix(field):
+    body = payload(field)
+    body['graphData'][0]['label'] = '環球晶'
+    body['displayCompanyId'] = ['6488 環球晶 (上櫃半導體業)']
+    body['checkedNameList'] = ['6488 環球晶 (上櫃半導體業)']
+    assert parse_annual(body, '6488.TWO', field, DISPLAY, TODAY)['2025'][field] == 4.5
+
+
+@pytest.mark.parametrize('invalid', [
+    '6488 環球晶 (上市半導體業)',
+    '6488 其他公司 (上櫃半導體業)',
+    '2330 環球晶 (上櫃半導體業)',
+    '6488 環球晶 (其他內容)',
+])
+def test_annotated_identity_still_rejects_mismatch(invalid):
+    body = payload()
+    body['graphData'][0]['label'] = '環球晶'
+    body['displayCompanyId'] = [invalid]
+    body['checkedNameList'] = [invalid]
+    with pytest.raises(ValueError, match='displayCompanyId metadata identity mismatch'):
+        parse_annual(body, '6488.TWO', 'eps', DISPLAY, TODAY)
