@@ -8,7 +8,7 @@ from app.db import init_db, put, leased
 
 STEPS = [
     "maintenance", "market_metadata", "universe", "tw_prices", "history", "corporate_actions", "fundamentals",
-    "cash_dividends", "tw_financials", "eps_first", "eps_second",
+    "cash_dividends", "tw_financials", "eps_first", "eps_second", "tpex_eps",
     "coverage_diagnostic", "annual", "us_prices", "paid",
 ]
 STEP_TIMEOUT = max(15, int(os.getenv("REFRESH_STEP_TIMEOUT_SECONDS", "65")))
