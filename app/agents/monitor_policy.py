@@ -3,6 +3,7 @@ from datetime import timedelta
 from app.services.trading_calendar import session
 
 def due_slots(now, read, times, trading=True, grace=45):
+    found = []
     for offset in range(40):
         day = now.date() - timedelta(days=offset)
         candidates = [now.replace(year=day.year, month=day.month, day=day.day, hour=h, minute=m, second=0, microsecond=0) for h,m in times]
@@ -15,7 +16,9 @@ def due_slots(now, read, times, trading=True, grace=45):
                 return None
             if not state:
                 continue
-        return candidates
+        found.extend(candidates)
+        if len(found) >= len(times):
+            return sorted(found)[-len(times):]
     return None
 
 def coverage(doc, now):
