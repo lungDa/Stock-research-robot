@@ -1,0 +1,79 @@
+name: Read-only total market financial coverage
+on:
+  push:
+    branches: [diagnose/market-financial-coverage-20261125]
+    paths: [.github/workflows/market-financial-coverage.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Audit verified stock universe and rule coverage using read-only transactions
+        run: |
+          python - <<'PY'
+          import json, math, time, re
+          from sqlalchemy import event
+          from app.db import engine, get, get_many
+          from app.services.freshness import local_now
+          from app.services.multifactor import annual_rows, value_for, DEFAULT
+          from app.services.v26_coverage_adapter import from_documents, PREFIXES
+          assert engine.dialect.name == 'postgresql'
+          @event.listens_for(engine, 'begin')
+          def read_only(connection):
+              connection.exec_driver_sql('SET TRANSACTION READ ONLY')
+              assert connection.exec_driver_sql('SHOW transaction_read_only').scalar_one() == 'on'
+          today=local_now().date()
+          years=[str(y) for y in range(today.year-1,today.year-6,-1)]
+          universe=get('v26:universe:verified_symbols',{})
+          symbols=sorted(set(s for s in universe.get('symbols',[]) if re.fullmatch(r'\d{4}\.(TW|TWO)',str(s))))
+          verified=universe.get('verified') is True and 0<=time.time()-universe.get('at',0)<=48*3600
+          if not symbols:
+              raise SystemExit('No saved stock universe')
+          base=get_many(['fundamentals:index:TW','fundamentals:index:TWO'])
+          rules=[r for r in DEFAULT['stock_rules'] if r['metric'] in ('eps_latest','eps_avg','yield_avg','dividend_streak','roe_avg','fcf_positive','fcf_coverage','revenue_cagr')]
+          def stats():
+              return {'stocks':0,'rule_available':{r['metric']:0 for r in rules},'all_rules_available':0,
+                      'strict_complete':{k:0 for k in ('eps','roe_pct','fcf','revenue_cagr','cash_yield_pct','cash_dividend_years')},
+                      'strict_period_items':0,'strict_expected_items':0,
+                      'cash_dividend_year_counts':{y:0 for y in years},'cash_dividend_all_five':0,
+                      'eps_year_counts':{y:0 for y in years},'roe_year_counts':{y:0 for y in years}}
+          result={'TW':stats(),'TWO':stats(),'all':stats()}
+          for offset in range(0,len(symbols),20):
+              batch=symbols[offset:offset+20]
+              docs={**base,**get_many([p+s for s in batch for p in PREFIXES])}
+              for symbol in batch:
+                  rows=annual_rows('public',symbol,docs)
+                  values={r['metric']:value_for({'symbol':symbol},rows,r['metric'],r['years'],today) for r in rules}
+                  strict=from_documents(symbol,docs,today.year)
+                  def known(y,field):
+                      v=rows.get(y,{}).get(field)
+                      return type(v) in (int,float) and math.isfinite(v)
+                  for t in (result[symbol.rsplit('.',1)[1]], result['all']):
+                      t['stocks']+=1
+                      for key,v in values.items():
+                          t['rule_available'][key]+=int(type(v) in (int,float) and math.isfinite(v))
+                      t['all_rules_available']+=int(all(type(v) in (int,float) and math.isfinite(v) for v in values.values()))
+                      for key,value in strict['factor_complete'].items():
+                          t['strict_complete'][key]+=int(bool(value))
+                      t['strict_period_items']+=strict['complete_items']
+                      t['strict_expected_items']+=strict['expected_items']
+                      for y in years:
+                          t['cash_dividend_year_counts'][y]+=int(known(y,'cash_dividends_paid'))
+                          t['eps_year_counts'][y]+=int(known(y,'eps'))
+                          t['roe_year_counts'][y]+=int(known(y,'roe_pct'))
+                      t['cash_dividend_all_five']+=int(all(known(y,'cash_dividends_paid') for y in years))
+              if offset%200==0: print({'processed':min(offset+20,len(symbols)),'total':len(symbols)},flush=True)
+          print('AUDIT_RESULT '+json.dumps({'date':str(today),'universe_verified':verified,'universe_count':len(symbols),'years':years,'counts':result},ensure_ascii=False))
+          for key in ('jobs:tw_financials','jobs:cash_dividends','jobs:data_refresh','v26:coverage:diagnostic'):
+              row=get(key,{})
+              print('JOB_STATUS '+json.dumps({'key':key,**{k:row[k] for k in ('state','updated_at','official_requests','updated_symbols','updated_fields','failed_feeds','stop_reason','market_symbols','coverage_ratio','partial_coverage_ratio') if k in row}},ensure_ascii=False))
+          PY
