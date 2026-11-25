@@ -86,3 +86,15 @@ def test_pending_expired_not_resent(monkeypatch):
 
 import pytest
 pytestmark=pytest.mark.usefixtures('taiwan_market')
+
+
+def test_scan_rejects_demo_file_when_verified_universe_count_differs(monkeypatch):
+    import pytest
+    from jobs import scan
+    put('universe:scope', {'count': 2420, 'partial': False})
+    put('scan:latest', {'fresh_count': 12})
+    monkeypatch.setattr(scan, 'load', lambda: ['2330.TW', '2412.TW'])
+    with pytest.raises(RuntimeError, match='母體筆數不符'):
+        scan.run()
+    assert get('scan:latest') == {'fresh_count': 12}
+    assert get('scan:last_failure')['state'] == 'universe_mismatch'

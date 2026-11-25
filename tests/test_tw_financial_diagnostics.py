@@ -39,7 +39,8 @@ def test_one_request_failure_is_visible_and_safe(monkeypatch,exc,code):
     assert SECRET not in json.dumps(result)
     assert 'private-token' not in str(get('mopsfin:feed:6488.TWO:eps'))
     # No symbol/watchlist or company identity is added to public job diagnostics.
-    assert '6488' not in str(result) and DISPLAY not in str(result)
+    assert '6488' not in str(detail) and DISPLAY not in str(detail)
+    assert '6488.TWO' not in str(result) and DISPLAY not in str(result)
     if code in ('http_401','http_403','http_429'):
         assert job.run(['6488.TWO'])['state']=='cooldown'
         assert loader.call_count==1

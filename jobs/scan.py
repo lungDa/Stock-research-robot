@@ -23,6 +23,11 @@ def run(limit=30, seconds=120):
     limit=max(1,min(int(limit),30)); seconds=max(1,min(int(seconds),120))
     universe=[s for s in load() if s.endswith(('.TW','.TWO'))]
     if not universe: raise RuntimeError('沒有可用台股母體')
+    scope = get('universe:scope', {})
+    if type(scope.get('count')) is int and scope['count'] != len(universe):
+        put('scan:last_failure', {'state':'universe_mismatch','expected':scope['count'],
+                                  'actual':len(universe),'updated_at':datetime.now(timezone.utc).isoformat()})
+        raise RuntimeError('掃描清單與已保存母體筆數不符；先執行 refresh_universe')
     cursor=get('scan:cursor',{'cursor':0})['cursor']%len(universe)
     tracked=list(dict.fromkeys(s for u in member_users() for s in watches(u) if s.endswith(('.TW','.TWO'))))
     tcursor=get('scan:tracked_cursor',{'cursor':0})['cursor']%max(1,len(tracked))
@@ -39,7 +44,7 @@ def run(limit=30, seconds=120):
             'expected_close_date':str(expected) if expected else None, 'expected_close_count':0,
             'candidates':[],'attempted':0,'failed':[],'income':[],'swing':[],'fresh_count':0,'cursor':cursor,
             'scope':'本次台股小批次結果；最多30檔，不代表全市場；美股暫不主動下載',
-            'universe_partial':get('universe:scope',{}).get('partial',True),'budget_seconds':seconds}
+            'universe_partial':scope.get('partial',True) or scope.get('count') != len(universe),'budget_seconds':seconds}
     if report['universe_partial']: report['scope']+='；來源母體可能僅部分涵蓋'
     processed=set()
     for symbol in symbols:
