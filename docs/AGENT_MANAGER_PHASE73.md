@@ -1,0 +1,2 @@
+# Phase 07.3
+Canonical snapshot digest, report schema v1, bounded same-config batch separated by instrument type, ETF existing rules. Technical factors derived from checked adjusted bars; historical PE and downside returns recomputed from supplied prices. Metadata is not authenticated; no corporate-action ledger or historical filing reconstruction. ETF volatility remains missing pending verified series implementation. No production execution. Confidence is coverage only.
