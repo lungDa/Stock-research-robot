@@ -150,3 +150,24 @@ def test_repeated_failures_leave_data_and_pool_intact(pg):
         assert c.execute(text("SELECT value FROM agent_probe")).scalar_one()==1
         assert c.execute(text("SHOW transaction_read_only")).scalar_one()=="off"
         c.execute(text("UPDATE agent_probe SET value=9"))
+
+
+def test_idle_dead_connection_detected_by_pre_ping(pg):
+    # Hold the second connection so the next checkout must reuse the dead
+    # idle slot. No explicit invalidate() or dispose() after termination.
+    with pg.connect() as killer:
+        with pg.connect() as idle:
+            pid=idle.execute(text("SELECT pg_backend_pid()")).scalar_one()
+        assert pg.pool.checkedout()==1
+        assert killer.execute(text("SELECT pg_terminate_backend(:pid, 5000)"),{"pid":pid}).scalar_one()
+        killer.commit()
+        with readonly_session() as s:
+            new_pid=s.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            assert new_pid!=pid
+            assert s.execute(text("SHOW transaction_read_only")).scalar_one()=="on"
+            assert s.execute(text("SELECT value FROM agent_probe")).scalar_one()==1
+        assert pg.pool.checkedout()==1
+    assert pg.pool.checkedout()==0
+    with pg.begin() as c:
+        assert c.execute(text("SHOW transaction_read_only")).scalar_one()=="off"
+        assert c.execute(text("SELECT value FROM agent_probe")).scalar_one()==1
