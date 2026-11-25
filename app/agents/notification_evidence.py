@@ -1,5 +1,6 @@
 """Bounded read-only notification evidence, no sender or live quota calls."""
-import json, os
+import json, os, time
+from app.agents.notification_detail import job_evidence,digest_evidence,quota_evidence,pending_keys
 from collections import Counter
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
@@ -51,6 +52,7 @@ def read_notifications(*, now, days=7):
     if os.getenv("AGENT_NOTIFICATION_DB_READ")!="1":return {"mode":"shadow","status":"denied"}
     if now.tzinfo is None or type(days) is not int or not 1<=days<=14:return {"mode":"shadow","status":"unknown"}
     now=now.astimezone(ZoneInfo("Asia/Taipei"))
+    deadline=time.monotonic()+30
     from app.db import Document
     from app.config import settings
     from sqlalchemy import select
@@ -60,6 +62,7 @@ def read_notifications(*, now, days=7):
                 row=s.get(Document,key)
                 return json.loads(row.payload) if row else default
             def prefix(p,limit):
+                if time.monotonic()>deadline:raise TimeoutError()
                 rows=list(s.scalars(select(Document).where(Document.key.startswith(p,autoescape=True)).limit(limit+1)))
                 if len(rows)>limit:raise ValueError("scope limit")
                 return {r.key:json.loads(r.payload) for r in rows}
@@ -74,19 +77,34 @@ def read_notifications(*, now, days=7):
                 for p in ("recommendations","four_rankings","watch_digest"):
                     outboxes.update(prefix(f"{p}:outbox:{day}:",200))
             signals=prefix("signal:state:",3000)
-            result["duplicate_retry_keys"]=duplicate_keys(outboxes.values())
+            result["duplicate_retry_keys"]=duplicate_keys(list(outboxes.values())+pending_keys(signals.values()))
             result["historical_outboxes"]=len(outboxes)
             result["historical_subscription_verified"]=False
             result["signal_state"]=signal_summary(signals.values(),now)
             result["watch_digest_outboxes"]=sum(k.startswith("watch_digest:") for k in outboxes)
             result["quota_state"]="unknown"
+            result["quota_evidence"]=quota_evidence(list(outboxes.values())+list(signals.values()))
+            result["watch_digest_receipts"]=digest_evidence(outboxes,now)
         result["workflow_history"]=[]
+        result["job_evidence"]=[]
+        seen=set()
         if os.getenv("AGENT_NOTIFICATION_GITHUB_READ")=="1":
             for code,h,m in (("ranking_workflow",11,30),("ranking_workflow",19,30),("scan_workflow",18,17)):
                 try:
                     runs=read_json(GITHUB+WORKFLOWS[code]+"/runs?branch=main&per_page=100")["workflow_runs"]
                     result["workflow_history"].extend(workflow_history(runs,now,days,h,m))
+                    for run in runs[:5]:
+                        if time.monotonic()>deadline:break
+                        rid=run.get("id")
+                        if type(rid) is not int or rid<=0 or rid in seen or run.get("head_branch")!="main":continue
+                        seen.add(rid)
+                        try:
+                            jobs=read_json(GITHUB.rsplit("workflows/",1)[0]+f"runs/{rid}/jobs?per_page=100")["jobs"]
+                            result["job_evidence"].append(job_evidence(run,jobs))
+                        except Exception:pass
                 except Exception:pass
+        result["job_scope"]="up_to_five_recent_runs_per_workflow_not_exhaustive"
+        result["historical_subscription_status"]="unknown_no_snapshot"
         states=[k for row in result["history"] for k in row["counts"]]
         result["severity"]="critical" if result["duplicate_retry_keys"] or "duplicate_risk" in states else "warning" if any(k in states for k in ("possible_missing","partial","pending","receipt_uncertain","expired_or_unknown")) or any(r["state"]=="failed" for r in result["workflow_history"]) else "unknown"
         return result
