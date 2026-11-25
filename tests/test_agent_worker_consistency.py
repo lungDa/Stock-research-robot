@@ -87,7 +87,12 @@ def test_other_worker_matches_parent_supervisor(name):
     result=api.invoke(name,payload)
     actual=result["report"]
     assert actual["mode"]=="shadow"
-    assert actual["status"] not in ("unknown","denied","error","timeout")
+    if name=="data_auditor":
+        assert actual["scope"]=="requested_symbols_only"
+        assert actual["verified"] is False
+        assert len(actual["rows"])==1
+    else:
+        assert actual["status"] not in ("unknown","denied","error","timeout")
     assert result["execution_allowed"] is False
     assert payload==original
     canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),allow_nan=False)
@@ -98,7 +103,12 @@ def test_other_worker_matches_parent_supervisor(name):
     sup=Supervisor(enabled=True)
     if name=="data_auditor":
         expected=sup.audit_data(**payload,now=observed,is_admin=True)
-        fields=("status","rows","repair_priority")
+        fields=("mode","verified","scope","rows","repair_priority")
+        # Default request timestamps reflect each invocation; compare priority
+        # contents without that clock-dependent default.
+        for report in (actual,expected):
+            for row in report["repair_priority"]:
+                row.pop("requested_at",None)
     elif name=="notification":
         expected=sup.audit_notifications(now=observed,read=docs.get,users=payload["users"],days=7,is_admin=True)
         fields=("status","history")
