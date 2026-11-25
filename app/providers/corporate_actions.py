@@ -12,6 +12,16 @@ FEEDS = {
     'TaiwanStockCapitalReductionReferencePrice': ('ClosingPriceonTheLastTradingDay', 'PostReductionReferencePrice'),
 }
 BASIS = 'latest_price_adjusted'
+CATALOG_FEEDS = ('TaiwanStockSplitPrice', 'TaiwanStockParValueChange')
+
+
+def request_parameters(feed, symbol, start, end):
+    # FinMind documents these two as whole-catalog endpoints.
+    if feed == 'TaiwanStockSplitPrice':
+        return {'dataset': feed}
+    if feed == 'TaiwanStockParValueChange':
+        return {'dataset': feed, 'start_date': start}
+    return {'dataset': feed, 'data_id': symbol.split('.')[0], 'start_date': start, 'end_date': end}
 
 
 def positive(value):
