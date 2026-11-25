@@ -417,7 +417,7 @@ with strategy_tab:
                     edited[section]=frame.to_dict('records')
                 st.caption('自由現金流正值條件使用 == 1；覆蓋率使用 ≥ 1。營收5年CAGR需要6個連續年度。年度現金殖利率請使用各年度實際現金股利／一致口徑年度股價；百分比輸入5代表5%。')
                 direction=st.selectbox('重要訊號',['both','up'],index=0 if config['notify_direction']=='both' else 1,format_func=lambda x:'升級與降級都通知' if x=='both' else '只通知升級')
-                cap=st.number_input('每人每日最多幾則（每檔獨立訊息）',min_value=1,max_value=10,value=int(config['daily_cap']))
+                cap=st.number_input('每日重要訊號上限（固定報告另計）',min_value=1,max_value=10,value=int(config['daily_cap']))
                 st.caption('預設只通知追蹤標的，同級不重送；首次觀望或資料不足不通知。修改規則後建立新基準，避免設定變動造成洗版。配額或時間用完時，尚未送出的最新變化留待下次檢查。')
                 save=st.form_submit_button('儲存個人設定')
             if save:
