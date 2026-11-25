@@ -8,4 +8,7 @@ class Registry:
         if name == "data_auditor":
             from app.agents.data_auditor import DataAuditor
             return DataAuditor()
+        if name == "notification":
+            from app.agents.notification import NotificationAgent
+            return NotificationAgent()
         return None

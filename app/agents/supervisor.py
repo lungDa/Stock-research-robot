@@ -47,3 +47,11 @@ class Supervisor:
             return {"mode":"shadow","status":"denied"}
         from app.agents.audit_aggregate import read_market
         return read_market(now=now,timeout=timeout)
+
+    def audit_notifications(self, *, now, read, users, days=7, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied"}
+        try:
+            return Registry().resolve("notification").audit(now=now,read=read,users=users,days=days)
+        except Exception:
+            return {"mode":"shadow","status":"unknown"}
