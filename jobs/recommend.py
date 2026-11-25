@@ -26,12 +26,13 @@ def deliver(user,key,texts,dry_run,remaining):
         entry['sent']=True;remaining-=1;put(key,state)
     return remaining
 
-def run(slot,dry_run=True,now=None):
+def run(slot,dry_run=True,now=None,catch_up=False):
     now=(now or local_now()).astimezone(TAIPEI);today=now.date()
     if slot not in ('morning','evening'):raise ValueError('slot錯誤')
     if not dry_run:
         start=(11,30) if slot=='morning' else (19,30);minute=now.hour*60+now.minute
-        if not start[0]*60+start[1]<=minute<start[0]*60+start[1]+60:
+        end = (19*60+30 if slot=='morning' else 24*60) if catch_up else start[0]*60+start[1]+60
+        if not start[0]*60+start[1]<=minute<end:
             return {'status': 'outside_send_window', 'date': str(today), 'slot': slot}
     init_db()
     if not is_session(today):return {'status':'closed','date':str(today)}
@@ -43,8 +44,16 @@ def run(slot,dry_run=True,now=None):
         users=[u for u in members if preferences(u)['enabled']]
         four_users=[u for u in members if four_preferences(u).get('enabled')]
         if not users and not four_users:return {'status':'no_subscribers'}
+        if not dry_run:
+            def completed(prefix, user):
+                state = get(f'{prefix}:outbox:{today}:{slot}:{user}') or {}
+                return bool(state.get('messages')) and all(m.get('sent') for m in state['messages'])
+            users = [u for u in users if not completed('recommendations', u)]
+            four_users = [u for u in four_users if not completed('four_rankings', u)]
+            if not users and not four_users:return {'status':'already_sent','date':str(today),'slot':slot}
         target=target_day(today,slot)
         remaining=0 if dry_run else quota()
+        initial_remaining=remaining
         four_reports=0
         for user in four_users:
             if time.monotonic()>deadline:raise TimeoutError('排名工作超過時間預算')
@@ -59,7 +68,7 @@ def run(slot,dry_run=True,now=None):
                     remaining=deliver(user,four_key,[four_text],dry_run,remaining)
                     four_reports+=1
         if not users:
-            return {'status':'preview' if dry_run else 'sent','reports':[], 'four_reports':four_reports}
+            return {'status':'preview' if dry_run else 'sent','reports':[], 'four_reports':four_reports,'messages_sent':initial_remaining-remaining}
         from app.providers.taiwan_official import snapshot
         from jobs.refresh_universe import build
         from app.providers.universe import load
@@ -104,5 +113,10 @@ def run(slot,dry_run=True,now=None):
         return {'status':'preview' if dry_run else 'sent','reports':reports,'four_reports':four_reports}
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--slot',choices=['morning','evening'],required=True);p.add_argument('--send',action='store_true');a=p.parse_args()
-    print(run(a.slot,dry_run=not a.send))
+    p=argparse.ArgumentParser();p.add_argument('--slot',choices=['morning','evening','auto'],required=True);p.add_argument('--send',action='store_true');a=p.parse_args()
+    now=local_now()
+    if a.slot=='auto':
+        slot='evening' if (now.hour,now.minute)>=(19,30) else 'morning'
+        print(run(slot,dry_run=not a.send,now=now,catch_up=True))
+    else:
+        print(run(a.slot,dry_run=not a.send,now=now))
