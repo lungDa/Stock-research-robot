@@ -122,6 +122,9 @@ def collect(symbols,snapshots,target,user,deadline):
 def messages(report):
     stats=report['coverage'];round_=report['round'];items=report['items']
     summary=(f"股海燈塔｜個人規則排名 {report['slot_label']}\n行情日 {report['target_date']}（收盤，非即時）\n母體 {stats['universe']}檔｜個股行情 {stats['stock_quotes']}檔\n必要資料足夠 {report['eligible']}檔｜符合 {report['matched']}檔｜列出 {len(items)}檔\n"+('母體來源部分涵蓋；' if report['universe_partial'] else '')+'資料缺漏者不算符合；排名限目前可評估範圍。\n'+(f'原條件零檔符合，逐輪放寬至第{round_}輪（每輪約10%）；找到符合即停止放寬，最多列10檔。\n' if round_ else '採原始個人規則；有符合即列實際數量，最多10檔，不為補足名額放寬。\n'))
+    missing = report.get('missing_markets', [])
+    if missing:
+        summary+='未涵蓋市場：'+'、'.join({'TW':'上市','TWO':'上櫃'}[m] for m in missing if m in ('TW','TWO'))+'（缺當日行情，非全市場排名）。\n'
     if not items:summary+='目前無可推薦個股，不以缺資料或未達標股票湊數。\n'
     summary+='本次門檻（期間不變）：\n'+'\n'.join(f"{METRICS[r['metric']]} {r['op']} {r['threshold']:g}（{r['years']}年，{'必要' if r['required'] else '加分'}）" for r in report['rules'] if r['enabled'])
     summary+='\n同分依資料完整度、股票代號排序。規則篩選非報酬預測。'

@@ -95,11 +95,16 @@ def run(slot,dry_run=True,now=None,catch_up=False):
                 snapshots[market]=latest if str(target) in days else get('recommendations:prices:'+market+':'+str(target),{})
             except Exception:
                 snapshots[market]=get('recommendations:prices:'+market+':'+str(target),{})
+        missing_markets=[]
         for market,quotes in snapshots.items():
             dates={v['date'] for k,v in quotes.items() if k!='_meta' and isinstance(v,dict) and 'date' in v}
-            if str(target) not in dates:raise RuntimeError(market+'未提供目標行情日，停止排名推播')
+            if str(target) not in dates:
+                missing_markets.append(market)
+                snapshots[market]={}
+        print({'stage':'ranking_market_coverage','target_date':str(target),'missing_markets':missing_markets},flush=True)
+        if len(missing_markets)==2:raise RuntimeError('No target-date market quotes available')
         symbols=sorted(set(s for s in load() if s.endswith(('.TW','.TWO'))))
-        partial=get('universe:scope',{}).get('partial',True) or any(not v.get('_meta',{}).get('complete',True) for v in snapshots.values())
+        partial=bool(missing_markets) or get('universe:scope',{}).get('partial',True) or any(not v.get('_meta',{}).get('complete',True) for v in snapshots.values())
         reports=[]
         for user in users:
             if time.monotonic()>deadline:raise TimeoutError('排名工作超過時間預算')
@@ -107,7 +112,7 @@ def run(slot,dry_run=True,now=None,catch_up=False):
             if pending and not dry_run:
                 remaining=deliver(user,key,[],False,remaining);continue
             items,coverage=collect(symbols,snapshots,target,user,deadline)
-            report={**rank(items,settings_for(user),today),'coverage':coverage,'target_date':str(target),'date':str(today),'slot':slot,'slot_label':'11:30' if slot=='morning' else '19:30','universe_partial':partial,'generated_at':now.isoformat()}
+            report={**rank(items,settings_for(user),today),'coverage':coverage,'target_date':str(target),'date':str(today),'slot':slot,'slot_label':'11:30' if slot=='morning' else '19:30','universe_partial':partial,'missing_markets':missing_markets,'generated_at':now.isoformat()}
             texts=messages(report)
             # Summary stays a plain text message; ranked stocks become one
             # Flex carousel only when the configured public URL is valid.

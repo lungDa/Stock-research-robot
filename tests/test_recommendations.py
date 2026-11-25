@@ -243,3 +243,17 @@ def test_late_recommendation_skips_before_probe_or_delivery(monkeypatch):
     monkeypatch.setattr(recommend, 'push', unexpected)
     now = datetime(2026, 11, 24, 12, 30, tzinfo=recommend.TAIPEI)
     assert recommend.run('morning', dry_run=False, now=now)['status'] == 'outside_send_window'
+
+
+def test_one_market_unavailable_is_explicitly_partial(monkeypatch):
+    from app.providers import taiwan_official
+    j=setup_job(monkeypatch)
+    def snapshot(market):
+        if market=='TWO': raise TimeoutError('source unavailable')
+        return {'2412':{'date':'2026-11-10','close':100,'name':'stock'},'_meta':{'complete':True}}
+    monkeypatch.setattr(taiwan_official,'snapshot',snapshot)
+    now=datetime(2026,11,10,19,30,tzinfo=TAIPEI)
+    assert j.run('evening',now=now)['status']=='preview'
+    report=get('recommendations:preview:Ualice')
+    assert report['universe_partial'] and report['missing_markets']==['TWO']
+    assert '未涵蓋市場：上櫃' in m.messages(report)[0]
