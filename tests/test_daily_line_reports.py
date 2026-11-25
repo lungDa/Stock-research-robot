@@ -10,7 +10,7 @@ def test_catch_up_only_within_current_slot(monkeypatch):
     assert recommend.run('morning', False, now)['status'] == 'outside_send_window'
     assert recommend.run('morning', False, now, catch_up=True)['status'] == 'closed'
     assert recommend.run('evening', False, now, catch_up=True)['status'] == 'outside_send_window'
-    now = now.replace(minute=30)
+    now = now.replace(hour=23)
     assert recommend.run('morning', False, now, catch_up=True)['status'] == 'closed'
     assert recommend.run('evening', False, now, catch_up=True)['status'] == 'closed'
 
