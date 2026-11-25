@@ -67,14 +67,16 @@ def run():
                     put(key,{'grade':grade,'config_hash':revision});continue
                 if remaining is None:remaining=quota()
                 if remaining<=5:
-                print({'status':'quota_exhausted','sent':sent,'failed':failed,'unchanged':unchanged})
+                    print({'status':'quota_exhausted','sent':sent,'failed':failed,'unchanged':unchanged})
                     return
                 if not slot(user,day,c['daily_cap']):continue
                 pending={'day':day,'created_at':now,'retry_key':str(uuid.uuid4()),
                          'grade':grade,'config_hash':revision,'text':message(d,previous),'last_attempt':0}
                 state={**state,'pending':pending};put(key,state)
             if remaining is None:remaining=quota()
-            if remaining<=5:return
+            if remaining<=5:
+                print({'status':'quota_exhausted','sent':sent,'failed':failed,'unchanged':unchanged})
+                return
             pending['last_attempt']=time.time();put(key,{**state,'pending':pending});remaining-=1
             try:
                 push(user,pending['text'],pending['retry_key'])
