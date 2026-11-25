@@ -75,3 +75,12 @@ class Supervisor:
             return Registry().resolve("recovery").plan(monitor=monitor,data=data,notification=notification,now=now,attempts=attempts)
         except Exception:
             return {"mode":"shadow","status":"unknown","plans":[],"executed":False}
+
+    def plan_recovery_incident(self, *, is_admin=False, **evidence):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","plans":[],"executed":False}
+        try:
+            from app.agents.recovery_policy import plan_incident
+            return plan_incident(**evidence)
+        except Exception:
+            return {"mode":"shadow","status":"unknown","plans":[],"executed":False}
