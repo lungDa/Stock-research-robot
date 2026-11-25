@@ -26,12 +26,17 @@ class RecoverySimulation:
             for p in result["plans"]:
                 s=self._states.setdefault(p["id"],{"attempts":0,"failures":0,"opened_at":None,"approval":"pending","probe":False,"history":[],"operations":set(),"approved_at":None,"observed_at":now,"last_at":now})
                 s["observed_at"]=max(s["observed_at"],now)
+                s["blocked"]=p.get("blocked_by_dependency",False)
                 if s["approval"]=="approved" and not fresh(s["approved_at"],now):s["approval"]="pending"
                 p["approval_state"]=s["approval"]
                 dependencies={"data":{"database","financial_refresh","refresh_workflow"},"notification":{"database","api_health","api_ready","ranking_workflow","scan_workflow"}}
                 if blockers & dependencies.get(p["source"],set()):
                     p["blocked_by_dependency"]=True
                     if p["action"]!="do_not_resend":p["action"]="hold_and_review"
+                if p["source"]=="notification" and "outbox_review" in result:
+                    p["action"]="do_not_resend" if p["action"]=="do_not_resend" else result["outbox_review"]["advice"]
+                    if p.get("blocked_by_dependency") and p["action"]!="do_not_resend":p["action"]="hold_and_review"
+                s["blocked"]=p.get("blocked_by_dependency",False) or p["action"]=="do_not_resend"
                 p["retry"]=retry_policy(s["attempts"],s["failures"])
                 p["circuit"]=circuit(s["failures"],s["opened_at"],now)
                 if p["circuit"]!="closed" or s["attempts"]>=3:
@@ -42,9 +47,12 @@ class RecoverySimulation:
         with self._lock:
             s=self._states.get(key)
             if s is None or len(s["history"])>=32 or not isinstance(now,datetime) or now.utcoffset() is None or now<s["last_at"]:return False
-            if operation_id is not None and (not isinstance(operation_id,str) or not 1<=len(operation_id)<=128 or operation_id in s["operations"]):return False
-            if event.startswith("simulate_") and (not fresh(s["approved_at"],now) or not fresh(s["observed_at"],now)):return False
+            if (not isinstance(operation_id,str) or not 1<=len(operation_id)<=128 or operation_id in s["operations"]):return False
+            if not isinstance(event,str):return False
+            if event.startswith("simulate_") and (s.get("blocked") or not fresh(s["approved_at"],now) or not fresh(s["observed_at"],now)):return False
             if event in ("approve","reject","revoke"):
+                if s["approval"]=="approved" and not fresh(s["approved_at"],now):s["approval"]="pending"
+                if event=="approve" and not fresh(s["observed_at"],now):return False
                 next_state=approval(s["approval"],event)
                 if next_state=="invalid":return False
                 s["approval"]=next_state
@@ -63,9 +71,10 @@ class RecoverySimulation:
                     s["failures"]=0;s["attempts"]=0;s["opened_at"]=None
                 else:s["opened_at"]=now
             else:return False
-            if operation_id is not None:s["operations"].add(operation_id)
+            s["operations"].add(operation_id)
             s["last_at"]=now
             s["history"].append(event)
+            s.setdefault("audit",[]).append({"event":event,"at":now.isoformat(),"operation":sha256(operation_id.encode()).hexdigest()})
             return True
     def history(self,key):
         with self._lock:
@@ -73,7 +82,7 @@ class RecoverySimulation:
 
     def export_history(self):
         with self._lock:
-            return {"mode":"shadow","events":[{"plan":key,"events":list(s["history"])} for key,s in sorted(self._states.items())],"executed":False}
+            return {"mode":"shadow","events":[{"plan":key,"events":[dict(e) for e in s.get("audit",[])]} for key,s in sorted(self._states.items())],"executed":False}
 
 def verify_pair(before,after,now):
     if not isinstance(before,dict) or not isinstance(after,dict):return "unknown"

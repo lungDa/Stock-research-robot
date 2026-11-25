@@ -8,12 +8,12 @@ def test_state():
     s=RecoverySimulation()
     p=s.plan(incident="a",now=NOW,evidence=evidence())["plans"][0]
     k=p["id"]
-    assert not s.transition(k,"simulate_failure",NOW)
-    assert s.transition(k,"approve",NOW)
+    assert not s.transition(k,"simulate_failure",NOW,operation_id="denied")
+    assert s.transition(k,"approve",NOW,operation_id="approve")
     for _ in range(3):assert s.transition(k,"simulate_failure",NOW)
     assert not s.transition(k,"simulate_failure",NOW)
-    assert s.transition(k,"simulate_probe",NOW+timedelta(minutes=15))
-    assert not s.transition(k,"simulate_probe",NOW+timedelta(minutes=15))
+    assert s.transition(k,"simulate_probe",NOW+timedelta(minutes=15),operation_id="probe")
+    assert not s.transition(k,"simulate_probe",NOW+timedelta(minutes=15),operation_id="probe")
     assert len(s.history(k))==5
     p=next(p for p in s.plan(incident="a",now=NOW,evidence=evidence())["plans"] if p["id"]==k)
     assert p["circuit"]=="open" and p["action"]=="hold_and_review" and not p["execution_allowed"]
