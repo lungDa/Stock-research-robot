@@ -1,5 +1,6 @@
 """Bounded read-only notification evidence, no sender or live quota calls."""
 import json, os, time
+from app.agents.notification_policy import paged,recovery_advice
 from app.agents.notification_detail import job_evidence,digest_evidence,quota_evidence,pending_keys
 from collections import Counter
 from datetime import datetime,timedelta
@@ -85,6 +86,7 @@ def read_notifications(*, now, days=7):
             result["quota_state"]="unknown"
             result["quota_evidence"]=quota_evidence(list(outboxes.values())+list(signals.values()))
             result["watch_digest_receipts"]=digest_evidence(outboxes,now)
+            result["recovery_advice"]=dict(Counter(recovery_advice(d,now,same_day=k.split(":")[2]==str(now.date()),duplicate=bool(result["duplicate_retry_keys"])) for k,d in outboxes.items()))
         result["workflow_history"]=[]
         result["job_evidence"]=[]
         seen=set()
@@ -99,8 +101,11 @@ def read_notifications(*, now, days=7):
                         if type(rid) is not int or rid<=0 or rid in seen or run.get("head_branch")!="main":continue
                         seen.add(rid)
                         try:
-                            jobs=read_json(GITHUB.rsplit("workflows/",1)[0]+f"runs/{rid}/jobs?per_page=100")["jobs"]
-                            result["job_evidence"].append(job_evidence(run,jobs))
+                            def fetch(page):
+                                if time.monotonic()>deadline:raise TimeoutError()
+                                return read_json(GITHUB.rsplit("workflows/",1)[0]+f"runs/{rid}/jobs?per_page=100&page={page}")
+                            jobs,complete=paged(fetch)
+                            result["job_evidence"].append({**job_evidence(run,jobs),"job_pages_complete":complete})
                         except Exception:pass
                 except Exception:pass
         result["job_scope"]="up_to_five_recent_runs_per_workflow_not_exhaustive"

@@ -61,3 +61,9 @@ class Supervisor:
             return {"mode":"shadow","status":"denied"}
         from app.agents.notification_evidence import read_notifications
         return read_notifications(now=now,days=days)
+
+    def audit_notification_isolated(self, *, now, days=7, timeout=35, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied"}
+        from app.agents.notification_process import collect
+        return collect(now=now,days=days,timeout=timeout)
