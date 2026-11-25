@@ -17,4 +17,12 @@ jobs:
       - run: pip install --disable-pip-version-check -r requirements-worker.txt
       - name: Observe public company metadata
         run: |
-          python -m scripts.check_tw_financial_contract --symbol 6488.TWO
+          python - <<'PY'
+          from scripts.check_tw_financial_contract import probe
+          from app.providers.source_errors import describe
+          try:
+              print(probe('6488.TWO'))
+          except Exception as exc:
+              print(describe(exc, '官方年度來源'))
+              raise SystemExit(1)
+          PY
