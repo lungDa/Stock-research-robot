@@ -32,3 +32,20 @@ def test_busy_is_not_reported_as_success():
         yield False
     with patch.object(refresh_data, "init_db"), patch.object(refresh_data, "leased", not_owned):
         assert refresh_data.run()["state"] == "busy"
+
+
+def test_summary_exception_does_not_interrupt_later_steps():
+    from contextlib import nullcontext
+    with patch.object(refresh_data, "STEPS", ["tw_financials", "paid"]), \
+         patch.object(refresh_data, "init_db"), \
+         patch.object(refresh_data, "put"), \
+         patch.object(refresh_data, "leased", return_value=nullcontext(True)), \
+         patch("jobs.tw_financial_summary.write_summary", side_effect=RuntimeError("summary")), \
+         patch.object(refresh_data.subprocess, "run", side_effect=[
+             subprocess.CompletedProcess([], 0, stdout='{"state":"partial","failed_feeds":1}', stderr=""),
+             subprocess.CompletedProcess([], 0, stdout='{"state":"finished"}', stderr=""),
+         ]):
+        result = refresh_data.run()
+    assert result["state"] == "partial"
+    assert result["steps"]["tw_financials"]["state"] == "partial"
+    assert result["steps"]["paid"]["state"] == "finished"

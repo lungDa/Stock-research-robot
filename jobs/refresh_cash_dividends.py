@@ -91,6 +91,7 @@ def run(symbols=None,max_requests=2,years=5):
         year_cursor=get('cashflow:year_cursor',{}).get('value',0)%len(requested_years)
         batch_size=max(1,min(20,get('cashflow:batch_size',{}).get('value',20)))
         visited_years=0
+        failure_details=[]
         for offset in range(min(len(requested_years),2)):
             if count>=max_requests or time.monotonic()>=deadline-12:break
             visited_years+=1
@@ -165,6 +166,15 @@ def run(symbols=None,max_requests=2,years=5):
                 oversized=isinstance(exc,ResourceLimitError)
                 if (oversized or detail['error_code']=='timeout') and len(candidates)>1:
                     batch_size=max(1,len(candidates)//2);put('cashflow:batch_size',{'value':batch_size})
+                failure_details.append({**detail,'year':year,'affected_symbols':len(candidates)})
+                # A transport outage is not a company-specific data failure.
+                # Stop this run and let the next scheduled slice resume after cooldown.
+                if detail['error_code'] in ('timeout','connection','http_500','http_502','http_503','http_504') or status in (401,403,429):
+                    failures+=len(candidates)
+                    put('cashflow:catalog_state',{'next_attempt':now+300,'parser_version':2,**detail})
+                    if status in (401,403,429):
+                        put('annual:source:mopsfin',{'next_attempt':now+86400,**detail})
+                    break
                 for symbol in candidates:put(f'cashflow:state:{symbol}:{year}',{
                     'status':'failed','last_attempt':now,'next_attempt':now+(300 if oversized else 3600 if detail['error_code'] in ('timeout','connection','http_500','http_502','http_503','http_504') else 86400),**detail})
                 failures+=len(candidates)
@@ -178,7 +188,7 @@ def run(symbols=None,max_requests=2,years=5):
             'elapsed_request_budget_seconds':round(time.monotonic()-start,2),
             'elapsed_total_seconds':round(65-max(0,deadline-time.monotonic()),2),
             'updated_fields':updated,'failed_feeds':failures,'missing_fields':missing,
-            'missing_reasons':missing_reasons,'updated_samples':updated_samples,'phase_seconds':phases,'updated_at':datetime.now(timezone.utc).isoformat()}
+            'failure_details':failure_details,'missing_reasons':missing_reasons,'updated_samples':updated_samples,'phase_seconds':phases,'updated_at':datetime.now(timezone.utc).isoformat()}
         put('jobs:cash_dividends',result);return result
 
 
