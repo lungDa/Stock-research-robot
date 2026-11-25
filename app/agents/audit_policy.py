@@ -42,3 +42,20 @@ def market_page(snapshot, now, offset=0):
     if any(not isinstance(s,str) or not CODE.fullmatch(s) for s in symbols) or len(set(symbols))!=len(symbols):return None
     symbols=sorted(symbols)
     return {"symbols":symbols[offset:offset+20],"total":len(symbols),"next_offset":offset+20 if offset+20<len(symbols) else None,"snapshot_at":at}
+
+
+def rank_repairs(candidates, rows, now):
+    from app.services.data_queue import prioritize_missing
+    ordered=prioritize_missing(candidates,now=now.timestamp())
+    severe={r["symbol"] for r in rows if r["conflicts"] or r["invalid"]}
+    # Age promotion prevents permanent starvation by newer conflicts.
+    ordered.sort(key=lambda r: (not (r["symbol"] in severe or now.timestamp()-r["requested_at"]>=7*86400),r["requested_at"]))
+    return ordered
+
+def provenance(row, field, record):
+    meta=row.get("field_sources") or {}
+    meta=meta.get(field,{}) if isinstance(meta,dict) else {}
+    if not isinstance(meta,dict):meta={}
+    # Only explicit original filing identifiers can support same-filing attribution.
+    filing=meta.get("original_filing_id")
+    return (origin(record.get("source_url")),filing if isinstance(filing,str) and 0<len(filing)<=256 else None)

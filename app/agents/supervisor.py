@@ -41,3 +41,9 @@ class Supervisor:
             return {"mode":"shadow","status":"denied","rows":[]}
         from app.agents.audit_reader import read_market_page
         return read_market_page(now=now,offset=offset,expected_snapshot_at=expected_snapshot_at)
+
+    def audit_market_snapshot(self, *, now, is_admin=False, timeout=30):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied"}
+        from app.agents.audit_aggregate import read_market
+        return read_market(now=now,timeout=timeout)
