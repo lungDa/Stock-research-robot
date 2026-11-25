@@ -58,4 +58,4 @@ def provenance(row, field, record):
     if not isinstance(meta,dict):meta={}
     # Only explicit original filing identifiers can support same-filing attribution.
     filing=meta.get("original_filing_id")
-    return (origin(record.get("source_url")),filing if isinstance(filing,str) and 0<len(filing)<=256 else None)
+    return (origin(record.get("source_url")),filing.strip() if isinstance(filing,str) and 0<len(filing.strip())<=256 else None)

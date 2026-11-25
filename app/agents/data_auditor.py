@@ -49,18 +49,24 @@ def audit(symbols, documents, *, now, requests=None):
                             observations.setdefault((field,year,basis),[]).append((rec["value"],provenance(clean[year],field,rec)))
             docs[key]={"rows":clean}
         independent=[]
+        same_filing=[]
+        unresolved=[]
         for (field,year,basis),values in observations.items():
             for i,(v,o) in enumerate(values):
                 for w,p in values[i+1:]:
                     if not math.isclose(v,w,rel_tol=0.01,abs_tol=0.01):
                         conflicts.append((field,year))
-                        if o[0] and p[0] and o[0]!=p[0] and not (o[1] and o[1]==p[1]):
-                            independent.append((field,year))
+                        if o[1] and o[1]==p[1]:
+                            same_filing.append((field,year))
+                        else:
+                            unresolved.append((field,year))
+                            if o[0] and p[0] and o[0]!=p[0]:
+                                independent.append((field,year))
         result=from_documents(symbol,docs,current_year=annual_reference(now))
         missing=result["expected_items"]-result["complete_items"]
         issues=len(set(conflicts+invalid))
         score=round(100*result["coverage_ratio"]*max(0,1-issues/result["expected_items"])*max(0,1-(stale+unknown-(len(PREFIXES)-present))/max(1,present)),2)
-        rows.append({"symbol":symbol,"complete_items":result["complete_items"],"expected_items":result["expected_items"],"missing_years":result["missing_years"],"stale_sources":stale,"unknown_sources":unknown,"conflicts":sorted(set(conflicts)),"distinct_origin_conflicts":sorted(set(independent)),"invalid":sorted(set(invalid)),"quality_score":score})
+        rows.append({"symbol":symbol,"complete_items":result["complete_items"],"expected_items":result["expected_items"],"missing_years":result["missing_years"],"stale_sources":stale,"unknown_sources":unknown,"conflicts":sorted(set(conflicts)),"distinct_origin_conflicts":sorted(set(independent)),"same_filing_conflicts":sorted(set(same_filing)),"unresolved_provenance_conflicts":sorted(set(unresolved)),"invalid":sorted(set(invalid)),"quality_score":score})
         if missing or issues or stale or unknown:
             priorities.append({"symbol":symbol,"missing_fields":missing,"requested_at":(requests or {}).get(symbol,{}).get("requested_at",now.timestamp())})
     ordered=rank_repairs(priorities,rows,now)

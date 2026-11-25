@@ -31,3 +31,31 @@ def test_aggregate_rejects_duplicates():
 
 def test_aggregate_denied():
     assert Supervisor().audit_market_snapshot(now=NOW,is_admin=True)["status"]=="denied"
+
+
+def test_missing_rejected():
+    with pytest.raises(ValueError):
+        aggregate(["2330.TW"],[])
+
+def test_readonly_dml_and_cleanup():
+    put("audit:protected",{"ok":True})
+    with readonly_session() as session:
+        with pytest.raises(DBAPIError):
+            session.execute(text("DELETE FROM "+Document.__tablename__))
+    assert get("audit:protected")=={"ok":True}
+    put("audit:protected",{"ok":False})
+    assert get("audit:protected")=={"ok":False}
+
+def test_same_filing_conflict():
+    from app.agents.data_auditor import audit
+    def doc(value,url):
+        return {"at":NOW.timestamp(),"rows":{"2025":{"eps":value,"field_sources":{"eps":{"url":url,"unit":"TWD","period_end":"2025-12-31","original_filing_id":"filing-2330-2025"}}}}}
+    result=audit(["2330.TW"],{"financial:official:2330.TW":doc(10,"https://twse.com.tw/a"),"annual:shared:2330.TW":doc(20,"https://finmindtrade.com/b")},now=NOW)["rows"][0]
+    assert result["same_filing_conflicts"]==[("eps","2025")]
+    assert result["distinct_origin_conflicts"]==[]
+
+def test_age_promotion():
+    from app.agents.audit_policy import rank_repairs
+    candidates=[{"symbol":"2330.TW","missing_fields":10,"requested_at":NOW.timestamp()-8*86400},{"symbol":"2317.TW","missing_fields":0,"requested_at":NOW.timestamp()}]
+    rows=[{"symbol":"2330.TW","conflicts":[],"invalid":[]},{"symbol":"2317.TW","conflicts":["eps"],"invalid":[]}]
+    assert rank_repairs(candidates,rows,NOW)[0]["symbol"]=="2330.TW"
