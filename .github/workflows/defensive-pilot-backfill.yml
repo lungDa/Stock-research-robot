@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install --disable-pip-version-check -r requirements-worker.txt
-      - name: Advance one free history window without LINE or paid data
+      - name: Advance corrected action catalog windows without LINE or paid data
         run: |
           python -c "from app.db import engine; assert engine.dialect.name == 'postgresql'"
           python -m jobs.maintenance_guard
