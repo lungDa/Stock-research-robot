@@ -11,7 +11,7 @@ def test_catch_up_only_within_current_slot(monkeypatch):
     assert recommend.run('morning', False, now, catch_up=True)['status'] == 'closed'
     assert recommend.run('evening', False, now, catch_up=True)['status'] == 'outside_send_window'
     now = now.replace(hour=23)
-    assert recommend.run('morning', False, now, catch_up=True)['status'] == 'outside_send_window'
+    assert recommend.run('morning', False, now, catch_up=True)['status'] == 'closed'
     assert recommend.run('evening', False, now, catch_up=True)['status'] == 'closed'
 
 
@@ -27,3 +27,40 @@ def test_watch_report_includes_prices_changes_and_missing(monkeypatch):
     assert '+5.00%' in message
     assert '觀望' in message
     assert '2330.TW｜行情不足' in message
+
+
+def test_watch_digest_waits_for_today_then_sends_labeled_fallback(monkeypatch):
+    from contextlib import nullcontext
+
+    monkeypatch.setattr(watch_digest, 'init_db', lambda: None)
+    monkeypatch.setattr(watch_digest, 'is_session', lambda day: True)
+    monkeypatch.setattr(watch_digest, 'leased', lambda *args: nullcontext(True))
+    monkeypatch.setattr(watch_digest, 'subscribed', lambda: ['user'])
+    monkeypatch.setattr(watch_digest, 'can_use_personal', lambda user: True)
+    monkeypatch.setattr(watch_digest.assistant, 'preferences', lambda user: {'daily_brief': True})
+    monkeypatch.setattr(watch_digest, 'get', lambda key: None)
+    monkeypatch.setattr(watch_digest, 'watches', lambda user: ['2412.TW'])
+    monkeypatch.setattr(watch_digest, 'quota', lambda: 100)
+    monkeypatch.setattr(watch_digest.assistant, 'personal_ratings', lambda user: [
+        {'symbol': '2412.TW', 'name': '中華電', 'currency': 'TWD',
+         'price': 105, 'date': '2026-11-24', 'rating': {'grade': '觀望'}}
+    ])
+    messages = []
+    def deliver(user, key, texts, dry_run, remaining):
+        messages.extend(texts)
+        return remaining - len(texts)
+    monkeypatch.setattr(watch_digest, 'deliver', deliver)
+    now = datetime(2026, 11, 25, 19, 0, tzinfo=TAIPEI)
+    assert watch_digest.run(now)['waiting_for_today'] == 1
+    assert messages == []
+    result = watch_digest.run(now.replace(hour=23))
+    assert result['messages_sent'] == 1
+    assert '舊行情／待更新' in messages[0]
+
+
+def test_tpex_eps_registered_in_replenishment(monkeypatch):
+    from jobs import refresh_data, refresh_step, refresh_tpex_eps
+
+    monkeypatch.setattr(refresh_tpex_eps, 'run', lambda: {'state': 'updated', 'year': 2023})
+    assert 'tpex_eps' in refresh_data.STEPS
+    assert refresh_step.run('tpex_eps') == {'state': 'updated', 'year': 2023}

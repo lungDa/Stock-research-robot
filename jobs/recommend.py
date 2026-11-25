@@ -31,7 +31,7 @@ def run(slot,dry_run=True,now=None,catch_up=False):
     if slot not in ('morning','evening'):raise ValueError('slot錯誤')
     if not dry_run:
         start=(11,30) if slot=='morning' else (19,30);minute=now.hour*60+now.minute
-        end = (19*60+30 if slot=='morning' else 24*60) if catch_up else start[0]*60+start[1]+60
+        end = 24*60 if catch_up else start[0]*60+start[1]+60
         if not start[0]*60+start[1]<=minute<end:
             return {'status': 'outside_send_window', 'date': str(today), 'slot': slot}
     init_db()
@@ -69,6 +69,17 @@ def run(slot,dry_run=True,now=None,catch_up=False):
                     four_reports+=1
         if not users:
             return {'status':'preview' if dry_run else 'sent','reports':[], 'four_reports':four_reports,'messages_sent':initial_remaining-remaining}
+        if not dry_run:
+            pending_users = []
+            for user in users:
+                key = f'recommendations:outbox:{today}:{slot}:{user}'
+                if get(key):
+                    remaining = deliver(user, key, [], False, remaining)
+                else:
+                    pending_users.append(user)
+            users = pending_users
+            if not users:
+                return {'status':'sent','reports':[],'four_reports':four_reports,'messages_sent':initial_remaining-remaining}
         from app.providers.taiwan_official import snapshot
         from jobs.refresh_universe import build
         from app.providers.universe import load
@@ -116,7 +127,15 @@ if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--slot',choices=['morning','evening','auto'],required=True);p.add_argument('--send',action='store_true');a=p.parse_args()
     now=local_now()
     if a.slot=='auto':
-        slot='evening' if (now.hour,now.minute)>=(19,30) else 'morning'
-        print(run(slot,dry_run=not a.send,now=now,catch_up=True))
+        slots = ['evening', 'morning'] if (now.hour,now.minute)>=(19,30) else ['morning']
+        failed = False
+        for slot in slots:
+            try:
+                print(run(slot,dry_run=not a.send,now=local_now(),catch_up=True), flush=True)
+            except Exception as exc:
+                print({'status':'failed','slot':slot,'error_type':type(exc).__name__}, flush=True)
+                failed = True
+        if failed:
+            raise SystemExit(1)
     else:
         print(run(a.slot,dry_run=not a.send,now=now))

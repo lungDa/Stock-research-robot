@@ -68,7 +68,9 @@ def run():
             put('paid:shared:'+symbol,{**data,'source':url,'fetched_at':now})
             result['updated_symbols']+=1
             print({'paid_dividend_symbol':symbol,'records':len(data['payments'])})
-        except Exception:
+        except Exception as exc:
+            from app.providers.source_errors import describe
+            result['failures'] = [describe(exc, '發行商配息日期')]
             result['failed_feeds']+=1
             result['state']='partial'
             print('配息日期來源未完成，保留舊資料：'+symbol)

@@ -8,7 +8,7 @@ from app.db import init_db, put, leased
 
 STEPS = [
     "maintenance", "market_metadata", "universe", "tw_prices", "history", "corporate_actions", "fundamentals",
-    "cash_dividends", "tw_financials", "eps_first", "eps_second",
+    "cash_dividends", "tw_financials", "eps_first", "eps_second", "tpex_eps",
     "coverage_diagnostic", "annual", "us_prices", "paid",
 ]
 STEP_TIMEOUT = max(15, int(os.getenv("REFRESH_STEP_TIMEOUT_SECONDS", "65")))
@@ -22,7 +22,7 @@ def run():
     init_db()
     # Allow the worker enough time for all bounded steps; a killed worker's
     # lease expires automatically, avoiding permanent lockout.
-    with leased("data:scheduled", 1200) as owned:
+    with leased("data:scheduled", 1440) as owned:
         if not owned:
             print("Refresh skipped: another worker owns data:scheduled", flush=True)
             return {"state": "busy"}
@@ -82,5 +82,9 @@ if __name__ == "__main__":
     outcome = run()
     print(json.dumps(outcome, ensure_ascii=False, default=str), flush=True)
     if outcome["state"] != "finished":
+        for name, entry in outcome.get("steps", {}).items():
+            if entry["state"] != "finished":
+                print(f"::warning::Refresh {name}: {entry['state']}", flush=True)
+        # Keep incomplete data visible in the Actions conclusion.
         sys.exit(1)
 

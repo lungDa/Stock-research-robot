@@ -6,6 +6,7 @@ def run(name):
     from jobs.maintenance import run as clean
     from jobs.refresh_fundamentals import run as fundamentals
     from jobs.refresh_eps import run as eps
+    from jobs.refresh_tpex_eps import run as tpex_eps
     from jobs.refresh_annual import run as annual
     from jobs.refresh_us_prices import run as prices
     from jobs.v26_market_coverage import run as coverage
@@ -21,7 +22,7 @@ def run(name):
         "maintenance": clean, "universe": universe, "tw_prices": tw_prices,
         "history": history, "market_metadata": market_metadata, "corporate_actions": corporate_actions, "fundamentals": fundamentals,
         "cash_dividends": cash, "tw_financials": tw_financials,
-        "eps_first": eps, "eps_second": eps, "coverage_diagnostic": coverage,
+        "eps_first": eps, "eps_second": eps, "tpex_eps": tpex_eps, "coverage_diagnostic": coverage,
         "annual": annual, "us_prices": prices, "paid": paid,
     }
     if name not in steps:

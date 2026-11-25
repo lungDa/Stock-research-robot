@@ -12,6 +12,7 @@ RETENTION={
     'annual:query_minute:':2*86400,'annual:query_day:':3*86400,
     'annual:enqueue_symbol:':86400,'budget:':3*86400,
     'signal:slot:':7*86400,'event:':30*86400,'annual:request:':0,
+    'watch_digest:outbox:':7*86400,'recommendations:outbox:':7*86400,'four_rankings:outbox:':7*86400,
 }
 
 
@@ -36,6 +37,8 @@ def run(batch_size=2000):
                 if not isinstance(value,dict):continue
                 expires=value.get('expires')
                 at=value.get('at')
+                if prefix in ('watch_digest:outbox:', 'recommendations:outbox:', 'four_rankings:outbox:'):
+                    at=value.get('created_at')
                 # An active session must never be removed, even when its
                 # creation timestamp is old. Prefer explicit expiry over age.
                 if prefix=='auth:session:' and type(expires) not in (int,float):continue

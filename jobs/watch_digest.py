@@ -10,8 +10,9 @@ from app.services.watchlist import subscribed, watches
 from jobs.recommend import deliver
 
 
-def report(user, day, symbols):
-    rows = {row['symbol']: row for row in assistant.personal_ratings(user)}
+def report(user, day, symbols, rows=None):
+    if rows is None:
+        rows = {row['symbol']: row for row in assistant.personal_ratings(user)}
     lines = [f'股海燈塔｜每日追蹤報告 {day}', '行情以快取收盤價為準，非即時報價。']
     for symbol in symbols:
         row = rows.get(symbol)
@@ -27,7 +28,8 @@ def report(user, day, symbols):
             close = history[max(previous)]
             if isinstance(close, (int, float)) and math.isfinite(close) and close > 0:
                 change = f'{(price / close - 1) * 100:+.2f}%'
-        lines.append(f"{row.get('name', symbol)}（{symbol}）｜{row.get('currency', '')} {price:.2f}｜{change}｜{row['rating']['grade']}｜{date}")
+        age_note = '（舊行情／待更新）' if symbol.endswith(('.TW','.TWO')) and date != str(day) else ''
+        lines.append(f"{row.get('name', symbol)}（{symbol}）｜{row.get('currency', '')} {price:.2f}｜{change}｜{row['rating']['grade']}｜{date}{age_note}")
     if not symbols:
         lines.append('目前沒有追蹤標的。')
     lines.append('行情日期依各標的列示；規則評級非報酬預測。')
@@ -47,7 +49,7 @@ def run(now=None):
             return {'status': 'busy'}
         users = [u for u in subscribed() if can_use_personal(u)
                  and assistant.preferences(u)['daily_brief']]
-        sent = skipped = failed = 0
+        sent = skipped = failed = waiting = empty = 0
         remaining = None
         for user in users:
             key = f'watch_digest:outbox:{day}:{user}'
@@ -56,10 +58,25 @@ def run(now=None):
                 skipped += 1
                 continue
             try:
+                symbols = watches(user)
+                if not symbols and not state:
+                    empty += 1
+                    continue
+                rows = None
+                if not state:
+                    rows = {row['symbol']: row for row in assistant.personal_ratings(user)}
+                    missing_current = any(symbol.endswith(('.TW','.TWO')) and (
+                        (rows.get(symbol) or {}).get('date') != str(day)
+                        or (rows.get(symbol) or {}).get('price') is None
+                        or (rows.get(symbol) or {}).get('data_status') == 'stale'
+                    ) for symbol in symbols)
+                    if missing_current and (now.hour, now.minute) < (22, 30):
+                        waiting += 1
+                        continue
                 if remaining is None:
                     remaining = quota()
                 before = remaining
-                texts = [] if state else [report(user, day, watches(user))]
+                texts = [] if state else [report(user, day, symbols, rows)]
                 remaining = deliver(user, key, texts, False, remaining)
                 sent += before - remaining
             except Exception:
@@ -67,7 +84,7 @@ def run(now=None):
                 failed += 1
         result = {'status': 'partial' if failed else 'finished', 'date': str(day),
                   'subscribers': len(users), 'messages_sent': sent,
-                  'already_sent': skipped, 'failed': failed}
+                  'already_sent': skipped, 'failed': failed, 'waiting_for_today': waiting, 'empty_watchlists': empty}
         print(result)
         if failed:
             raise RuntimeError('Some daily watch reports were not confirmed')

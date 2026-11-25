@@ -29,7 +29,7 @@ def message(d,previous):
         +'詳細條件請看Streamlit。規則分級非報酬預測。')
 
 def run():
-    init_db();deadline=time.monotonic()+40; now=time.time();day=local_now().date().isoformat()
+    init_db();deadline=time.monotonic()+95; now=time.time();day=local_now().date().isoformat()
     remaining=None
     sent=failed=unchanged=0
     users=subscribed()
@@ -66,13 +66,17 @@ def run():
                 if c['notify_direction']=='up' and RANK[grade]<=RANK.get(previous,-1):
                     put(key,{'grade':grade,'config_hash':revision});continue
                 if remaining is None:remaining=quota()
-                if remaining<=5:return
+                if remaining<=5:
+                    print({'status':'quota_exhausted','sent':sent,'failed':failed,'unchanged':unchanged})
+                    return
                 if not slot(user,day,c['daily_cap']):continue
                 pending={'day':day,'created_at':now,'retry_key':str(uuid.uuid4()),
                          'grade':grade,'config_hash':revision,'text':message(d,previous),'last_attempt':0}
                 state={**state,'pending':pending};put(key,state)
             if remaining is None:remaining=quota()
-            if remaining<=5:return
+            if remaining<=5:
+                print({'status':'quota_exhausted','sent':sent,'failed':failed,'unchanged':unchanged})
+                return
             pending['last_attempt']=time.time();put(key,{**state,'pending':pending});remaining-=1
             try:
                 push(user,pending['text'],pending['retry_key'])
