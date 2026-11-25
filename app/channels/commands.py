@@ -99,7 +99,7 @@ def handle(user,text):
         return '公開市場批次重點（預設規則，非全市場）：\n'+('\n'.join(d['name']+'｜'+assistant.display_symbol(d['symbol'])+'：'+d['rating']['grade'] for d in rows[:3]) or '本批沒有資料完整且符合買入級別的標的；不代表全市場沒有機會。')+'\nLINE綁定後可看自己的追蹤重點。'
     if command=='通知設定':
         c=settings_for(user);p=assistant.preferences(user)
-        return f"通知：{'開啟' if user in subscribed() else '關閉'}\n每日最多{c['daily_cap']}則，單檔升降級優先。\n盤後摘要：{'開' if p['daily_brief'] else '關'}；空清單提醒：{'開' if p['empty_reminder'] else '關'}（最多7天一次）。\n可說「只看重要訊號」「盤後摘要開啟」或「通知關閉」。"
+        return f"通知：{'開啟' if user in subscribed() else '關閉'}\n每日重要訊號最多{c['daily_cap']}則；固定排名與追蹤報告另計。\n盤後摘要：{'開' if p['daily_brief'] else '關'}；空清單提醒：{'開' if p['empty_reminder'] else '關'}（最多7天一次）。\n可說「只看重要訊號」「盤後摘要開啟」或「通知關閉」。"
     if command in ('通知開啟','通知關閉'):
         toggle(user,command=='通知開啟')
         if command=='通知關閉':
