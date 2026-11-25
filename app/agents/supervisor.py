@@ -28,5 +28,10 @@ class Supervisor:
     def audit_data(self, symbols, documents, *, now, is_admin=False):
         if self._enabled is not True or is_admin is not True:
             return {"mode":"shadow","status":"denied","rows":[]}
-        from app.agents.data_auditor import audit
-        return audit(symbols, documents, now=now)
+        return Registry().resolve("data_auditor").audit(symbols, documents, now=now)
+
+    def audit_database(self, symbols, *, now, is_admin=False):
+        if self._enabled is not True or is_admin is not True:
+            return {"mode":"shadow","status":"denied","rows":[]}
+        from app.agents.audit_reader import read_audit
+        return read_audit(symbols, now=now)
