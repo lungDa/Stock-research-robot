@@ -10,7 +10,7 @@ from app.agents.supervisor import Supervisor
 
 def safe_report(value):
     # Allowlisted structural keys; omit arbitrary text, URLs, user IDs and receipts.
-    keys=set("mode status execution_allowed executed report snapshot_digest observed_at rows history plans findings code severity symbol scope category action id evidence_version approval_state weights cash_weight risk_grade portfolio_metrics samples annualized_volatility max_drawdown var95_daily cvar95_daily confidence factors score coverage complete_items expected_items quality_score counts date slot accepted_messages retry circuit state delay_seconds source root_cause verification verified delivery_verified".split())
+    keys=set("mode status execution_allowed executed report snapshot_digest observed_at rows history plans findings code severity symbol scope category action id evidence_version approval_state weights cash_weight risk_grade portfolio_metrics samples annualized_volatility annual_volatility tail_samples max_drawdown var95_daily cvar95_daily confidence factors score coverage complete_items expected_items quality_score counts date slot accepted_messages retry circuit state delay_seconds source root_cause verification verified delivery_verified".split())
     if isinstance(value,dict):
         return {k:safe_report(v) for k,v in value.items() if k in keys or re.fullmatch(r"[0-9]{4,6}\.TW[O]?",k)}
     if isinstance(value,list):return [safe_report(v) for v in value[:500]]
@@ -33,9 +33,13 @@ class ReviewStore:
         return self.sessions[key]
     def clear(self,user,token):
         with self.lock:
-            self.sessions.pop(sha256((str(user)+"\\0"+token).encode()).hexdigest(),None)
-    def record(self,user,token,name,result,payload):
+            self.sessions.pop(sha256((str(user)+"\0"+token).encode()).hexdigest(),None)
+    def begin(self,user,token):
+        with self.lock:return self._session(user,token)
+    def record(self,user,token,name,result,payload,expected=None):
         with self.lock:
+            if expected is not None and self.sessions.get(sha256((str(user)+"\0"+token).encode()).hexdigest()) is not expected:
+                return {"mode":"shadow","execution_allowed":False,"status":"session_expired"}
             s=self._session(user,token)
             now=datetime.now(timezone.utc)
             clean=safe_report(result)
@@ -64,10 +68,11 @@ class ReviewStore:
         with self.lock:
             s=self._session(user,token)
             if not s["sim"] or p.get("review_id")!=s["review_id"] or p.get("event") not in ("approve","reject","revoke"):return False
+            if not all(isinstance(p.get(k),str) and 0<len(p[k])<=128 for k in ("plan","version","operation_id","review_id")):return False
             if p.get("plan") not in s.get("reviewable",set()):return False
             if not any(x["id"]==p.get("plan") and x["evidence_version"]==p.get("version") for x in s["plans"]):return False
             return s["sim"].transition(p["plan"],p["event"],datetime.now(timezone.utc),operation_id=p.get("operation_id"),expected_version=p["version"])
     def history(self,user,token):
         with self.lock:
             s=self._session(user,token)
-            return {"mode":"shadow","execution_allowed":False,"runs":list(s["runs"]),"review":s["sim"].export_history() if s["sim"] else None}
+            return {"mode":"shadow","execution_allowed":False,"runs":list(s["runs"]),"review":safe_report(s["sim"].export_history()) if s["sim"] else None}

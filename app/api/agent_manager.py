@@ -32,9 +32,12 @@ def _invoke(name,payload,timeout=20):
     try:
         canonical=json.dumps(payload,sort_keys=True,separators=(",",":"),allow_nan=False)
         with tempfile.TemporaryDirectory(prefix="agent-shadow-") as tmp:
-            p=subprocess.run([sys.executable,"-m","app.agents.manager_worker",name],input=canonical,text=True,capture_output=True,timeout=timeout,check=True,env=worker_env(tmp))
-        if len(p.stdout)>1000000:raise ValueError()
-        result=json.loads(p.stdout)
+            with tempfile.TemporaryFile(dir=tmp) as out, tempfile.TemporaryFile(dir=tmp) as err:
+                subprocess.run([sys.executable,"-m","app.agents.manager_worker",name],input=canonical.encode(),stdout=out,stderr=err,timeout=timeout,check=True,env=worker_env(tmp))
+                out.seek(0)
+                raw=out.read(1000001)
+                if len(raw)>1000000:raise ValueError()
+        result=json.loads(raw)
         if not isinstance(result,dict) or result.get("mode")!="shadow":raise ValueError()
         return {"mode":"shadow","execution_allowed":False,"report":result,"snapshot_digest":hashlib.sha256((name+":"+canonical).encode()).hexdigest(),"observed_at":datetime.now(timezone.utc).isoformat()}
     except subprocess.TimeoutExpired:return {"mode":"shadow","execution_allowed":False,"status":"timeout"}
@@ -75,8 +78,9 @@ def run_once(user,token,name,payload):
         if len(PENDING)>=2:return {"mode":"shadow","execution_allowed":False,"status":"busy"}
         PENDING.add(key)
     try:
+        session=STORE.begin(user,token)
         result=invoke(name,payload)
-        return STORE.record(user,token,name,result,payload)
+        return STORE.record(user,token,name,result,payload,expected=session)
     finally:
         with LOCK:PENDING.discard(key)
 
