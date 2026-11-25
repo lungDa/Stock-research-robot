@@ -13,19 +13,27 @@ class RecoverySimulation:
     def plan(self, *, incident, now, evidence, outbox=None):
         if not isinstance(evidence,dict):raise ValueError("evidence")
         reports={}
+        observed={}
         for source in ("monitor","data","notification"):
             e=evidence.get(source)
             reports[source]=e.get("report") if isinstance(e,dict) and e.get("source")==source and fresh(e.get("at"),now) else None
+            if reports[source] is not None:observed[source]=e["at"]
         result=plan_incident(incident=incident,observed_at=now,now=now,**reports)
         blockers={p["scope"] for p in result["plans"] if p["source"]=="monitor" and p["severity"]=="critical"}
         if isinstance(outbox,dict) and outbox.get("incident")==incident and fresh(outbox.get("at"),now) and isinstance(outbox.get("key"),str) and 0<len(outbox["key"])<=512:
             advice=recovery_advice(outbox.get("document"),now,same_day=outbox.get("same_day") is True,eligible=outbox.get("eligible"),duplicate=bool(blockers) or any(p["category"]=="notification_duplicate" for p in result["plans"]),error=outbox.get("error","unknown"))
             result["outbox_review"]={"target":sha256(outbox["key"].encode()).hexdigest(),"advice":advice,"execution_allowed":False}
         with self._lock:
+            active={p["id"] for p in result["plans"]}
+            for key,state in self._states.items():
+                if state.get("incident")==incident and key not in active:state["blocked"]=True
             if len(self._states)+sum(p["id"] not in self._states for p in result["plans"])>1000:raise ValueError("simulation limit")
             for p in result["plans"]:
                 s=self._states.setdefault(p["id"],{"attempts":0,"failures":0,"opened_at":None,"approval":"pending","probe":False,"history":[],"operations":set(),"approved_at":None,"observed_at":now,"last_at":now})
-                s["observed_at"]=max(s["observed_at"],now)
+                s["incident"]=incident
+                s["observed_at"]=observed.get(p["source"],now)
+                if s["approval"]=="approved" and not fresh(s["approved_at"],now):
+                    s["probe"]=False
                 s["blocked"]=p.get("blocked_by_dependency",False)
                 if s["approval"]=="approved" and not fresh(s["approved_at"],now):s["approval"]="pending"
                 p["approval_state"]=s["approval"]
@@ -34,9 +42,9 @@ class RecoverySimulation:
                     p["blocked_by_dependency"]=True
                     if p["action"]!="do_not_resend":p["action"]="hold_and_review"
                 if p["source"]=="notification" and "outbox_review" in result:
-                    p["action"]="do_not_resend" if p["action"]=="do_not_resend" else result["outbox_review"]["advice"]
+                    p["action"]="do_not_resend" if p["action"]=="do_not_resend" else "hold_and_review"
                     if p.get("blocked_by_dependency") and p["action"]!="do_not_resend":p["action"]="hold_and_review"
-                s["blocked"]=p.get("blocked_by_dependency",False) or p["action"]=="do_not_resend"
+                s["blocked"]=p.get("blocked_by_dependency",False) or p["action"]=="do_not_resend" or p["category"]=="unknown" or p["source"]=="notification"
                 p["retry"]=retry_policy(s["attempts"],s["failures"])
                 p["circuit"]=circuit(s["failures"],s["opened_at"],now)
                 if p["circuit"]!="closed" or s["attempts"]>=3:
@@ -51,7 +59,8 @@ class RecoverySimulation:
             if not isinstance(event,str):return False
             if event.startswith("simulate_") and (s.get("blocked") or not fresh(s["approved_at"],now) or not fresh(s["observed_at"],now)):return False
             if event in ("approve","reject","revoke"):
-                if s["approval"]=="approved" and not fresh(s["approved_at"],now):s["approval"]="pending"
+                if s["approval"]=="approved" and not fresh(s["approved_at"],now):
+                    s["approval"]="pending";s["probe"]=False
                 if event=="approve" and not fresh(s["observed_at"],now):return False
                 next_state=approval(s["approval"],event)
                 if next_state=="invalid":return False
