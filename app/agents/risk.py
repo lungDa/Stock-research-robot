@@ -48,7 +48,7 @@ class RiskAgent:
             if r["component_confidence"]["market"]!=100 or not num(q["price"]) or not 0<q["price"]<=1e7:raise ValueError("market")
             values[symbol]=p["quantity"]*q["price"]
             sectors[symbol]=sector_evidence(p,symbol,now)
-            reports[symbol]={"research_version":r["evidence_version"],"confidence":r["confidence"],"financial_audit":r["financial_audit"],"downside_beta":r["defensive"].get("downside_beta")}
+            reports[symbol]={"research_version":r["evidence_version"],"input_digest":r["input_digest"],"confidence":r["confidence"],"financial_audit":r["financial_audit"],"downside_beta":r["defensive"].get("downside_beta")}
             reports[symbol]["warnings"]=[]
             audit=r["financial_audit"]
             if sectors[symbol]=="unknown" and q["kind"]=="STOCK":reports[symbol]["warnings"].append("sector_unconfirmed")

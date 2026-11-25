@@ -40,6 +40,8 @@ def test_cross_agent_pipeline(monkeypatch):
     recovery=run("recovery",{"monitor":monitor["report"],"data":data["report"],"notification":notification["report"]})
     plans=recovery["report"]["plans"]
     assert {"system_failure","data_missing","notification_duplicate"}<={p["category"] for p in plans}
+    assert any(p["scope"]=="failed_jobs" for p in plans)
+    assert not any(p["scope"]=="scan_workflow" for p in plans)
     assert all(p["execution_allowed"] is False for p in plans)
     assert any(p["category"]=="notification_duplicate" and p["action"]=="hold_and_review" for p in plans)
     p=deepcopy(position())
@@ -51,6 +53,7 @@ def test_cross_agent_pipeline(monkeypatch):
     assert risk["report"]["status"]=="risk_only"
     assert risk["report"]["positions"]["2330.TW"]["confidence"]==research["report"]["confidence"]
     assert len(risk["report"]["positions"]["2330.TW"]["research_version"])==64
+    assert risk["report"]["positions"]["2330.TW"]["input_digest"]==research["report"]["input_digest"]
     history=client.get("/admin/agents/history",headers=headers).json()
     assert len(history["runs"])==6
     assert client.get("/admin/agents/history",headers={"Authorization":"Bearer other"}).json()["runs"]==[]

@@ -31,7 +31,9 @@ class ResearchAgent:
             meta=quote.get("classification",{})
             at=timestamp(meta.get("observed_at"))
             if meta.get("symbol")!=symbol or meta.get("kind")!=kind or origin(meta.get("source_url")) not in ("twse.com.tw","tpex.org.tw") or at is None or not 0<=(now-at).total_seconds()<=8*86400:raise ValueError("classification evidence")
-        version=hashlib.sha256(json.dumps([symbol,quote,documents,c,bars,defensive,valuation_inputs,now.isoformat()],sort_keys=True,allow_nan=False).encode()).hexdigest()
+        inputs=[symbol,quote,documents,c,bars,defensive,valuation_inputs]
+        input_digest=hashlib.sha256(json.dumps(inputs,sort_keys=True,allow_nan=False).encode()).hexdigest()
+        version=hashlib.sha256(json.dumps(inputs+[now.isoformat()],sort_keys=True,allow_nan=False).encode()).hexdigest()
         def market(q,today=None):
             return q.get("data_status") not in ("stale","fundamentals_only") and number(q.get("price")) and q["price"]>0 and status(q,now,documents.get)["state"]=="current"
         audit=DataAuditor().audit([symbol],documents,now=now)["rows"][0] if kind=="STOCK" else None
@@ -58,7 +60,7 @@ class ResearchAgent:
         if audit and (audit["conflicts"] or audit["invalid"] or audit["stale_sources"]):
             confidence=0
         if factors["required_missing"]:confidence=0
-        return {"mode":"shadow","status":"research_only","symbol":symbol,"kind":kind,"schema_version":1,"evidence_version":version,"as_of":now.isoformat(),
+        return {"mode":"shadow","status":"research_only","symbol":symbol,"kind":kind,"schema_version":1,"evidence_version":version,"input_digest":input_digest,"as_of":now.isoformat(),
                 "execution_allowed":False,"verified":False,"confidence":confidence,
                 "confidence_basis":"provisional_rule_coverage_not_return_probability","classification_verified":False,"classification_scope":"caller_metadata_checked" if "classification" in quote else "stock_code_and_quote_only",
                 "financial_audit":audit,"annual_evidence":evidence,

@@ -41,7 +41,7 @@ class RecoveryAgent:
                 checks=report.get("checks")
                 if not isinstance(checks,list) or not checks or len(checks)>len(CODES):add(source,"unknown","report");continue
                 for c in checks:
-                    if not isinstance(c,dict) or c.get("code") not in CODES:add(source,"unknown","report");continue
+                    if not isinstance(c,dict) or c.get("code") not in (*CODES,"failed_jobs","stale_jobs"):add(source,"unknown","report");continue
                     state=c.get("severity")
                     if state=="critical":add(source,"system_failure",c["code"])
                     elif state=="warning":add(source,"system_warning",c["code"])
