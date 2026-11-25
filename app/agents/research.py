@@ -7,7 +7,7 @@ from app.services.trading_calendar import status
 from app.services.v26_coverage_adapter import CODE
 from app.day_trader.technical import score
 from app.agents.data_auditor import DataAuditor
-from app.agents.research_evidence import annual_evidence, technical_evidence, downside, valuation
+from app.agents.research_evidence import annual_evidence, technical_evidence, downside, historical_valuation
 
 def number(v):
     return type(v) in (int,float) and isfinite(v)
@@ -24,13 +24,13 @@ class ResearchAgent:
             return q.get("data_status") not in ("stale","fundamentals_only") and number(q.get("price")) and q["price"]>0 and status(q,now,documents.get)["state"]=="current"
         audit=DataAuditor().audit([symbol],documents,now=now)["rows"][0]
         rows=multifactor.annual_rows("__shadow__",symbol,documents=documents)
-        rows, evidence=annual_evidence(symbol,rows,documents,now)
+        rows, evidence=annual_evidence(symbol,rows,documents,now,audit)
         factors=multifactor.evaluate(quote,c,rows,now.date(),market_check=market)
         income=analysis.evaluate(quote,"income",market_check=market)
         swing=analysis.evaluate(quote,"swing",market_check=market)
         technical=technical_evidence(bars,quote,now,documents,market(quote))
         defense=downside(defensive,symbol,now,documents)
-        value=valuation(valuation_inputs,quote,now,market(quote))
+        value=historical_valuation(valuation_inputs,quote,now,market(quote))
         # Confidence measures coverage, not investment success probability.
         confidence=min(audit["quality_score"],factors["coverage"]) if market(quote) else 0
         if audit["conflicts"] or audit["invalid"] or audit["stale_sources"]:
@@ -40,6 +40,6 @@ class ResearchAgent:
                 "execution_allowed":False,"verified":False,"confidence":confidence,
                 "confidence_basis":"provisional_financial_coverage_not_return_probability",
                 "financial_audit":audit,"annual_evidence":evidence,
-                "component_confidence":{"financial":confidence,"market":100 if market(quote) else 0,"technical":100 if technical["complete"] else 0,"defensive":100 if defense["status"]=="available" else 0,"valuation":100 if value.get("scenario") else 0},"factors":{k:factors.get(k) for k in ("score","coverage","checks","config_hash","required_missing")},
+                "component_confidence":{"financial":confidence,"market":100 if market(quote) else 0,"technical":100 if technical["complete"] else 0,"defensive":min(100,round(100*defense["pairs"]/252),round(100*defense["down_sessions"]/60)) if defense["status"]=="available" else 0,"valuation":min(100,round(100*value.get("samples",0)/252)) if value.get("historical_scenario") else 0},"factors":{k:factors.get(k) for k in ("score","coverage","checks","config_hash","required_missing")},
                 "income":income,"swing":swing,"technical":technical,
                 "valuation":value,"defensive":defense}

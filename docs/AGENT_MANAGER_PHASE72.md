@@ -1,0 +1,2 @@
+# Phase 07.2
+Reject audited conflicting fields and require explicit publication timestamps. Check dated source metadata and Taiwan opening/closing boundaries. Historical PE percentiles require 60 observations spanning one year; no fair-value claim. Downside and valuation confidence use bounded sample coverage, not probabilities. Source URLs and timestamps remain caller assertions; benchmark identity, original filings, actual adjusted price lineage and historical PE construction are not independently authenticated. No production calls.
