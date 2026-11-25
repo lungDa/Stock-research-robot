@@ -67,8 +67,11 @@ def run():
                 print(f"FAILED {name}: {type(exc).__name__}", flush=True)
             result["steps"][name] = entry
             if name == 'tw_financials':
-                from jobs.tw_financial_summary import write_summary
-                write_summary(entry)
+                try:
+                    from jobs.tw_financial_summary import write_summary
+                    write_summary(entry)
+                except Exception as exc:
+                    print(f"WARNING: financial summary unavailable: {type(exc).__name__}", flush=True)
             result["updated_at"] = utcnow()
             put("jobs:data_refresh", result)
             print(f"END {name}: {entry['state']} ({len(result['steps'])}/{len(STEPS)})", flush=True)
