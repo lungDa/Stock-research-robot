@@ -48,6 +48,18 @@ from test_recommendations import setup_job
 @pytest.mark.parametrize("slot,hour,minute", [("morning",11,30),("evening",19,30)])
 def test_legacy_ranking_after_shadow(monkeypatch,slot,hour,minute):
     j=setup_job(monkeypatch)
+    from app.providers import taiwan_official
+    from app.day_trader import reporting
+    from test_recommendations import item
+    target="2026-11-09" if slot=="morning" else "2026-11-10"
+    monkeypatch.setattr(taiwan_official,"snapshot",lambda market:{"2412" if market=="TW" else "6488":{"date":target,"close":100,"name":"stock"},"_meta":{"complete":True}})
+    def collect(*args):
+        q,rows=item();q["date"]=target
+        return [(q,rows)],{"universe":2,"stock_quotes":2}
+    monkeypatch.setattr(j,"collect",collect)
+    monkeypatch.setattr(reporting,"preferences",lambda u:{"enabled":u=="Ualice"})
+    monkeypatch.setattr(reporting,"refresh_cached",lambda u,d:{"rankings":{"long_term":[{"symbol":"2330.TW"}]}})
+    monkeypatch.setattr(reporting,"summary",lambda r:"fixture four modes")
     calls=[]
     monkeypatch.setattr(j,"quota",lambda:100)
     monkeypatch.setattr(j,"push",lambda *a:calls.append(a))
@@ -56,9 +68,13 @@ def test_legacy_ranking_after_shadow(monkeypatch,slot,hour,minute):
     key=f"recommendations:outbox:2026-11-10:{slot}:Ualice"
     before=deepcopy(get(key))
     assert before and all(x["sent"] for x in before["messages"])
+    four_key=f"four_rankings:outbox:2026-11-10:{slot}:Ualice"
+    four=deepcopy(get(four_key))
+    assert four and all(x["sent"] for x in four["messages"])
     result=invoke("system_monitor",{"database_ready":False,"failed_jobs":1,"stale_jobs":0})
     assert result["report"]["mode"]=="shadow"
     assert get(key)==before
+    assert get(four_key)==four
     count=len(calls)
     assert count>0
     j.run(slot,False,now)
