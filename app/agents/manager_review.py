@@ -60,6 +60,8 @@ class ReviewStore:
                 clean["report"]["snapshot_digest"]=clean.get("snapshot_digest")
             source={"system_monitor":"monitor","data_auditor":"data","notification":"notification"}.get(name)
             if source:
+                # Any refreshed evidence invalidates the previous review atomically.
+                s.update(sim=None,review_id=None,plans=[],reviewable=set())
                 s["evidence"].pop(source,None)
                 if isinstance(clean.get("report"),dict) and clean.get("observed_at") and clean.get("snapshot_digest"):
                     s["evidence"][source]=deepcopy(clean["report"])

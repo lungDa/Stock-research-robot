@@ -49,3 +49,24 @@ def test_allowed_fields_do_not_accept_arbitrary_secret_strings():
     assert result["snapshot_digest"] == digest
     assert result["mode"] == "shadow"
     assert result["observed_at"] == "2026-11-26T04:00:00+00:00"
+
+def test_refresh_invalidates_review_and_concurrent_revoke(client):
+    def monitor():
+        return client.post(PREFIX+"/run/system_monitor",headers=A,
+                           json={**PAYLOAD,"database_ready":False}).json()["report"]
+    def plan(report):
+        return client.post(PREFIX+"/run/recovery",headers=A,json={"monitor":report}).json()
+    r=plan(monitor())
+    p=next(x for x in r["report"]["plans"] if x["category"]=="system_failure")
+    req={"review_id":r["review_id"],"plan":p["id"],"version":p["evidence_version"],
+         "event":"approve","operation_id":"first"}
+    assert client.post(PREFIX+"/review",headers=A,json=req).status_code==200
+    def revoke(i):
+        return m.STORE.review("U"+"1"*32,A["Authorization"],
+                              {**req,"event":"revoke","operation_id":"revoke"+str(i)})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(revoke,range(2)))==[False,True]
+    assert client.post(PREFIX+"/review",headers=A,json={**req,"operation_id":"again"}).status_code==409
+    fresh=monitor()
+    assert client.post(PREFIX+"/review",headers=A,json={**req,"operation_id":"stale"}).status_code==409
+    assert plan(fresh)["review_id"]!=r["review_id"]
