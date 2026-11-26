@@ -5,7 +5,8 @@ from hashlib import sha256
 from threading import RLock
 from collections import OrderedDict
 from uuid import uuid4
-import time,re
+import time,re,json
+from copy import deepcopy
 from app.agents.supervisor import Supervisor
 
 def safe_report(value):
@@ -29,7 +30,7 @@ class ReviewStore:
         key=sha256((str(user)+"\0"+token).encode()).hexdigest()
         if key not in self.sessions:
             if len(self.sessions)>=32:self.sessions.popitem(last=False)
-            self.sessions[key]={"at":now,"runs":[],"sim":None,"review_id":None,"plans":[]}
+            self.sessions[key]={"at":now,"runs":[],"sim":None,"review_id":None,"plans":[],"evidence":{}}
         return self.sessions[key]
     def clear(self,user,token):
         with self.lock:
@@ -46,6 +47,11 @@ class ReviewStore:
             if isinstance(clean.get("report"),dict) and clean.get("observed_at"):
                 clean["report"]["observed_at"]=clean["observed_at"]
                 clean["report"]["snapshot_digest"]=clean.get("snapshot_digest")
+            source={"system_monitor":"monitor","data_auditor":"data","notification":"notification"}.get(name)
+            if source:
+                s["evidence"].pop(source,None)
+                if isinstance(clean.get("report"),dict) and clean.get("observed_at") and clean.get("snapshot_digest"):
+                    s["evidence"][source]=deepcopy(clean["report"])
             if name=="recovery":
                 s.update(sim=None,review_id=None,plans=[])
                 if result.get("report",{}).get("status")=="planned":
@@ -53,11 +59,12 @@ class ReviewStore:
                     incident=uuid4().hex
                     evidence={}
                     for k in ("monitor","data","notification"):
-                        report=payload.get(k)
+                        report=s["evidence"].get(k)
+                        if report is None or payload.get(k)!=report:continue
                         try:at=datetime.fromisoformat(report["observed_at"])
                         except (TypeError,KeyError,ValueError):continue
                         if fresh(at,now):evidence[k]={"source":k,"at":at,"report":report}
-                    if not evidence:
+                    if not evidence or any(payload.get(k) is not None and k not in evidence for k in ("monitor","data","notification")):
                         clean["report"]["review_status"]="missing_fresh_evidence"
                         return clean
                     p=sim.plan(incident=incident,now=now,evidence=evidence)

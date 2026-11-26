@@ -46,7 +46,8 @@ def test_real_timeout(monkeypatch):
 
 def test_review_isolation():
     s=ReviewStore()
-    p={"monitor":{"observed_at":datetime.now(timezone.utc).isoformat(),"mode":"shadow","checks":[{"code":"database","severity":"critical"}]}}
+    evidence=s.record("a","token","system_monitor",m.invoke("system_monitor",{"database_ready":False,"failed_jobs":0,"stale_jobs":0}),{})
+    p={"monitor":evidence["report"]}
     r=s.record("a","token","recovery",{"mode":"shadow","report":{"status":"planned"}},p)
     plan=r["report"]["plans"][0]
     req={"review_id":r["review_id"],"plan":plan["id"],"version":plan["evidence_version"],"event":"approve","operation_id":"one"}

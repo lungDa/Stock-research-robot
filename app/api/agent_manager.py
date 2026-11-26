@@ -25,6 +25,7 @@ async def run(name:str,request:Request,user=Depends(current_lighthouse_admin),au
     except (ValueError,TypeError):raise HTTPException(400,"Invalid snapshot")
 SLOTS=threading.BoundedSemaphore(2)
 def invoke(name,payload):
+    if name not in NAMES:return {"mode":"shadow","execution_allowed":False,"status":"unknown"}
     if not SLOTS.acquire(blocking=False):return {"mode":"shadow","execution_allowed":False,"status":"busy"}
     try:return _invoke(name,payload)
     finally:SLOTS.release()

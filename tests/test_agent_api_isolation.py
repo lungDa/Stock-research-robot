@@ -103,7 +103,7 @@ def test_active_line_session_revocation(client,monkeypatch,fault):
 
 def test_cross_session_real_review(client):
     from datetime import datetime,timezone
-    monitor={"mode":"shadow","status":"warning","observed_at":datetime.now(timezone.utc).isoformat(),"checks":[{"code":"database","severity":"critical"}]}
+    monitor=client.post(PREFIX+"/run/system_monitor",headers=A,json={**PAYLOAD,"database_ready":False}).json()["report"]
     r=client.post(PREFIX+"/run/recovery",headers=A,json={"monitor":monitor})
     assert r.status_code==200
     body=r.json()
