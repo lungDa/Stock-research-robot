@@ -37,3 +37,15 @@ def test_sensitive_fields_removed():
     report=safe_report({"token":"synthetic_secret","api_key":"synthetic_secret","report":{"text":"synthetic_secret","status":"https://example.invalid/secret"}})
     assert "synthetic_secret" not in str(report)
     assert "example.invalid" not in str(report)
+
+def test_allowed_fields_do_not_accept_arbitrary_secret_strings():
+    secret = "synthetic_private_password"
+    digest = "a" * 64
+    result = safe_report({"status":secret,"code":digest,"symbol":"2330.TW",
+                          "snapshot_digest":digest,"mode":"shadow",
+                          "observed_at":"2026-11-26T04:00:00+00:00"})
+    assert result["status"] == result["code"] == "[redacted]"
+    assert result["symbol"] == "2330.TW"
+    assert result["snapshot_digest"] == digest
+    assert result["mode"] == "shadow"
+    assert result["observed_at"] == "2026-11-26T04:00:00+00:00"
