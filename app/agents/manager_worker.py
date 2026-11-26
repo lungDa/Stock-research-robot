@@ -9,6 +9,9 @@ if __name__=='__main__':
     resource.setrlimit(resource.RLIMIT_CPU,(18,19))
     resource.setrlimit(resource.RLIMIT_FSIZE,(2000000,2000000))
     resource.setrlimit(resource.RLIMIT_NOFILE,(128,128))
+if __name__=='__main__':
+    from app.agents.worker_guard import install
+    install()
 from datetime import datetime,timezone
 from dataclasses import asdict
 from app.agents.supervisor import Supervisor
