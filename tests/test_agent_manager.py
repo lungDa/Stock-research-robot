@@ -10,9 +10,10 @@ def test_guard(monkeypatch):
     assert c.get("/admin/agents/overview").status_code==401
     app.dependency_overrides[security.current_lighthouse_admin]=lambda:"admin"
     monkeypatch.delenv("AGENT_MANAGER_ENABLED",raising=False)
-    assert c.post("/admin/agents/run/risk",json={}).status_code==503
-    assert len(c.get("/admin/agents/overview").json()["agents"])==6
+    assert c.post("/admin/agents/run/risk",json={}).status_code==404
+    assert c.get("/admin/agents/overview").status_code==404
     monkeypatch.setenv("AGENT_MANAGER_ENABLED","1")
+    assert len(c.get("/admin/agents/overview").json()["agents"])==6
     monkeypatch.setenv("AGENT_MANAGER_RISK","1")
     fn=Mock(return_value={"mode":"shadow","execution_allowed":False})
     monkeypatch.setattr(agent_manager,"invoke",fn)
