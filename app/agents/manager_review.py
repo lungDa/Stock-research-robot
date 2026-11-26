@@ -38,7 +38,7 @@ class ReviewStore:
         with self.lock:return self._session(user,token)
     def record(self,user,token,name,result,payload,expected=None):
         with self.lock:
-            if expected is not None and self.sessions.get(sha256((str(user)+"\0"+token).encode()).hexdigest()) is not expected:
+            if expected is not None and (self.sessions.get(sha256((str(user)+"\0"+token).encode()).hexdigest()) is not expected or time.monotonic()-expected["at"]>900):
                 return {"mode":"shadow","execution_allowed":False,"status":"session_expired"}
             s=self._session(user,token)
             now=datetime.now(timezone.utc)

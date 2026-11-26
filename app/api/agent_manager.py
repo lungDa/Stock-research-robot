@@ -1,5 +1,5 @@
 """Isolated router: intentionally not mounted on production server."""
-import os,json,subprocess,sys,hashlib,threading,tempfile,time
+import os,json,subprocess,sys,hashlib,threading,tempfile,time,math
 from datetime import datetime,timezone
 from app.agents.manager_review import ReviewStore, safe_report
 from fastapi import Header
@@ -37,7 +37,7 @@ def _invoke(name,payload,timeout=20):
                 out.seek(0)
                 raw=out.read(1000001)
                 if len(raw)>1000000:raise ValueError()
-        result=json.loads(raw)
+        result=strict_json(raw)
         if not isinstance(result,dict) or result.get("mode")!="shadow":raise ValueError()
         return {"mode":"shadow","execution_allowed":False,"report":result,"snapshot_digest":hashlib.sha256((name+":"+canonical).encode()).hexdigest(),"observed_at":datetime.now(timezone.utc).isoformat()}
     except subprocess.TimeoutExpired:return {"mode":"shadow","execution_allowed":False,"status":"timeout"}
@@ -61,10 +61,30 @@ async def bounded_json(request,limit):
         if len(body)+len(chunk)>limit:raise HTTPException(413,"Snapshot too large")
         body.extend(chunk)
     try:
-        value=json.loads(body,parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        value=strict_json(body)
         if not isinstance(value,dict):raise ValueError()
         return value
     except (ValueError,TypeError,RecursionError):raise HTTPException(400,"Invalid snapshot")
+
+def strict_json(raw):
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result:raise ValueError("Duplicate key")
+            result[key]=value
+        return result
+    def finite(value):
+        number=float(value)
+        if not math.isfinite(number):raise ValueError("Nonfinite number")
+        return number
+    value=json.loads(raw,object_pairs_hook=pairs,parse_float=finite,parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+    stack=[(value,0)]
+    while stack:
+        node,depth=stack.pop()
+        if depth>32:raise ValueError("Excessive nesting")
+        if isinstance(node,dict):stack.extend((v,depth+1) for v in node.values())
+        elif isinstance(node,list):stack.extend((v,depth+1) for v in node)
+    return value
 
 def worker_env(tmp):
     return {"PATH":os.defpath,"HOME":tmp,"TMPDIR":tmp,"PYTHON_DOTENV_DISABLED":"1","DATABASE_URL":"sqlite:///:memory:","OPENBLAS_NUM_THREADS":"1","OMP_NUM_THREADS":"1","MKL_NUM_THREADS":"1","PYTHONNOUSERSITE":"1"}
