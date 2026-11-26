@@ -70,3 +70,21 @@ def test_refresh_invalidates_review_and_concurrent_revoke(client):
     fresh=monitor()
     assert client.post(PREFIX+"/review",headers=A,json={**req,"operation_id":"stale"}).status_code==409
     assert plan(fresh)["review_id"]!=r["review_id"]
+
+def test_approve_revoke_interleaving(client):
+    from threading import Barrier
+    report=client.post(PREFIX+"/run/system_monitor",headers=A,
+                       json={**PAYLOAD,"database_ready":False}).json()["report"]
+    r=client.post(PREFIX+"/run/recovery",headers=A,json={"monitor":report}).json()
+    p=next(x for x in r["report"]["plans"] if x["category"]=="system_failure")
+    req={"review_id":r["review_id"],"plan":p["id"],"version":p["evidence_version"],
+         "event":"approve","operation_id":"initial"}
+    assert client.post(PREFIX+"/review",headers=A,json=req).status_code==200
+    barrier=Barrier(2)
+    def transition(event):
+        barrier.wait(timeout=5)
+        return m.STORE.review("U"+"1"*32,A["Authorization"],
+                              {**req,"event":event,"operation_id":"race_"+event})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(transition,["approve","revoke"]))==[False,True]
+    assert client.post(PREFIX+"/review",headers=A,json={**req,"operation_id":"after"}).status_code==409
