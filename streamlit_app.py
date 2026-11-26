@@ -134,10 +134,13 @@ with st.sidebar:
     else:
         st.write('已登入：'+st.session_state.get('login_name','LINE使用者'))
     if st.session_state.get('token') and st.button('登出'):
-        if os.getenv('AGENT_MANAGER_UI_ENABLED')=='1':
-            api('POST','/admin/agents/clear')
-            from app.ui.agent_manager import clear as clear_agent_manager
-            clear_agent_manager()
+        if os.getenv('AGENT_MANAGER_UI_ENABLED')=='1' and st.session_state.get('is_admin') is True:
+            try:
+                api('POST','/admin/agents/clear')
+            except Exception:
+                pass
+        for key in list(st.session_state):
+            if key.startswith('agent_manager_'):st.session_state.pop(key,None)
         api('POST','/auth/logout');st.session_state.browser_logout_pending=True;st.rerun()
 personal=bool(st.session_state.get('personal_active'))
 from app.day_trader.admin_bootstrap_ui import render_admin_bootstrap
@@ -146,8 +149,15 @@ from app.day_trader.security_center_ui import render_security_center
 render_security_center(api, personal, bool(st.session_state.get('is_admin')))
 from app.day_trader.admin_console_ui import render_admin_console
 render_admin_console(api, personal, bool(st.session_state.get('is_admin')))
-from app.ui.agent_manager import render as render_agent_manager
-render_agent_manager(api, personal, bool(st.session_state.get('is_admin')))
+if os.getenv('AGENT_MANAGER_UI_ENABLED')=='1' and personal and st.session_state.get('is_admin') is True:
+    try:
+        from app.ui.agent_manager import render as render_agent_manager
+        render_agent_manager(api, personal, True)
+    except Exception:
+        st.warning('Agent Manager 暫時無法使用，其他功能仍可操作。')
+else:
+    for key in list(st.session_state):
+        if key.startswith('agent_manager_'):st.session_state.pop(key,None)
 if not personal:st.caption('目前為公開模式：使用預設選股規則；個人清單、規則與通知需LINE登入並完成密碼設定。')
 query,watch,screen,strategy_tab,defensive_tab=st.tabs(['個股 / ETF 查詢','我的追蹤','市場選股','評分與通知設定','逆勢研究'])
 with defensive_tab:

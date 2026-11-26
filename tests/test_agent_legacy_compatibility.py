@@ -143,3 +143,29 @@ def test_defensive_results_survive_shadow():
     assert before[0]["pearson"]==pytest.approx(-1)
     assert invoke("system_monitor",{"database_ready":False,"failed_jobs":1,"stale_jobs":0})["report"]["mode"]=="shadow"
     assert evaluate()==before
+
+def test_entrypoint_agent_import_is_optional(monkeypatch):
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    import os
+    source=ast.parse((Path(__file__).resolve().parents[1]/"streamlit_app.py").read_text())
+    node=next(n for n in source.body if isinstance(n,ast.If) and
+              any(isinstance(x,ast.ImportFrom) and x.module=="app.ui.agent_manager" for x in ast.walk(n)))
+    code=compile(ast.Module(body=[node],type_ignores=[]),"<agent-entrypoint>","exec")
+    import builtins
+    def blocked(*args,**kwargs):
+        raise ImportError("synthetic optional module failure")
+    st=SimpleNamespace(session_state={"is_admin":True,"agent_manager_cache":{},"legacy":2412},warning=Mock())
+    # Streamlit session state supports attribute access, but this block only uses mapping access.
+    env={"os":os,"st":st,"personal":True,"api":Mock(),"__builtins__":{**vars(builtins),"__import__":blocked}}
+    monkeypatch.delenv("AGENT_MANAGER_UI_ENABLED",raising=False)
+    exec(code,env)
+    assert st.session_state=={"is_admin":True,"legacy":2412}
+    st.warning.assert_not_called()
+    monkeypatch.setenv("AGENT_MANAGER_UI_ENABLED","1")
+    exec(code,env)
+    st.warning.assert_called_once()
+    env["api"].assert_not_called()
+    assert st.session_state["legacy"]==2412
