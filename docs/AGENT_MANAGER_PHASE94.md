@@ -1,0 +1,2 @@
+# Phase 09.4
+Risk API fixture uses expected close at runtime instead of future fixed date. Worker environment allowlist, dotenv disabled, in-memory SQLite, CPU/file/no-file limits on Linux, bounded review body, in-flight deduplication, explicit logout clear and session-local report reuse. Recovery review requires caller-provided fresh observed_at (not authenticated). No production mounting. Not an OS network sandbox; output capture remains bounded only after subprocess exits; browser and multiprocess load acceptance pending.

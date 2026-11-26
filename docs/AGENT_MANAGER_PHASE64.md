@@ -1,0 +1,2 @@
+# Phase 6.4
+Operation IDs required for all simulation transitions. Audit export includes timestamps and hashed IDs. Approval renewal and failed probe cooldown tested. Dependency blocking also prevents simulated transitions. Outbox advice reused for notification plans conservatively; aggregate counts cannot establish individual eligibility. Independent samples are separate local fixtures, not live evidence. No production execution, persistence, deployment or sender changes.

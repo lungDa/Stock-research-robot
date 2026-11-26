@@ -1,0 +1,2 @@
+# Phase 09.3
+Ephemeral process-local session-bound history and RecoverySimulation approval only. 32 sessions, 15-minute lifetime, 100 run summaries. Structural allowlist display is not a comprehensive DLP filter. Caller evidence is not independently authenticated; simulation timestamps represent ingestion, not original collection. No persistent records or production mounting. Real worker integration and timeout tests added; CI required.

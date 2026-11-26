@@ -99,8 +99,8 @@ def downside_statistics(stock_returns, benchmark_returns, as_of, years, *, sever
     return {
         **result,
         'status': 'available',
-        'pearson': _finite_or_none(paired.stock.corr(paired.benchmark)),
-        'spearman': _finite_or_none(paired.stock.rank().corr(paired.benchmark.rank())),
+        'pearson': _finite_or_none(paired.stock.corr(paired.benchmark) if paired.stock.nunique()>1 and paired.benchmark.nunique()>1 else float('nan')),
+        'spearman': _finite_or_none(paired.stock.rank().corr(paired.benchmark.rank()) if paired.stock.nunique()>1 and paired.benchmark.nunique()>1 else float('nan')),
         'up_probability': _finite_or_none((down.stock > 0).mean()),
         'down_market_mean': _finite_or_none(down.stock.mean()),
         'severe_market_mean': _finite_or_none(severe.stock.mean()),

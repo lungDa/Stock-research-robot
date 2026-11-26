@@ -1,0 +1,2 @@
+# Phase 08.2
+One-level ETF holdings snapshot, exchange metadata, 8-day age, no nested funds, residual unknown, overlap and underlying limits. Sector labels only reused from directly held verified metadata. Liquidity uses 20 raw share-volume sessions and 10% participation scenario, not executable capacity. Tail sample count and 252-session illustrative threshold, no calibration. Benchmark exact session and price continuity. No production I/O. Full positive multi-position historical integration remains to be tested.

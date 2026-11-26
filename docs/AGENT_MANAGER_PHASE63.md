@@ -1,0 +1,2 @@
+# Phase 6.3
+In-memory simulation adds optional operation IDs, locked duplicate rejection, approval expiry, probe outcomes, sanitized history export and additional dependency hypotheses. Individual outbox review is separate from aggregate plans; caller assertions are not authenticated. Legacy transitions without operation IDs remain compatible. Independent verification remains a simulated sample contract. No production execution or persistence.

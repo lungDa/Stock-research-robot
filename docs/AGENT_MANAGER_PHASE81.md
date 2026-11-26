@@ -1,0 +1,4 @@
+# Phase 08.1
+Reuse defensive risk_level with existing default thresholds. Beta is a weighted five-index proxy, not TAIEX beta. Exact aligned dates, metadata and arithmetic checks; source identity not authenticated. Correlations undefined for constant series. Beta stress is linear sensitivity, not forecast. Sector evidence checked, no ETF look-through. Tail metrics reject invalid returns; 60 observations remain a small sample. No production execution.
+
+Reconciled concurrent branch update without force. Reuse monitor DEFAULT_RULES directly; optional separate TAIEX total-return beta checks exact dates, continuous prices and observation metadata. ETF sector unknown without look-through. Existing proxy beta stress retained. No independent authentication. Finite metrics and bounded sample validation.
