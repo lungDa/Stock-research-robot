@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.api import agent_manager,security
 from unittest.mock import Mock
 def test_guard(monkeypatch):
+    monkeypatch.setenv("AGENT_MANAGER_ENABLED","1")
     app=FastAPI()
     app.include_router(agent_manager.router)
     c=TestClient(app)

@@ -34,6 +34,7 @@ def test_api_real_worker(monkeypatch,name,payload,status):
     if status and name!="data_auditor":assert r["report"]["status"]==status
 
 def test_non_admin(monkeypatch):
+    monkeypatch.setenv("AGENT_MANAGER_ENABLED","1")
     app=FastAPI();app.include_router(m.router)
     app.dependency_overrides[security.current_user]=lambda:"legacy"
     monkeypatch.setattr("app.day_trader.admin_bootstrap.admin_identity_matches",lambda u:False)
