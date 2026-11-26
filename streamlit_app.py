@@ -346,8 +346,8 @@ with query:
                 st.markdown('### '+title)
                 known=sum(v is not None for v in d[mode]['checks'].values())
                 st.write(f"符合 {d[mode]['score']} / {d[mode]['total']}；可判定 {known} 項")
-                from app.services.freshness import market_usable
-                unavailable='行情待更新，暫停判定' if not market_usable(d) else '待補期間／來源資料'
+                from app.services.freshness import display_market_usable
+                unavailable='行情待更新，暫停判定' if not display_market_usable(d) else '待補期間／來源資料'
                 st.table([{'條件':k,'結果':unavailable if v is None else ('符合' if v else '未符合')} for k,v in d[mode]['checks'].items()])
                 if mode=='income' and d.get('eps_basis')=='four_quarter_sum':st.caption('「EPS為正」使用上方所列近四季EPS合計。')
         st.caption('近一年配息率為歷史現金配息／目前價格；不是未來收益承諾。ETF 配息不等同總報酬。')

@@ -96,3 +96,18 @@ def quote_note(data, now=None):
         return '尚非今日行情；平日18:17啟動盤後更新，休市日保留最近交易日。'
     return '尚未取得今日行情：可能休市、停牌、來源未更新或本批未涵蓋；保留實際行情日。'
 
+
+
+def display_market_usable(data):
+    """Display-only: consume server evidence without reading the calendar database."""
+    if data.get('data_status') in ('stale', 'fundamentals_only'):
+        return False
+    price = data.get('price')
+    if type(price) not in (int, float) or not math.isfinite(price) or price <= 0:
+        return False
+    if data.get('symbol', '').endswith(('.TW', '.TWO')):
+        evidence = data.get('freshness')
+        return (isinstance(evidence, dict) and evidence.get('state') == 'current'
+                and bool(evidence.get('expected_date'))
+                and bool(data.get('date')) and evidence.get('actual_date') == data.get('date'))
+    return market_usable(data)
