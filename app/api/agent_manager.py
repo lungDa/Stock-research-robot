@@ -1,4 +1,4 @@
-"""Isolated router: intentionally not mounted on production server."""
+"""Opt-in shadow-only router with runtime disable guard."""
 import os,json,subprocess,sys,hashlib,threading,tempfile,time,math
 from datetime import datetime,timezone
 from app.agents.manager_review import ReviewStore, safe_report
@@ -7,7 +7,10 @@ STORE=ReviewStore()
 from fastapi import APIRouter,Depends,HTTPException,Request
 from app.api.security import current_lighthouse_admin
 from app.agents.registry import Registry
-router=APIRouter(prefix="/admin/agents")
+def require_manager_enabled():
+    if os.getenv("AGENT_MANAGER_ENABLED")!="1":
+        raise HTTPException(404,"Not found")
+router=APIRouter(prefix="/admin/agents",dependencies=[Depends(require_manager_enabled)])
 NAMES=("system_monitor","data_auditor","notification","recovery","research","risk")
 def enabled(name):
     return os.getenv("AGENT_MANAGER_ENABLED")=="1" and os.getenv("AGENT_MANAGER_"+name.upper())=="1"

@@ -19,6 +19,8 @@ async def lifespan(app):
 app=FastAPI(title='股海燈塔 API',lifespan=lifespan)
 from app.api.v26_coverage import router as coverage_router
 app.include_router(coverage_router)
+from app.api.agent_mount import mount_agent_manager
+mount_agent_manager(app)
 
 # Persisted maintenance flag survives Render restarts. The middleware runs
 # before authentication, public routes, webhook handlers and background tasks.
