@@ -50,7 +50,7 @@ def test_watch_digest_waits_until_evening_slot_then_sends_labeled_fallback(monke
         messages.extend(texts)
         return remaining - len(texts)
     monkeypatch.setattr(watch_digest, 'deliver', deliver)
-    now = datetime(2026, 11, 25, 19, 0, tzinfo=TAIPEI)
+    now = datetime(2026, 11, 25, 18, 16, tzinfo=TAIPEI)
     assert watch_digest.run(now)['status'] == 'outside_send_window'
     assert messages == []
     result = watch_digest.run(now.replace(hour=23))
