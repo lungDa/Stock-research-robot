@@ -1,86 +1,77 @@
-name: V2.5 final isolated migration verification
-
+name: Verify TPEx EPS in isolated Neon schema
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: v25-final-isolated-migration
   cancel-in-progress: false
-
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    env:
-      DATABASE_URL: ${{ secrets.NEON_V25_FINAL_TEST_DATABASE_URL }}
-      EXPECTED_TEST_HOST: ${{ vars.NEON_V25_FINAL_TEST_HOST }}
+    timeout-minutes: 5
     steps:
-      - name: Checkout pinned V2.5 development revision
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: 31f0d4ec9fa78b8f2816a7fbd628bff8edd71869
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install -r requirements.txt
-      - name: Fail-closed Neon test-only migration verification
-        shell: bash
+      - run: pip install --disable-pip-version-check -r requirements-worker.txt
+      - name: Confirm test host and verify market-wide EPS write
+        env:
+          DATABASE_URL: ${{ secrets.NEON_V25_FINAL_TEST_DATABASE_URL }}
+          EXPECTED_TEST_HOST: ${{ vars.NEON_V25_FINAL_TEST_HOST }}
         run: |
           python - <<'PY'
-          import hashlib, json, os
-          from urllib.parse import urlsplit
-          from sqlalchemy import inspect, text
+          import os
+          from time import monotonic
+          from urllib.parse import parse_qs, urlsplit
+          from uuid import uuid4
 
-          url = os.environ.get("DATABASE_URL", "")
+          url = urlsplit(os.environ.get("DATABASE_URL", ""))
+          host = (url.hostname or "").lower()
           expected = os.environ.get("EXPECTED_TEST_HOST", "").strip().lower()
-          parsed = urlsplit(url)
-          host = (parsed.hostname or "").lower()
-          if not expected or not host or host != expected or not host.endswith(".neon.tech"):
-              raise SystemExit("FAIL CLOSED: test host does not match configured allowlist")
-          if host.split(".")[0].removesuffix("-pooler") == "ep-steep-night-a14wn335":
-              raise SystemExit("FAIL CLOSED: known production endpoint")
-          if parsed.path != "/neondb" or parsed.scheme not in ("postgresql", "postgres", "postgresql+psycopg"):
-              raise SystemExit("FAIL CLOSED: unexpected database URL")
-          if "sslmode=require" not in parsed.query:
-              raise SystemExit("FAIL CLOSED: TLS required")
+          if (
+              not expected or host != expected or not host.endswith(".neon.tech")
+              or host.split(".")[0].removesuffix("-pooler") == "ep-steep-night-a14wn335"
+              or url.scheme not in ("postgresql", "postgres", "postgresql+psycopg")
+              or url.path != "/neondb"
+              or parse_qs(url.query).get("sslmode") not in (["require"], ["verify-full"])
+          ):
+              raise SystemExit("Test host, database or TLS guard rejected the configuration")
 
-          from app.db import Base, engine, init_db
-          legacy = ("documents", "preferences", "provider_budgets", "watchlist", "worker_leases")
-          def snapshot():
-              result = {}
-              with engine.connect() as conn:
-                  inspector = inspect(conn)
-                  for name in legacy:
-                      pk = inspector.get_pk_constraint(name, schema="public")["constrained_columns"]
-                      if not pk:
-                          raise RuntimeError("Missing legacy primary key: " + name)
-                      order = ", ".join('"' + col.replace('"', '""') + '"' for col in pk)
-                      rows = conn.execute(text('SELECT * FROM "' + name + '" ORDER BY ' + order)).mappings()
-                      digest = hashlib.sha256()
-                      count = 0
-                      for row in rows:
-                          digest.update(json.dumps(dict(row), sort_keys=True, default=str, ensure_ascii=False).encode())
-                          digest.update(b"\\n")
-                          count += 1
-                      result[name] = (count, digest.hexdigest())
-              return result
+          from sqlalchemy import event
+          from app.db import engine, get
+          from jobs import refresh_tpex_eps
 
-          before = snapshot()
-          print("Legacy counts before:", {k: v[0] for k, v in before.items()})
-          init_db()
-          after = snapshot()
-          if before != after:
-              raise SystemExit("FAIL: legacy table data changed")
-          expected_tables = set(Base.metadata.tables)
-          actual_tables = set(inspect(engine).get_table_names(schema="public"))
-          if expected_tables - actual_tables:
-              raise SystemExit("FAIL: missing mapped tables " + str(sorted(expected_tables - actual_tables)))
-          if len(expected_tables) != 17:
-              raise SystemExit("FAIL: unexpected mapped table count " + str(len(expected_tables)))
-          print("PASS: 17 mapped tables exist; legacy rows and SHA256 checksums unchanged")
-          print("Mapped tables:", ", ".join(sorted(expected_tables)))
+          schema = "tpex_test_" + uuid4().hex
+          try:
+              with engine.begin() as conn:
+                  conn.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+          except Exception as exc:
+              raise SystemExit(f"Test connection or schema creation failed ({type(exc).__name__})") from None
+
+          def set_test_schema(conn):
+              conn.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+              if conn.exec_driver_sql("SELECT current_schema()").scalar_one() != schema:
+                  raise RuntimeError("Isolated schema check failed")
+
+          event.listen(engine, "begin", set_test_schema)
+          try:
+              started = monotonic()
+              result = refresh_tpex_eps.run()
+              if result.get("state") != "updated":
+                  raise SystemExit(f"Worker did not update: {result}")
+              rows = get("eps:official:6488.TWO", {}).get("rows", {})
+              assert str(result["year"]) in rows
+              assert rows[str(result["year"])]["field_sources"]["eps"]["provenance"] == refresh_tpex_eps.PROVENANCE
+              assert result["updated"] == result["rows"] > 0
+              print(f'Neon write verified: year={result["year"]}, rows={result["rows"]}, seconds={monotonic()-started:.2f}')
+          finally:
+              event.remove(engine, "begin", set_test_schema)
+              with engine.begin() as conn:
+                  conn.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+              print("Temporary test schema removed")
+              engine.dispose()
           PY
