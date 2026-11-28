@@ -39,7 +39,7 @@ def report(user, day, symbols, rows=None):
 def run(now=None):
     now = now or local_now()
     day = now.date()
-    if (now.hour, now.minute) < (19, 30):
+    if (now.hour, now.minute) < (18, 17):
         return {'status': 'outside_send_window'}
     init_db()
     if not is_session(day):
