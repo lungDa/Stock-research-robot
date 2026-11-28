@@ -17,8 +17,17 @@ def taiwan_market(monkeypatch):
     """Synthetic weekday-only exchange calendar for tests unrelated to calendars."""
     from app.db import put
     from app.services import freshness
-    now=freshness.local_now().replace(hour=14,minute=0)
-    monkeypatch.setattr(freshness,'local_now',lambda:now)
+    from datetime import datetime, timedelta
+    now=freshness.local_now().replace(hour=14,minute=0,second=0,microsecond=0)
+    # Most tests using this fixture assume a completed synthetic trading day.
+    while now.weekday() >= 5:
+        now -= timedelta(days=1)
+    class FixtureClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz is not None else now.replace(tzinfo=None)
+    # Patch the clock behind local_now, including already-imported references.
+    monkeypatch.setattr(freshness,'datetime',FixtureClock)
     for year in {2025,2026,2027,now.year,now.year-1}:
         put('recommendations:calendar:'+str(year),{'year':year,'closed':[],'opened':[],'at':0})
 
