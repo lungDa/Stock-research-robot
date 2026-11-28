@@ -5,7 +5,7 @@ from app.services.freshness import TAIPEI
 from jobs import watch_digest
 
 def test_evening_watch_report_sends_stale_data_with_label_and_deduplicates(monkeypatch):
-    day=datetime(2026,11,25,19,30,tzinfo=TAIPEI)
+    day=datetime(2026,11,25,18,17,tzinfo=TAIPEI)
     sent=Mock(return_value=99)
     state={}
     monkeypatch.setattr(watch_digest,'init_db',lambda:None)
@@ -19,7 +19,7 @@ def test_evening_watch_report_sends_stale_data_with_label_and_deduplicates(monke
     monkeypatch.setattr(watch_digest,'get',lambda key:state.get(key))
     monkeypatch.setattr(watch_digest,'quota',lambda:100)
     monkeypatch.setattr(watch_digest,'deliver',sent)
-    assert watch_digest.run(day.replace(minute=29))['status']=='outside_send_window'
+    assert watch_digest.run(day.replace(minute=16))['status']=='outside_send_window'
     assert watch_digest.run(day)['messages_sent']==1
     assert '舊行情／待更新' in sent.call_args.args[2][0]
     state[sent.call_args.args[1]]={'messages':[{'sent':True}]}
